@@ -28,6 +28,7 @@ class InstrumentConfig:
     depth_P: list = field(default_factory=list)
     fwhm: list = field(default_factory=list)
     bandwidth: list = field(default_factory=list)
+    channels_tags: list = field(default_factory=list)
 
     def load_from_yaml(self, yaml_data: Dict[str, Any], experiment: str):
         experiment_data = yaml_data.get(experiment, {})
@@ -42,6 +43,17 @@ class InstrumentConfig:
             self.fwhm = experiment_data['fwhm']
         if 'bandwidth' in experiment_data:
             self.bandwidth = experiment_data['bandwidth']
+        if 'channels_tags' in experiment_data:
+            self.channels_tags = experiment_data['channels_tags']
+        else:
+            self.channels_tags = []
+            for idx, freq in enumerate(self.frequency):
+                if (idx < len(self.frequency) - 1) and (freq == self.frequency[idx+1]):
+                    self.channels_tags.append(f"{freq}aGHz")
+                elif (idx > 0) and (freq == self.frequency[idx-1]):
+                    self.channels_tags.append(f"{freq}bGHz")
+                else:
+                    self.channels_tags.append(f"{freq}GHz")
 
 @dataclass
 class Configs:
@@ -73,7 +85,9 @@ class Configs:
         self.nside = self.config ["nside"]
         self.data_type = self.config["data_type"]
         self.fwhm_out = self.config.get("fwhm_out", 0.)
-        self.input_beams = self.config.get("input_beams", "guassian")
+        self.input_beams = self.config.get("input_beams", "gaussian")
+        if self.input_beams != "gaussian":
+            self.beams_path = self.config.get("beams_path", "../inputs")
         self.verbose = self.config.get("verbose", False)
         self.nsim_start = self.config.get("nsim_start", 0)
         self.nsims = self.config.get("nsims", 1)
@@ -97,7 +111,6 @@ class Configs:
                 self.labels_outputs = self.config.get("labels_outputs", "")
                 if not self.labels_outputs:
                     raise ValueError("Labels for the output files must be provided.")
-        self.return_fgd_components = self.config.get("return_fgd_components", False)
         self.generate_input_simulations = self.config.get("generate_input_simulations", True)
         if self.generate_input_simulations:
             self.save_input_simulations = self.config.get("save_input_simulations", False)
@@ -107,21 +120,21 @@ class Configs:
             self.ell_knee = self.config.get("ell_knee", None)
             self.alpha_knee = self.config.get("alpha_knee", None)
             self.cls_cmb_path = self.config.get("cls_cmb_path", "")
-            if self.save_input_simulations:
-                self.inputs_path = self.config.get("inputs_path", "../inputs")
         if not self.generate_input_simulations:
             self.load_input_simulations = self.config.get("load_input_simulations", True)
-            if self.load_input_simulations:
-                self.data_path = self.config.get("data_path", "")
-                self.noise_path = self.config.get("noise_path", "")
-                self.cmb_path = self.config.get("cmb_path", "")
-                self.fgds_path = self.config.get("fgds_path", "")
-                if not self.noise_path or not self.cmb_path or not self.fgds_path:
-                    raise ValueError("The paths to the input CMB, noise and foregrounds must be provided.")    
-            else:
-                print("Warning: No input simulations generated or loaded. You must pass your own inputs to compsep.")
         else:
             self.load_input_simulations = self.config.get("load_input_simulations", False)
+        self.data_path = self.config.get("data_path", "")
+        self.noise_path = self.config.get("noise_path", os.getcwd() + "/inputs/noise")
+        self.cmb_path = self.config.get("cmb_path", os.getcwd() + "/inputs/cmb")
+        self.fgds_path = self.config.get("fgds_path", os.getcwd() + "/inputs/foregrounds")
+        if self.load_input_simulations or self.save_input_simulations:
+            if not self.noise_path or not self.cmb_path or not self.fgds_path:
+                raise ValueError("The paths to the input CMB, noise and foregrounds must be provided.")    
+        if self.generate_input_simulations or self.load_input_simulations:
+            self.return_fgd_components = self.config.get("return_fgd_components", False)
+        if not self.generate_input_simulations and not self.load_input_simulations:
+            print("Warning: No input simulations generated or loaded. You must pass your own inputs to compsep.")
 
 
     def _load_experiment_parameters(self):

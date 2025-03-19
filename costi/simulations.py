@@ -18,13 +18,12 @@ def _get_full_simulations(config: Configs):
 
 def _get_data_foregrounds_(config: Configs):
     if config.generate_input_simulations:
-        if config.input_beams == "guassian":
+        if config.input_beams == "gaussian":
             foregrounds = _get_foregrounds(config.foreground_models, config.instrument, config.nside, return_components=config.return_fgd_components, pixel_window=config.pixel_window_in, units=config.units, return_alms=(config.data_type=="alms"), bandpass_integrate=config.bandpass_integrate, lmin=config.lmin)
         else:
-            bl_path = os.path.join(config.inputs_path, "beams", config.experiment)
-            foregrounds = _get_foregrounds(config.foreground_models, config.instrument, config.nside, return_components=config.return_fgd_components, pixel_window=config.pixel_window_in, units=config.units, return_alms=(config.data_type=="alms"), bandpass_integrate=config.bandpass_integrate, lmin=config.lmin, bl_path=bl_path, symmetric_beam=config.input_beams=="file_lm")
+            foregrounds = _get_foregrounds(config.foreground_models, config.instrument, config.nside, return_components=config.return_fgd_components, pixel_window=config.pixel_window_in, units=config.units, return_alms=(config.data_type=="alms"), bandpass_integrate=config.bandpass_integrate, lmin=config.lmin, bl_path=config.beams_path, symmetric_beam=config.input_beams=="file_lm")
         if config.save_input_simulations:
-            _save_input_foregrounds(config, foregrounds)
+            _save_input_foregrounds(config.fgds_path, foregrounds, config.foreground_models)
     elif config.load_input_simulations:
         if config.return_fgd_components:
             if config.data_type == "alms":
@@ -32,13 +31,13 @@ def _get_data_foregrounds_(config: Configs):
             else:
                 foregrounds = np.zeros((len(config.instrument.frequency), 3, hp.nside2npix(config.nside), len(config.foreground_models)+1))
             for idx, fmodel in enumerate(config.foreground_models):
-                foregrounds[..., idx + 1] = _load_input_foregrounds(config.fgds_path + f"/foregrounds_{fmodel}_{config.data_type}_ns{config.nside}" + (f"_lmin{config.lmin}" if config.lmin > 2 else ""))
+                foregrounds[..., idx + 1] = _load_input_foregrounds(config.fgds_path, fmodel)
         else:
             if config.data_type == "alms":
                 foregrounds = np.zeros((len(config.instrument.frequency), 3, hp.Alm.getsize(3*config.nside-1),1), dtype=complex)
             else:
                 foregrounds = np.zeros((len(config.instrument.frequency), 3, hp.nside2npix(config.nside),1))
-        foregrounds[..., 0] = _load_input_foregrounds(config.fgds_path + f'/foregrounds_{"".join(config.foreground_models)}_{config.data_type}_ns{config.nside}' + (f"_lmin{config.lmin}" if config.lmin > 2 else ""))
+        foregrounds[..., 0] = _load_input_foregrounds(config.fgds_path, "".join(config.foreground_models))
     return foregrounds
 
 def _get_data_simulations_(config: Configs, foregrounds, nsim = None):
@@ -54,17 +53,17 @@ def _get_data_simulations_(config: Configs, foregrounds, nsim = None):
         cls_cmb = hp.read_cl(config.cls_cmb_path)
 
         noise = _get_noise_simulation(config.instrument, config.nside, seed = None if not config.seed_noise else ((config.seed_noise + (nsim * 3 * len(config.instrument.frequency))) if nsim is not None else config.seed_noise), units=config.units,return_alms=(config.data_type=="alms"), lmin=config.lmin, ell_knee=config.ell_knee, alpha_knee=config.alpha_knee)
-        if config.input_beams == "guassian":
+        if config.input_beams == "gaussian":
             cmb = _get_cmb_simulation(cls_cmb, config.instrument, config.nside, seed = None if not config.seed_cmb else (config.seed_cmb + nsim if nsim is not None else config.seed_cmb), pixel_window = config.pixel_window_in, return_alms = (config.data_type=="alms"), lmin=config.lmin)
         else:
-            bl_path = os.path.join(config.inputs_path, "beams", config.experiment)
-            cmb = _get_cmb_simulation(cls_cmb, config.instrument, config.nside, seed = None if not config.seed_cmb else (config.seed_cmb + nsim if nsim is not None else config.seed_cmb), pixel_window = config.pixel_window_in, return_alms = (config.data_type=="alms"), lmin=config.lmin, bl_path=bl_path, symmetric_beam=config.input_beams=="file_lm")
+            cmb = _get_cmb_simulation(cls_cmb, config.instrument, config.nside, seed = None if not config.seed_cmb else (config.seed_cmb + nsim if nsim is not None else config.seed_cmb), pixel_window = config.pixel_window_in, return_alms = (config.data_type=="alms"), lmin=config.lmin, bl_path=config.beams_path, symmetric_beam=config.input_beams=="file_lm")
 
         data = noise + cmb + foregrounds
         if config.save_input_simulations:
-            _save_input_simulations(config, data, nsim=nsim, tag="total")
-            _save_input_simulations(config, noise, nsim=nsim, tag="noise")
-            _save_input_simulations(config, cmb, nsim=nsim, tag="cmb")
+            if config.data_path:
+                _save_input_simulations(config.data_path, data, nsim=nsim)
+            _save_input_simulations(config.noise_path, noise, nsim=nsim)
+            _save_input_simulations(config.cmb_path, cmb, nsim=nsim)
     elif config.load_input_simulations:
         noise = _load_input_simulations(config.noise_path, nsim=nsim)
         cmb = _load_input_simulations(config.cmb_path, nsim=nsim)
@@ -74,15 +73,8 @@ def _get_data_simulations_(config: Configs, foregrounds, nsim = None):
             data = noise + cmb + foregrounds
     return data, cmb, noise
 
-def _save_input_simulations(config: Configs, maps, nsim = None, tag=""):
-    path = os.path.join(config.inputs_path, config.experiment, tag)
-    os.makedirs(path, exist_ok=True)
-    filename = path + f"/{tag}_{config.data_type}_ns{config.nside}"
-    if tag == "noise":
-        if (config.ell_knee is not None) and (config.alpha_knee is not None):
-            filename += f"_lk{config.ell_knee}_ak{config.alpha_knee}"
-    if config.lmin > 2:
-        filename += f"_lmin{config.lmin}"
+def _save_input_simulations(filename, maps, nsim = None):
+    os.makedirs(os.path.dirname(filename), exist_ok=True)
     if nsim is not None:
         filename += f"_{str(nsim).zfill(5)}"
     np.save(filename, maps)
@@ -90,16 +82,17 @@ def _save_input_simulations(config: Configs, maps, nsim = None, tag=""):
 def _load_input_simulations(path, nsim = None):
     return np.load(path + f"_{str(nsim).zfill(5)}.npy") if nsim is not None else np.load(path + '.npy')
     
-def _save_input_foregrounds(config: Configs, foregrounds):
-    fg_path = os.path.join(config.inputs_path, config.experiment, "foregrounds", "".join(config.foreground_models))
-    os.makedirs(fg_path, exist_ok=True)
-    np.save(fg_path + f'/foregrounds_{"".join(config.foreground_models)}_{config.data_type}_ns{config.nside}' + (f"_lmin{config.lmin}" if config.lmin > 2 else ""), foregrounds[..., 0])
+def _save_input_foregrounds(fgds_path, foregrounds, foreground_models):
+    os.makedirs(os.path.dirname(fgds_path), exist_ok=True)
+    np.save(fgds_path + f'_{"".join(foreground_models)}', foregrounds[..., 0])
     if foregrounds.shape[-1] > 1:
-        for idx, fmodel in enumerate(config.foreground_models):
-            np.save(fg_path + f"/foregrounds_{fmodel}_{config.data_type}_ns{config.nside}" + (f"_lmin{config.lmin}" if config.lmin > 2 else ""), foregrounds[..., idx + 1])
+        if foregrounds.shape[-1] != len(foreground_models) + 1:
+            raise ValueError('The number of foreground models must match the number of foreground components.')
+        for idx, fmodel in enumerate(foreground_models):
+            np.save(fgds_path + f"_{fmodel}", foregrounds[..., idx + 1])
 
-def _load_input_foregrounds(fgd_path):
-    return np.load(fgd_path + '.npy')
+def _load_input_foregrounds(fgd_path, fgd_model):
+    return np.load(f'{fgd_path}_{fgd_model}.npy')
 
 def _get_noise_simulation(instrument, nside, seed = None, units='uK_CMB',return_alms=False, lmin=2, ell_knee = None, alpha_knee = None):
     """
@@ -175,7 +168,7 @@ def _get_cmb_simulation(cls_cmb, instrument, nside, seed = None, pixel_window = 
         if bl_path is None:
             alm_cmb_i = _smooth_input_alms_(alm_cmb, fwhm=instrument.fwhm[idx], nside_out=nside if pixel_window else None)
         else:
-            beamfile = bl_path + f"/beam_TEB_{instrument.frequency[idx]}GHz.fits"
+            beamfile = bl_path + f"/beam_TEB_{instrument.channels_tags[idx]}.fits"
             alm_cmb_i = _smooth_input_alms_(alm_cmb, beam_path=beamfile, symmetric_beam=symmetric_beam, nside_out=nside if pixel_window else None)
 
         if lmin > 2:
@@ -237,7 +230,7 @@ def _get_foreground_component(instrument, sky, nside_out, pixel_window=False, ba
         if bl_path is None:
             alm_emission = _smooth_input_alms_(alm_emission, fwhm=instrument.fwhm[idx_freq], nside_out=nside_out if pixel_window else None)
         else:
-            beamfile = bl_path + f"/beam_TEB_{freq}GHz.fits"
+            beamfile = bl_path + f"/beam_TEB_{instrument.channels_tags[idx_freq]}.fits"
             alm_emission = _smooth_input_alms_(alm_emission, beam_path=beamfile, symmetric_beam=symmetric_beam, nside_out=nside_out if pixel_window else None)
 
         if lmin > 2:

@@ -172,14 +172,11 @@ def _bring_to_common_resolution(config: Configs, alms):
     if config.input_beams not in ["guassian", "file_l", "file_lm"]:
         raise ValueError("Invalid input_beams. It must be either 'guassian', 'file_l' or 'file_lm'.")
 
-    if config.input_beams != "guassian":
-        beam_path = os.path.join(config.inputs_path, 'beams', config.instrument)
-
     for i in range(alms.shape[0]):
         if config.input_beams == "guassian":
             bl = _bl_from_fwhms(config.fwhm_out,config.instrument.fwhm[i],config.lmax)
         else:
-            bl = _bl_from_file(beam_path,config.instrument.frequency[i],config.fwhm_out,config.input_beams,config.lmax)
+            bl = _bl_from_file(config.beams_path,config.instrument.channels_tags[i],config.fwhm_out,config.input_beams,config.lmax)
 
         for c in range(alms.shape[-1]):
             if config.input_beams != "file_lm":
@@ -210,8 +207,8 @@ def _bl_from_fwhms(fwhm_out,fwhm_in,lmax):
     bl_out = hp.gauss_beam(np.radians(fwhm_out/60.), lmax=lmax,pol=True)
     return bl_out / bl_in
 
-def _bl_from_file(beam_path,frequency,fwhm_out,input_beams,lmax):
-    beam_file = beam_path + f'/beam_TEB_{frequency}GHz.fits'
+def _bl_from_file(beam_path,channel,fwhm_out,input_beams,lmax):
+    beam_file = beam_path + f'/beam_TEB_{channel}.fits'
     
     bl_in = _get_beam_from_file(beam_file,lmax,symmetric_beam=False if input_beams == "file_lm" else True)
     bl_out_l = hp.gauss_beam(np.radians(fwhm_out/60.), lmax=lmax,pol=True)
