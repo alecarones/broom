@@ -1,0 +1,155 @@
+# ==================================== PARAMETERS ==================================== #
+
+
+# ==== GENERAL ==== #
+#Minimum multipole where power is injected in simulations
+lmin: 32
+# Nside parameter. Used to generate simulations and produce output of compsep.
+nside: 128
+#Maximum multipole. Used to run component separation. Simulations are always produced up to lmax=3*nside-1.
+lmax: 256
+# Data type. Used to set how simulations must be returned (and/or saved) and which kind of data you are passing to compsep.
+data_type: "alms" # "maps" or "alms"
+
+# Resolution at which compsep is run (in arcmin). Default: 0.
+fwhm_out: 30. 
+# Number identifying the initial simulation. Used to generate (and/or save) simulations and to save compsep outputs. Default: 0.
+nsim_start: 0 
+# Number of simulations to run. Used to generate simulations and to run compsep and/or save outputs. Default: 1.
+nsims: 10 
+# If True, compsep runs are parallelized (either among simulations or across needlet bands). Not implemented yet.
+parallelize: False # 
+verbose: False
+
+# ==== DATA AND INSTRUMENT ==== #
+
+#list of Pysm foreground models. Used to generate simulations or to save compsep outputs. Default: ["d0","s0"].
+foreground_models: ["d1","s1"] 
+# Considered experiment. Used to generate simulations and to correct properly for gaussian beams in compsep.
+experiment: "SO_SAT" 
+# If True, the maps will be brought to a common resolution before running compsep. If False, the maps will be used as they are. Default: True.
+bring_to_common_resolution: True 
+# Nature of inpute beams. Used to generate simulations and to bring maps to a common resolution before compsep.
+# If "file_l" or "file_lm" is chosen, the beams are loaded from 'beams_TEB_{frequency}GHz.fits' file in inputs_path/beams/{experiment} directory.
+# Default: "gaussian".
+input_beams: "gaussian" # "gaussian", "file_l" (symmetric but not gaussian beams), "file_lm" (asymmetric beams)
+# Path to read the beams if input_beams is not "guassian."
+beams_path: "/pscratch/sd/c/carones/SO_extended/inputs/beams/SO_SAT"
+
+# Input field you are providing to compsep with alms or maps. 
+# It can be in ["T","E","B","QU","TQU","EB","TEB"] for maps and in ["T","E","B","EB","TEB"] for alms.
+field_in: "T"  
+# Output field to be returned (and/or saved) by compsep run. 
+# It can be in ["T","E","B","QU","QU_E","QU_B","TQU","EB","TEB"], where "QU_E" and "QU_B" are QU made of only E-modes and B-modes, respectively.
+# If empty, the output field will be the same as the input field
+field_out: "" 
+# Adopted units for the data. Used to generate simulations and in component separation.
+# Default: "uK_CMB".
+units: "uK_CMB"
+
+# ==== INPUT SIMULATIONS ==== #
+
+# Keywords for input simulations. These parameters are not needed for the compsep runs.
+
+# If True, the input simulations are generated. If False, the input simulations are loaded from the paths specified below. Default: True.
+generate_input_simulations: True #False #
+# If True, when generating/loading input foregrounds, it will keep/load the single components (e.g. dust, synchrotron) of the foregrounds. Default: False.
+return_fgd_components: False
+# If True, input foreground maps are obtained after bandpass integration. Default: False.
+# Bandpasses are assumed top-hat in intensity units and their width is read from the instrument configuration file. 
+bandpass_integrate: False
+# If not null, input noise maps will be generated starting from the provided seed. It must be integer. Default: null.
+seed_noise: null
+# If not null, input CMB maps will be generated starting from the provided seed. It must be integer. Default: null.
+seed_cmb: null
+# If not null, noise maps are generated from a power spectrum Nl * (1 + (ell/ell_knee)^alpha_knee), where Nl is white noise level. 
+# They must be either scalars or lists with number of elements equal to the number of frequency channels. Default: null.
+ell_knee: null
+alpha_knee: null
+# Path to the theoretical CMB power spectra. Used to generate CMB simulations. If not provided, the default Planck 2018 best-fit is used.
+cls_cmb_path: "/pscratch/sd/c/carones/SO_extended/data/Cls_Planck2018_for_PTEP_2020_r0.fits"
+# If True and generate_input_simulations is True, the input simulations are saved in the paths specified below. Default: False.
+save_input_simulations: True #False # 
+# If True and generate_input_simulations is False, the input simulations are loaded from the paths specified below. Default: True if generate_input_simulations is False.
+load_input_simulations: False #True #
+
+
+# Input pixel window function. Default: False.
+# If True, the input maps/alms are convolved for the pixel window function (if simulated) and corrected for it before component separation.
+pixel_window_in: False
+
+
+# Paths to input total data, foregrounds, CMB and noise simulations.
+# Used when save_input_simulations or load_input_simulations is True.
+# They have to include the filename. 
+# If nsim is provided it will add the number of the simulation to the filename at the end when saving/loading total, CMB and noise maps.
+
+# Path for total input maps. If not provided, the total maps will be created summing the loaded CMB, foregrounds and noise maps.
+data_path: "/pscratch/sd/c/carones/SO_extended/inputs/SO_SAT/total/total_maps_ns128_lmin32"
+# Path for foreground input maps.
+# When saving/loading foregrounds, the foreground model specified in foreground_models will be added to the filename at the end.
+fgds_path: "/pscratch/sd/c/carones/SO_extended/inputs/SO_SAT/foregrounds/d1s1/foregrounds_maps_ns128_lmin32"
+# Path for CMB input maps.
+cmb_path: "/pscratch/sd/c/carones/SO_extended/inputs/SO_SAT/cmb/cmb_maps_ns128_lmin32"
+# Path for noise input maps.
+noise_path: "/pscratch/sd/c/carones/SO_extended/inputs/SO_SAT/noise/noise_maps_ns128_lmin32"
+
+
+# ==== COMPONENT SEPARATION ==== #
+
+compsep_runs:
+  - method: "ilc"
+    domain: "pixel"
+    ilc_bias: 0.001
+    clusters: null #True
+
+  - method: "ilc"
+    domain: "pixel"
+    ilc_bias: 0.
+#    clusters: null #True
+
+  - method: "ilc"
+    domain: "needlet"
+    needlet_config:
+      - needlet_windows: "cosine"
+      #- width: 2. #1.3
+      #- merging_needlets: [0, 7]
+      - ell_peaks: [0,100,150]
+    ilc_bias: 0.001
+    reduce_bias: True
+#    b_squared: False
+#    adapt_nside: False
+#    clusters: null #True
+#    nl_scales_clusters: [0]
+
+  - method: "ilc"
+    domain: "needlet"
+    needlet_config:
+      - needlet_windows: "cosine"
+      #- width: 2. #1.3
+      #- merging_needlets: [0, 7]
+      - ell_peaks: [0,100,150]
+    ilc_bias: 0.0
+    adapt_nside: False
+
+# Output pixel window function. If True, output compsep maps are convolved for the pixel window function. Default: False.
+pixel_window_out: False
+
+# If provided, polarization maps will be corrected for EB-leakage before running component separation. Default: null.
+# It can be ["EB", "B"] followed by "_purify" or "_recycling".
+# If "_purify" is chosen, the standard purification procedure is implemented.
+# If "_recycling" is chosen, the recycling correction is implemented. In this case you can also apply an iterative procedure by adding e.g. "_iterations3" (3 iterations) at the end.
+# Examples: "B_purify", "B_recycling" (no iterations), "B_recycling_iterations3" (3 iterations).
+leakage_correction: null
+# If True, the output maps are saved in the path specified with path_outputs. Default: False.
+save_compsep_products: True 
+
+labels_outputs: ["output", "noise_residuals", "fgd_residuals"]
+# If True, the output maps are returned by compsep. Default: True.
+return_compsep_products: False # True #
+
+# output directories (change with your path)
+path_outputs: "/pscratch/sd/c/carones/SO_extended/outputs" 
+#E and B modes will be stored in '{path_outputs}/output_maps/{instrument}/{foreground_models}/{method}/{band}/{spec} where method, band and spec change for E- and B-modes
+#final QU maps will be stored in '{path_outputs}/final_maps/{instrument}/{foreground_models}/
+
