@@ -3,7 +3,7 @@
 
 # ==== GENERAL ==== #
 #Minimum multipole where power is injected in simulations
-lmin: 32
+lmin: 2
 # Nside parameter. Used to generate simulations and produce output of compsep.
 nside: 128
 #Maximum multipole. Used to run component separation. Simulations are always produced up to lmax=3*nside-1.
@@ -143,13 +143,10 @@ pixel_window_out: False
 leakage_correction: null
 # If True, the output maps are saved in the path specified with path_outputs. Default: False.
 save_compsep_products: True 
-
+# Labels with which outputs are saved.
 labels_outputs: ["output", "noise_residuals", "fgd_residuals"]
 # If True, the output maps are returned by compsep. Default: True.
 return_compsep_products: False # True #
 
-# output directories (change with your path)
-path_outputs: "/pscratch/sd/c/carones/SO_extended/outputs" 
-#E and B modes will be stored in '{path_outputs}/output_maps/{instrument}/{foreground_models}/{method}/{band}/{spec} where method, band and spec change for E- and B-modes
-#final QU maps will be stored in '{path_outputs}/final_maps/{instrument}/{foreground_models}/
-
+# Path where outputs from compsep are stored (change with your path)
+path_outputs: "/pscratch/sd/c/carones/SO_extended/outputs/SO_SAT/d1s1" 
