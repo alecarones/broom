@@ -5,14 +5,14 @@
 #Minimum multipole where power is injected in simulations
 lmin: 2
 # Nside parameter. Used to generate simulations and produce output of compsep.
-nside: 1024
+nside: 128
 #Maximum multipole. Used to run component separation. Simulations are always produced up to lmax=3*nside-1.
-lmax: 2048
+lmax: 256
 # Data type. Used to set how simulations must be returned (and/or saved) and which kind of data you are passing to compsep.
 data_type: "maps" # "maps" or "alms"
 
 # Resolution at which compsep is run (in arcmin). Default: 0.
-fwhm_out: 5. 
+fwhm_out: 30. 
 # Number identifying the initial simulation. Used to generate (and/or save) simulations and to save compsep outputs. Default: 0.
 nsim_start: 0 
 # Number of simulations to run. Used to generate simulations and to run compsep and/or save outputs. Default: 1.
@@ -26,15 +26,15 @@ verbose: False
 #list of Pysm foreground models. Used to generate simulations or to save compsep outputs. Default: ["d0","s0"].
 foreground_models: ["d1","s1"] 
 # Considered experiment. Used to generate simulations and to correct properly for gaussian beams in compsep.
-experiment: "Planck" 
+experiment: "Planck_pol" 
 # If True, the maps will be brought to a common resolution before running compsep. If False, the maps will be used as they are. Default: True.
 bring_to_common_resolution: True 
 # Nature of inpute beams. Used to generate simulations and to bring maps to a common resolution before compsep.
 # If "file_l" or "file_lm" is chosen, the beams are loaded from 'beams_TEB_{frequency}GHz.fits' file in inputs_path/beams/{experiment} directory.
 # Default: "gaussian".
-input_beams: "file_l" # "gaussian", "file_l" (symmetric but not gaussian beams), "file_lm" (asymmetric beams)
+input_beams: "gaussian" # "gaussian", "file_l" (symmetric but not gaussian beams), "file_lm" (asymmetric beams)
 # Path to read the beams if input_beams is not "guassian."
-beams_path: "/pscratch/sd/c/carones/SO_extended/inputs/beams/NPIPE"
+beams_path: "/pscratch/sd/c/carones/SO_extended/inputs/beams/Planck"
 
 # Input field you are providing to compsep with alms or maps. 
 # It can be in ["T","E","B","QU","TQU","EB","TEB"] for maps and in ["T","E","B","EB","TEB"] for alms.
@@ -52,7 +52,7 @@ units: "uK_CMB"
 # Keywords for input simulations. These parameters are not needed for the compsep runs.
 
 # If True, the input simulations are generated. If False, the input simulations are loaded from the paths specified below. Default: True.
-generate_input_simulations: False #True #
+generate_input_simulations: True #False #
 # If True, when generating/loading input foregrounds, it will keep/load the single components (e.g. dust, synchrotron) of the foregrounds. Default: False.
 return_fgd_components: False
 # If True, input foreground maps are obtained after bandpass integration. Default: False.
@@ -69,7 +69,7 @@ alpha_knee: null
 # Path to the theoretical CMB power spectra. Used to generate CMB simulations. If not provided, the default Planck 2018 best-fit is used.
 cls_cmb_path: "/pscratch/sd/c/carones/SO_extended/data/Cls_Planck2018_for_PTEP_2020_r0.fits"
 # If True and generate_input_simulations is True, the input simulations are saved in the paths specified below. Default: False.
-save_input_simulations: False # True #
+save_input_simulations: True #False # 
 # If True and generate_input_simulations is False, the input simulations are loaded from the paths specified below. Default: True if generate_input_simulations is False.
 load_input_simulations: False # True #
 
@@ -85,14 +85,14 @@ pixel_window_in: False
 # If nsim is provided it will add the number of the simulation to the filename at the end when saving/loading total, CMB and noise maps.
 
 # Path for total input maps. If not provided, the total maps will be created summing the loaded CMB, foregrounds and noise maps.
-data_path: "/pscratch/sd/c/carones/SO_extended/inputs/NPIPE/total/total_maps"
+data_path: "/pscratch/sd/c/carones/SO_extended/inputs/Planck/total/total_maps"
 # Path for foreground input maps.
 # When saving/loading foregrounds, the foreground model specified in foreground_models will be added to the filename at the end.
-fgds_path: "/pscratch/sd/c/carones/SO_extended/inputs/NPIPE/foregrounds/foregrounds_maps"
+fgds_path: "/pscratch/sd/c/carones/SO_extended/inputs/Planck/foregrounds/foregrounds_maps"
 # Path for CMB input maps.
-cmb_path: "/pscratch/sd/c/carones/SO_extended/inputs/NPIPE/cmb/cmb_maps"
+cmb_path: "/pscratch/sd/c/carones/SO_extended/inputs/Planck/cmb/cmb_maps"
 # Path for noise input maps.
-noise_path: "/pscratch/sd/c/carones/SO_extended/inputs/NPIPE/noise/noise_maps"
+noise_path: "/pscratch/sd/c/carones/SO_extended/inputs/Planck/noise/noise_maps"
 
 
 # ==== COMPONENT SEPARATION ==== #
@@ -134,4 +134,4 @@ labels_outputs: ["output", "noise_residuals", "fgd_residuals"]
 return_compsep_products: False # True #
 
 # Path where outputs from compsep are stored (change with your path)
-path_outputs: "/pscratch/sd/c/carones/SO_extended/outputs/NPIPE/" 
+path_outputs: "/pscratch/sd/c/carones/SO_extended/outputs/Planck/d1s1" 
