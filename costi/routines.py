@@ -169,11 +169,11 @@ def _bring_to_common_resolution(config: Configs, alms):
         elif config.field_out in ["B", "QU_B"]:
             idx_bl = 2
     
-    if config.input_beams not in ["guassian", "file_l", "file_lm"]:
-        raise ValueError("Invalid input_beams. It must be either 'guassian', 'file_l' or 'file_lm'.")
+    if config.input_beams not in ["gaussian", "file_l", "file_lm"]:
+        raise ValueError("Invalid input_beams. It must be either 'gaussian', 'file_l' or 'file_lm'.")
 
     for i in range(alms.shape[0]):
-        if config.input_beams == "guassian":
+        if config.input_beams == "gaussian":
             bl = _bl_from_fwhms(config.fwhm_out,config.instrument.fwhm[i],config.lmax)
         else:
             bl = _bl_from_file(config.beams_path,config.instrument.channels_tags[i],config.fwhm_out,config.input_beams,config.lmax)
@@ -496,7 +496,7 @@ def _get_local_cov_new_(map1, map2, pps, *nside_covar):
 def _save_compsep_products(config: Configs, output_maps, compsep_run, nsim=None):
 #    if config_dir_outputs[-1] != "/":
 #        config_dir_outputs += "/"
-    complete_path = os.path.join(config.experiment, "".join(config.foreground_models), f'{compsep_run["method"]}_{compsep_run["domain"]}_bias{compsep_run["ilc_bias"]}')
+    complete_path = os.path.join(f'{compsep_run["method"]}_{compsep_run["domain"]}_bias{compsep_run["ilc_bias"]}')
     if config.leakage_correction is not None:
         leak_def = (config.leakage_correction).split("_")[0] + (config.leakage_correction).split("_")[1] 
         if "_recycling" in config.leakage_correction:
