@@ -52,7 +52,7 @@ def _get_data_simulations_(config: Configs, foregrounds, nsim = None):
         # Load the FITS file
         cls_cmb = hp.read_cl(config.cls_cmb_path)
 
-        noise = _get_noise_simulation(config.instrument, config.nside, seed = None if not config.seed_noise else ((config.seed_noise + (nsim * 3 * len(config.instrument.frequency))) if nsim is not None else config.seed_noise), units=config.units,return_alms=(config.data_type=="alms"), lmin=config.lmin, ell_knee=config.ell_knee, alpha_knee=config.alpha_knee)
+        noise = _get_noise_simulation(config.instrument, config.nside, seed = None if not config.seed_noise else ((config.seed_noise + (nsim * 3 * len(config.instrument.frequency))) if nsim is not None else config.seed_noise), units=config.units,return_alms=(config.data_type=="alms"), lmin=config.lmin)
         if config.input_beams == "gaussian":
             cmb = _get_cmb_simulation(cls_cmb, config.instrument, config.nside, seed = None if not config.seed_cmb else (config.seed_cmb + nsim if nsim is not None else config.seed_cmb), pixel_window = config.pixel_window_in, return_alms = (config.data_type=="alms"), lmin=config.lmin)
         else:
@@ -94,7 +94,7 @@ def _save_input_foregrounds(fgds_path, foregrounds, foreground_models):
 def _load_input_foregrounds(fgd_path, fgd_model):
     return np.load(f'{fgd_path}_{fgd_model}.npy')
 
-def _get_noise_simulation(instrument, nside, seed = None, units='uK_CMB',return_alms=False, lmin=2, ell_knee = None, alpha_knee = None):
+def _get_noise_simulation(instrument, nside, seed = None, units='uK_CMB',return_alms=False, lmin=2):
     """
     Generate noise simulation for the given instrument.
     """
@@ -125,18 +125,16 @@ def _get_noise_simulation(instrument, nside, seed = None, units='uK_CMB',return_
         N_ell_T = (depth_i.value[nf] * acm_to_rad) ** 2 * np.ones(3 * nside)
         N_ell_P = (depth_p.value[nf] * acm_to_rad) ** 2 * np.ones(3 * nside)
         N_ell = np.array([N_ell_T, N_ell_P, N_ell_P, 0.*N_ell_P])
-        if (alpha_knee is not None) and (ell_knee is not None):
+        if hasattr(instrument, 'ell_knee') and hasattr(instrument, 'alpha_knee'):
             ell = np.arange(3 * nside)
-            if np.isscalar(alpha_knee) and np.isscalar(ell_knee):
-                N_ell *= (1 + (ell / ell_knee) ** alpha_knee)
-            elif isinstance(alpha_knee, list) and isinstance(ell_knee, list):
-                if len(alpha_knee) != len(ell_knee):
+            if isinstance(instrument.alpha_knee, list) and isinstance(instrument.ell_knee, list):
+                if len(instrument.alpha_knee) != len(instrument.ell_knee):
                     raise ValueError('alpha_knee and ell_knee must have the same length.')
-                if (len(alpha_knee) != len(instrument.frequency)) or (len(ell_knee) != len(instrument.frequency)):
+                if (len(instrument.alpha_knee) != len(instrument.frequency)) or (len(instrument.ell_knee) != len(instrument.frequency)):
                     raise ValueError('alpha_knee and ell_knee must have the same length as the number of frequencies.')
-                N_ell *= (1 + (ell / ell_knee[nf]) ** alpha_knee[nf])
+                N_ell *= (1 + (ell / instrument.ell_knee[nf]) ** instrument.alpha_knee[nf])
             else:
-                raise ValueError('alpha_knee and ell_knee must be either both scalars or both lists')
+                raise ValueError('alpha_knee and ell_knee must be both lists')
         alm_noise = hp.synalm(N_ell, lmax=3*nside-1, new=True, verbose=False)
         if lmin > 2:
             for f in range(3):

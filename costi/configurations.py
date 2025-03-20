@@ -28,6 +28,8 @@ class InstrumentConfig:
     depth_P: list = field(default_factory=list)
     fwhm: list = field(default_factory=list)
     bandwidth: list = field(default_factory=list)
+    ell_knee: list = field(default_factory=list)
+    alpha_knee: list = field(default_factory=list)
     channels_tags: list = field(default_factory=list)
 
     def load_from_yaml(self, yaml_data: Dict[str, Any], experiment: str):
@@ -43,6 +45,10 @@ class InstrumentConfig:
             self.fwhm = experiment_data['fwhm']
         if 'bandwidth' in experiment_data:
             self.bandwidth = experiment_data['bandwidth']
+        if 'ell_knee' in experiment_data:
+            self.ell_knee = experiment_data['ell_knee']
+        if 'alpha_knee' in experiment_data:
+            self.alpha_knee = experiment_data['alpha_knee']
         if 'channels_tags' in experiment_data:
             self.channels_tags = experiment_data['channels_tags']
         else:
@@ -117,8 +123,6 @@ class Configs:
             self.bandpass_integrate = self.config.get("bandpass_integrate",False)
             self.seed_noise = self.config.get("seed_noise", None)
             self.seed_cmb = self.config.get("seed_cmb", None)
-            self.ell_knee = self.config.get("ell_knee", None)
-            self.alpha_knee = self.config.get("alpha_knee", None)
             self.cls_cmb_path = self.config.get("cls_cmb_path", "")
         if not self.generate_input_simulations:
             self.load_input_simulations = self.config.get("load_input_simulations", True)

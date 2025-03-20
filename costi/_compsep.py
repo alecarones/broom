@@ -208,9 +208,9 @@ def _check_data_and_config(config: Configs, data):
             print("Required lmax is larger than that of provided alms. lmax updated to the maximum multipole of the provided alms.")
             config.lmax = lmax_in
         config.lmax_in = lmax_in
-    if config.experiment:
-        if data.shape[0] != len(config.instrument.frequency):
-            raise ValueError("The number of provided data does not match the number of frequencies in the experiment database.")
+#    if config.experiment:
+#        if data.shape[0] != len(config.instrument.frequency):
+#            raise ValueError("The number of provided data does not match the number of frequencies in the experiment database.")
     if data.ndim == 4:
         if data.shape[1] > 3:
             raise ValueError("The provided data have wrong number of components. It must be 1, 2 or 3.")

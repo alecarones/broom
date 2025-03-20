@@ -52,7 +52,8 @@ def _maps_to_alms(config: Configs, data, mask_in=None):
                     if "_purify" in config.leakage_correction:
                         alms[i, 1:, :, c] = purify_master(data[i, 1:, :, c], mask_in, config.lmax,purify_E=("E" in config.leakage_correction))
                     elif "_recycling" in config.leakage_correction:
-                        alms[i, 1:, :, c] = purify_recycling(data[i, 1:, :, c], mask_in, config.lmax,purify_E=("E" in config.leakage_correction), iterations=iterations)
+                        if c==0:
+                            alms[i, 1:] = purify_recycling(data[i, 1:], mask_in, config.lmax,purify_E=("E" in config.leakage_correction), iterations=iterations)
                 for j in range(alms.shape[1]):
                     alms[i, j, :, c] = hp.almxfl(alms[i, j, :, c], fell)
 
@@ -67,9 +68,11 @@ def _maps_to_alms(config: Configs, data, mask_in=None):
                 else:
                     if "_purify" in config.leakage_correction:
                         alms_pure = purify_master(data[i, ..., c], mask_in, config.lmax,purify_E=("E" in config.leakage_correction))
+                        alms[i, ..., c] = np.copy(alms_pure) if config.field_out in ["QU", "EB"] else np.copy(alms_pure[0]) if config.field_out in ["E", "QU_E"] else np.copy(alms_pure[1])
                     elif "_recycling" in config.leakage_correction:
-                        alms_pure = purify_recycling(data[i, ..., c], mask_in, config.lmax,purify_E=("E" in config.leakage_correction), iterations=iterations)
-                    alms[i, ..., c] = np.copy(alms_pure) if config.field_out in ["QU", "EB"] else np.copy(alms_pure[0]) if config.field_out in ["E", "QU_E"] else np.copy(alms_pure[1])
+                        if c==0:
+                            alms_pure = purify_recycling(data[i], mask_in, config.lmax,purify_E=("E" in config.leakage_correction), iterations=iterations)
+                            alms[i] = np.copy(alms_pure) if config.field_out in ["QU", "EB"] else np.copy(alms_pure[0]) if config.field_out in ["E", "QU_E"] else np.copy(alms_pure[1])
                 if config.field_out in ["E", "B", "QU_E", "QU_B"]:
                     alms[i, :, c] = hp.almxfl(alms[i, :, c], fell)
                 else:

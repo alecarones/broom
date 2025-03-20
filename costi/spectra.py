@@ -35,7 +35,47 @@ def get_planck_mask(apo=5, nside=2048, field=3, info=False):
         output = output[field]
     return output
 
-def _cls_from_files(config: Configs, path, mask, lmax, fwhm, bin_l=1, spectra_comp='anafast', return_Dell=False):
+def _cls_from_files(config: Configs, nsim=None, delta_ell=1, spectra_comp='anafast', return_Dell=False, mask=None, mask_type=None):
+    outputs = []
+
+    for label in config.labels_outputs:
+        filename = config.path_outputs + f"/{config.field_in}_{label}_{config.fwhm_out}acm_ns{config.nside}"
+        outputs.append(_load_outputs(filename,config.field_in,nsim=nsim))
+    outputs = np.array(outputs)
+    
+    cls_out = _cls_from_maps(config, outputs, delta_ell=delta_ell, spectra_comp=spectra_comp, return_Dell=return_Dell, mask=mask, mask_type=mask_type)
+    
+def _cls_from_maps(config: Configs, outputs, delta_ell=1, spectra_comp='anafast', return_Dell=False, mask=None, mask_type=None):
+    if (mask is None) and (mask_type is None):
+        mask_spectra = np.ones(ouputs.shape[-1])
+    elif mask is not None:
+        mask_spectra = np.copy(mask)
+    elif mask_type is not None:
+        mask_spectra = _get_mask(mask_type)
+
+    cls_out = _compute_cls(outputs,mask_spectra,config.lmax,config.fwhm_out,config.field_in,config.field_out,delta_ell=delta_ell,spectra_comp=spectra_comp,return_Dell=return_Dell)
+
+def _compute_cls(outputs,mask_spectra,lmax,fwhm, field_in,field_out,delta_ell=1, spectra_comp='anafast', return_Dell=False):
+    if spectra_comp not in ['anafast','namaster']:
+        raise ValueError('spectra_comp must be either "anafast" or "namaster"')
+    
+    _check_fields(field_in,field_out)
+
+    outputs = _preprocess_for_cls(outputs,field_in,field_out)
+
+def _check_fields(field_in,field_out):
+    if field_in not in ['T','E','B','QU','QU_E','QU_B','EB','TQU','TEB']:
+        raise ValueError('Invalid field_in.')
+    if field_in in ['T','E','B'] and field_out != field_in:
+        raise ValueError('Invalid field_out. It must be the same as field_in for the given field_in.')
+    if 'T' not in field_in and 'T' in field_out:
+        raise ValueError('Invalid field_out. Field_out cannot contain T if field_in does not include T.')
+   
+def _preprocess_for_cls(outputs,field_in,field_out):
+    if field_in in ['']
+
+
+
 
 def compute_cls(maps,fsky,lmax,mask_type='PTEP',spectra_comp='anafast',bin_l=1,load_mask=False,save_mask=False,return_Dell=False,field_mp=2,deg_smooth_mask=0.,deg_smooth_tracer=3.):
     if spectra_comp not in ['anafast','namaster']:
