@@ -6,16 +6,18 @@ import re
 import os
 from .configurations import Configs
 from .leakage import purify_master, purify_recycling
+from types import SimpleNamespace
 
-def _alms_from_data(config: Configs, data, mask_in=None):
+
+def _alms_from_data(config: Configs, data, mask_in=None, data_type="maps", bring_to_common_resolution=True, pixel_window_in=False):
     fell = _get_ell_filter(2,config.lmax)
 
-    if config.data_type == "maps":
+    if data_type == "maps":
         alms = _maps_to_alms(config, data, mask_in=mask_in)
-    elif config.data_type == "alms":
+    elif data_type == "alms":
         alms = _alms_to_alms(config, data)
 
-    alms = _processing_alms(config, alms)    
+    alms = _processing_alms(config, alms, bring_to_common_resolution=bring_to_common_resolution, pixel_window_in=pixel_window_in)    
 
     return alms
 
@@ -23,12 +25,13 @@ def _maps_to_alms(config: Configs, data, mask_in=None):
     fell = _get_ell_filter(2,config.lmax)
 
     if mask_in is None:
-        mask_in = np.ones(data.shape[-2])
+        mask_in = np.ones(data.total.shape[-1])
     elif not isinstance(mask_in, np.ndarray): 
         raise ValueError("Invalid mask. It must be a numpy array.")
-    elif hp.get_nside(mask_in) != hp.npix2nside(data.shape[-2]):
+    elif hp.get_nside(mask_in) != hp.npix2nside(data.total.shape[-1]):
             raise ValueError("Mask HEALPix resolution does not match data HEALPix resolution.")
     mask_in /= np.max(mask_in)
+    mask_bin_in = np.ceil(mask_in)
 
     if config.leakage_correction is not None:
         if "_recycling" in config.leakage_correction:
@@ -36,87 +39,102 @@ def _maps_to_alms(config: Configs, data, mask_in=None):
                 iterations = int(re.search(r'iterations(\d+)', config.leakage_correction).group(1))
             else:
                 iterations = 0
+    
+    alms = SimpleNamespace()
 
-    if data.ndim == 3:
-        alms = np.zeros((data.shape[0], hp.Alm.getsize(config.lmax), data.shape[-1]), dtype=complex)
-        for i, c in np.ndindex(data.shape[0],data.shape[-1]):
-            alms[i, :, c] = hp.almxfl(hp.map2alm((data[i, :, c] * mask_in), lmax=config.lmax, pol=False),fell)
+    if data.total.ndim == 2:
+        for attr_name in vars(data):
+            setattr(alms, attr_name, [])
+            for i in range(getattr(data, attr_name).shape[0]):
+                getattr(alms, attr_name).append(hp.almxfl(hp.map2alm((getattr(data, attr_name)[i] * mask_bin_in), lmax=config.lmax, pol=False),fell))
+            setattr(alms, attr_name, np.array(getattr(alms, attr_name)))
+
     else:
-        if data.shape[1]==3:
-            alms = np.zeros((data.shape[0], data.shape[1], hp.Alm.getsize(config.lmax), data.shape[-1]), dtype=complex)
-            for i, c in np.ndindex(data.shape[0],data.shape[-1]):
-                if (config.leakage_correction is None) or (config.field_in=="TEB") or (np.mean(mask_in**2)==1.):
-                    alms[i, :, :, c] = hp.map2alm((data[i, :, :, c] * mask_in), lmax=config.lmax, pol=config.field_in=="TQU")
-                else:
-                    alms[i, 0, :, c] = hp.map2alm((data[i, 0, :, c] * mask_in), lmax=config.lmax)
-                    if "_purify" in config.leakage_correction:
-                        alms[i, 1:, :, c] = purify_master(data[i, 1:, :, c], mask_in, config.lmax,purify_E=("E" in config.leakage_correction))
-                    elif "_recycling" in config.leakage_correction:
-                        if c==0:
-                            alms[i, 1:] = purify_recycling(data[i, 1:], mask_in, config.lmax,purify_E=("E" in config.leakage_correction), iterations=iterations)
-                for j in range(alms.shape[1]):
-                    alms[i, j, :, c] = hp.almxfl(alms[i, j, :, c], fell)
+        if data.total.shape[1]==3:
+            for attr_name in vars(data):
+                setattr(alms, attr_name, np.zeros((getattr(data, attr_name).shape[0], getattr(data, attr_name).shape[1], hp.Alm.getsize(config.lmax)), dtype=complex))
+                for i in range(getattr(data, attr_name).shape[0]):
+                    if (config.leakage_correction is None) or (config.field_in=="TEB") or (np.mean(mask_in**2)==1.):
+                        getattr(alms, attr_name)[i] = hp.map2alm((getattr(data, attr_name)[i] * mask_bin_in), lmax=config.lmax, pol=config.field_in=="TQU")
+                    else:
+                        getattr(alms, attr_name)[i, 0] = hp.map2alm((getattr(data, attr_name)[i, 0] * mask_bin_in), lmax=config.lmax)
+                        if config.leakage_correction == "mask_only":
+                            getattr(alms, attr_name)[i, 1:] = hp.map2alm((getattr(data, attr_name)[i] * mask_in), lmax=config.lmax, pol=True)[1:]
+                        elif "_purify" in config.leakage_correction:
+                            getattr(alms, attr_name)[i, 1:] = purify_master(getattr(data, attr_name)[i, 1:], mask_in, config.lmax,purify_E=("E" in config.leakage_correction))
+                        elif "_recycling" in config.leakage_correction:
+                            getattr(alms, attr_name)[i, 1:] = purify_recycling(getattr(data, attr_name)[i, 1:], data.total[i,1:], mask_bin_in, config.lmax,purify_E=("E" in config.leakage_correction), iterations=iterations)
+                    for j in range(getattr(alms, attr_name).shape[1]):
+                        getattr(alms, attr_name)[i, j] = hp.almxfl(getattr(alms, attr_name)[i, j], fell)
 
-        elif data.shape[1]==2:
-            if config.field_out in ["E", "B", "QU_E", "QU_B"]:
-                alms = np.zeros((data.shape[0], hp.Alm.getsize(config.lmax), data.shape[-1]), dtype=complex)
-            else:
-                alms = np.zeros((data.shape[0], data.shape[1], hp.Alm.getsize(config.lmax), data.shape[-1]), dtype=complex)
-            for i, c in np.ndindex(data.shape[0],data.shape[-1]):
-                if (config.leakage_correction is None) or (np.mean(mask_in**2)==1.) or (config.field_in=="EB") or (config.field_out in ["E", "QU_E"] and ("E" not in config.leakage_correction)) or (config.field_out in ["B", "QU_B"] and ("B" not in config.leakage_correction)):
-                    alms[i, ..., c] = hp.map2alm(np.vstack((0. * data[i, 0, :, c], data[i, :, :, c])) * mask_in, lmax=config.lmax, pol=config.field_in=="QU")[[1,2] if config.field_out in ["QU", "EB"] else 1 if config.field_out in ["E", "QU_E"] else 2]
-                else:
-                    if "_purify" in config.leakage_correction:
-                        alms_pure = purify_master(data[i, ..., c], mask_in, config.lmax,purify_E=("E" in config.leakage_correction))
-                        alms[i, ..., c] = np.copy(alms_pure) if config.field_out in ["QU", "EB"] else np.copy(alms_pure[0]) if config.field_out in ["E", "QU_E"] else np.copy(alms_pure[1])
-                    elif "_recycling" in config.leakage_correction:
-                        if c==0:
-                            alms_pure = purify_recycling(data[i], mask_in, config.lmax,purify_E=("E" in config.leakage_correction), iterations=iterations)
-                            alms[i] = np.copy(alms_pure) if config.field_out in ["QU", "EB"] else np.copy(alms_pure[0]) if config.field_out in ["E", "QU_E"] else np.copy(alms_pure[1])
+        elif data.total.shape[1]==2:
+            for attr_name in vars(data):
                 if config.field_out in ["E", "B", "QU_E", "QU_B"]:
-                    alms[i, :, c] = hp.almxfl(alms[i, :, c], fell)
+                    setattr(alms, attr_name, np.zeros((getattr(data, attr_name).shape[0], hp.Alm.getsize(config.lmax)), dtype=complex))
                 else:
-                    for j in range(alms.shape[1]):
-                        alms[i, j, :, c] = hp.almxfl(alms[i, j, :, c], fell)
+                    setattr(alms, attr_name, np.zeros((getattr(data, attr_name).shape[0], getattr(data, attr_name).shape[1], hp.Alm.getsize(config.lmax)), dtype=complex))
+                for i in range(getattr(data, attr_name).shape[0]):
+                    if (config.leakage_correction is None) or (np.mean(mask_in**2)==1.) or (config.field_in=="EB") or (config.field_out in ["E", "QU_E"] and ("E" not in config.leakage_correction)) or (config.field_out in ["B", "QU_B"] and ("B" not in config.leakage_correction)):
+                        getattr(alms, attr_name)[i] = hp.map2alm(np.vstack((0. * getattr(data, attr_name)[i, 0], getattr(data, attr_name)[i])) * mask_bin_in, lmax=config.lmax, pol=config.field_in=="QU")[[1,2] if config.field_out in ["QU", "EB"] else 1 if config.field_out in ["E", "QU_E"] else 2]
+                    else:
+                        if config.leakage_correction == "mask_only":
+                            getattr(alms, attr_name)[i] = hp.map2alm(np.vstack((0. * getattr(data, attr_name)[i, 0], getattr(data, attr_name)[i])) * mask_in, lmax=config.lmax, pol=True)[[1,2] if config.field_out in ["QU", "EB"] else 1 if config.field_out in ["E", "QU_E"] else 2]
+                        elif "_purify" in config.leakage_correction:
+                            alms_pure = purify_master(getattr(data, attr_name)[i], mask_in, config.lmax,purify_E=("E" in config.leakage_correction))
+                            getattr(alms, attr_name)[i] = np.copy(alms_pure) if config.field_out in ["QU", "EB"] else np.copy(alms_pure[0]) if config.field_out in ["E", "QU_E"] else np.copy(alms_pure[1])
+                        elif "_recycling" in config.leakage_correction:
+                            alms_pure = purify_recycling(getattr(data, attr_name)[i], data.total[i], mask_bin_in, config.lmax,purify_E=("E" in config.leakage_correction), iterations=iterations)
+                            getattr(alms, attr_name)[i] = np.copy(alms_pure) if config.field_out in ["QU", "EB"] else np.copy(alms_pure[0]) if config.field_out in ["E", "QU_E"] else np.copy(alms_pure[1])
+                    if config.field_out in ["E", "B", "QU_E", "QU_B"]:
+                        getattr(alms, attr_name)[i] = hp.almxfl(getattr(alms, attr_name)[i], fell)
+                    else:
+                        for j in range(getattr(alms, attr_name).shape[1]):
+                            getattr(alms, attr_name)[i, j] = hp.almxfl(getattr(alms, attr_name)[i, j], fell)
+                            
     return alms
 
 def _alms_to_alms(config: Configs, data):
     fell = _get_ell_filter(2,config.lmax)
+    alms = SimpleNamespace()
 
-    if hp.Alm.getlmax(data.shape[-2]) == config.lmax:
-        if data.ndim == 3 or (data.ndim == 4 and data.shape[1]==3) or (data.ndim == 4 and data.shape[1]==2 and config.field_out in ["EB", "QU"]):
-            alms = np.copy(data)
-        elif (data.ndim == 4 and data.shape[1]==2 and config.field_out in ["E", "QU_E"]):
-            alms = np.copy(data[:,0])
-        elif (data.ndim == 4 and data.shape[1]==2 and config.field_out in ["B", "QU_B"]):
-            alms = np.copy(data[:,1])
+    if hp.Alm.getlmax(data.total.shape[-1]) == config.lmax:
+        for attr_name in vars(data):
+            if getattr(data, attr_name).ndim == 2 or (getattr(data, attr_name).ndim == 3 and getattr(data, attr_name).shape[1]==3) or (getattr(data, attr_name).ndim == 3 and getattr(data, attr_name).shape[1]==2 and config.field_out in ["EB", "QU"]):
+                setattr(alms, attr_name, np.copy(getattr(data, attr_name)))
+            elif (getattr(data, attr_name).ndim == 3 and getattr(data, attr_name).shape[1]==2 and config.field_out in ["E", "QU_E"]):
+                setattr(alms, attr_name, np.copy(getattr(data, attr_name)[:,0]))
+            elif (getattr(data, attr_name).ndim == 3 and getattr(data, attr_name).shape[1]==2 and config.field_out in ["B", "QU_B"]):
+                setattr(alms, attr_name, np.copy(getattr(data, attr_name)[:,1]))
     else:
-        lmax_in = hp.Alm.getlmax(data.shape[-2])
+        lmax_in = hp.Alm.getlmax(data.total.shape[-1])
         idx_lmax = np.array([hp.Alm.getidx(lmax_in, ell, m) for ell in range(2, config.lmax + 1) for m in range(ell + 1)])
         idx_config_lmax = np.array([hp.Alm.getidx(config.lmax, ell, m) for ell in range(2, config.lmax + 1) for m in range(ell + 1)])
-        if data.ndim == 3:
-            alms = np.zeros((data.shape[0], hp.Alm.getsize(config.lmax), data.shape[-1]), dtype=complex)
-            for i, c in np.ndindex(data.shape[0],data.shape[-1]):
-                alms[i, idx_config_lmax, c] = data[i, idx_lmax, c]
-        if data.ndim == 4:
-            if data.shape[1]==3 or (data.shape[1]==2 and config.field_out in ["EB", "QU"]):
-                alms = np.zeros((data.shape[0], data.shape[1], hp.Alm.getsize(config.lmax), data.shape[-1]), dtype=complex)
-                for i, c in np.ndindex(data.shape[0],data.shape[-1]):
-                    alms[i, :, idx_config_lmax, c] = data[i, :, idx_lmax, c]
-            else:
-                alms = np.zeros((data.shape[0], hp.Alm.getsize(config.lmax), data.shape[-1]), dtype=complex)
-                for i, c in np.ndindex(data.shape[0],data.shape[-1]):
-                    if config.field_out in ["E", "QU_E"]:
-                        alms[i, idx_config_lmax, c] = data[i, 0, idx_lmax, c]
-                    elif config.field_out in ["B", "QU_B"]:
-                        alms[i, idx_config_lmax, c] = data[i, 1, idx_lmax, c]
+        for attr_name in vars(data):
+            if getattr(data, attr_name).ndim == 2:
+                setattr(alms, attr_name, np.zeros((getattr(data, attr_name).shape[0], hp.Alm.getsize(config.lmax)), dtype=complex))
+                for i in range(getattr(data, attr_name).shape[0]):
+                    getattr(alms, attr_name)[i, idx_config_lmax] = getattr(data, attr_name)[i, idx_lmax]
+            if getattr(data, attr_name).ndim == 3:
+                if getattr(data, attr_name).shape[1]==3 or (getattr(data, attr_name).shape[1]==2 and config.field_out in ["EB", "QU"]):
+                    setattr(alms, attr_name, np.zeros((getattr(data, attr_name).shape[0], getattr(data, attr_name).shape[1], hp.Alm.getsize(config.lmax)), dtype=complex))
+                    for i in range(getattr(data, attr_name).shape[0]):
+                        getattr(alms, attr_name)[i, :, idx_config_lmax] = getattr(data, attr_name)[i, :, idx_lmax]
+                else:
+                    setattr(alms, attr_name, np.zeros((getattr(data, attr_name).shape[0], hp.Alm.getsize(config.lmax)), dtype=complex))
+                    for i in range(getattr(data, attr_name).shape[0]):
+                        if config.field_out in ["E", "QU_E"]:
+                            getattr(alms, attr_name)[i, idx_config_lmax] = getattr(data, attr_name)[i, 0, idx_lmax]
+                        elif config.field_out in ["B", "QU_B"]:
+                            getattr(alms, attr_name)[i, idx_config_lmax] = getattr(data, attr_name)[i, 1, idx_lmax]
 
-    for i, c in np.ndindex(alms.shape[0],alms.shape[-1]):
-        if alms.ndim == 3:
-            alms[i, :, c] = hp.almxfl(alms[i, :, c], fell)
-        if alms.ndim == 4:
-            for j in range(alms.shape[1]):
-                alms[i, j, :, c] = hp.almxfl(alms[i, j, :, c], fell)  
+    for attr_name in vars(alms):
+        for i in range(getattr(alms, attr_name).shape[0]):
+            if getattr(alms, attr_name).ndim == 2:
+                getattr(alms, attr_name)[i] = hp.almxfl(getattr(alms, attr_name)[i], fell)
+            if getattr(alms, attr_name).ndim == 3:
+                for j in range(getattr(alms, attr_name).shape[1]):
+                    getattr(alms, attr_name)[i, j] = hp.almxfl(getattr(alms, attr_name)[i, j], fell)  
+
     return alms
 
 def _get_ell_filter(lmin,lmax):
@@ -131,15 +149,15 @@ def _get_ell_filter(lmin,lmax):
         fell[lmin-4:lmin+1]=np.cos((lmin - np.arange(lmin-4,lmin+1)) * np.pi / 8.)
     return fell
 
-def _processing_alms(config: Configs, alms):
-    if config.bring_to_common_resolution:
+def _processing_alms(config: Configs, alms, bring_to_common_resolution=True, pixel_window_in=False):
+    if bring_to_common_resolution:
         if config.verbose:
             print("Bringing inputs to common resolution")
         alms = _bring_to_common_resolution(config, alms)
     else:
         if config.verbose:
             print("Inputs are assumed to be at common angular resolution")
-    if (config.pixel_window_in) and (config.data_type == "maps"):
+    if pixel_window_in:
         if config.verbose:
             print("Correcting for input pixel window function")
         alms = _correct_input_pixwin(config, alms)
@@ -164,7 +182,7 @@ def _B_to_QU(B_map, lmax):
     return QU_maps
 
 def _bring_to_common_resolution(config: Configs, alms):
-    if alms.ndim == 3:
+    if alms.total.ndim == 2:
         if config.field_out == "T":
             idx_bl = 0
         elif config.field_out in ["E", "QU_E"]:
@@ -175,33 +193,33 @@ def _bring_to_common_resolution(config: Configs, alms):
     if config.input_beams not in ["gaussian", "file_l", "file_lm"]:
         raise ValueError("Invalid input_beams. It must be either 'gaussian', 'file_l' or 'file_lm'.")
 
-    for i in range(alms.shape[0]):
+    for i in range(alms.total.shape[0]):
         if config.input_beams == "gaussian":
             bl = _bl_from_fwhms(config.fwhm_out,config.instrument.fwhm[i],config.lmax)
         else:
             bl = _bl_from_file(config.beams_path,config.instrument.channels_tags[i],config.fwhm_out,config.input_beams,config.lmax)
 
-        for c in range(alms.shape[-1]):
+        for attr_name in vars(alms):
             if config.input_beams != "file_lm":
-                if alms.ndim == 3:
-                    alms[i, :, c] = hp.almxfl(alms[i, :, c], bl[:,idx_bl])
-                if alms.ndim == 4:
-                    if alms.shape[1]==3:
-                        for j in range(alms.shape[1]):
-                            alms[i, j, :, c] = hp.almxfl(alms[i, j, :, c], bl[:,j])
-                    if alms.shape[1]==2:
-                        for j in range(alms.shape[1]):
-                            alms[i, j, :, c] = hp.almxfl(alms[i, j, :, c], bl[:,j+1])    
+                if getattr(alms, attr_name).ndim == 2:
+                    getattr(alms, attr_name)[i] = hp.almxfl(getattr(alms, attr_name)[i], bl[:,idx_bl])
+                if getattr(alms, attr_name).ndim == 3:
+                    if getattr(alms, attr_name).shape[1]==3:
+                        for j in range(getattr(alms, attr_name).shape[1]):
+                            getattr(alms, attr_name)[i, j] = hp.almxfl(getattr(alms, attr_name)[i, j], bl[:,j])
+                    if getattr(alms, attr_name).shape[1]==2:
+                        for j in range(getattr(alms, attr_name).shape[1]):
+                            getattr(alms, attr_name)[i, j] = hp.almxfl(getattr(alms, attr_name)[i, j], bl[:,j+1])    
             else:
-                if alms.ndim == 3:
-                    alms[i, :, c] = alms[i, :, c] * bl[:,idx_bl]
-                if alms.ndim == 4:
-                    if alms.shape[1]==3:
-                        for j in range(alms.shape[1]):
-                            alms[i, j, :, c] = alms[i, j, :, c] * bl[:,j]
-                    if alms.shape[1]==2:
-                        for j in range(alms.shape[1]):
-                            alms[i, j, :, c] = alms[i, j, :, c] * bl[:,j+1]
+                if getattr(alms, attr_name).ndim == 2:
+                    getattr(alms, attr_name)[i] = getattr(alms, attr_name)[i] * bl[:,idx_bl]
+                if getattr(alms, attr_name).ndim == 3:
+                    if getattr(alms, attr_name).shape[1]==3:
+                        for j in range(getattr(alms, attr_name).shape[1]):
+                            getattr(alms, attr_name)[i, j] = getattr(alms, attr_name)[i, j] * bl[:,j]
+                    if getattr(alms, attr_name).shape[1]==2:
+                        for j in range(getattr(alms, attr_name).shape[1]):
+                            getattr(alms, attr_name)[i, j] = getattr(alms, attr_name)[i, j] * bl[:,j+1]
 
     return alms
 
@@ -230,7 +248,7 @@ def _get_beam_from_file(beam_file,lmax,symmetric_beam=True):
     primary_hdu = hdul[1].data
     bl_file = np.column_stack([primary_hdu[col].astype(str).astype(float) for col in primary_hdu.names]).squeeze()
 
-    if bl_file.ndim != 2 or bl_file.shape[1] != 3 or bl_file.shape[1] != 4:
+    if bl_file.ndim != 2 or (bl_file.shape[1] != 3 and bl_file.shape[1] != 4):
         raise ValueError("Beam file must be 2-dimensional and have 3 or 4 columns (for T, E, B and EB).")
 
     if symmetric_beam:
@@ -251,18 +269,19 @@ def _get_beam_from_file(beam_file,lmax,symmetric_beam=True):
 
 def _correct_input_pixwin(config: Configs, alms):
     pixwin_in = hp.pixwin(config.nside_in, pol=True, lmax=config.lmax)
-    if alms.ndim == 3:
-        pw = pixwin_in[0] if config.field_out == "T" else pixwin_in[1]
-        for i, c in np.ndindex(alms.shape[0],alms.shape[-1]):
-            alms[i, :, c] = hp.almxfl(alms[i, :, c], pw)
-    elif alms.ndim == 4:
-        if alms.shape[1]==2:
-            pw = pixwin_in[1]
-            for i, c, j in np.ndindex(alms.shape[0],alms.shape[-1],alms.shape[1]):
-                alms[i, j, :, c] = hp.almxfl(alms[i, j, :, c], pw)
-        if alms.shape[1]==3:
-            for i, c, j in np.ndindex(alms.shape[0],alms.shape[-1],alms.shape[1]):
-                alms[i, j, :, c] = hp.almxfl(alms[i, j, :, c], pixwin_in[0]) if j==0 else hp.almxfl(alms[i, j, :, c], pixwin_in[1])
+    for attr_name in vars(alms):
+        if getattr(alms, attr_name).ndim == 2:
+            pw = pixwin_in[0] if config.field_out == "T" else pixwin_in[1]
+            for i in range(getattr(alms, attr_name).shape[0]):
+                getattr(alms, attr_name)[i] = hp.almxfl(getattr(alms, attr_name)[i], pw)
+        elif getattr(alms, attr_name).ndim == 3:
+            if getattr(alms, attr_name).shape[1]==2:
+                pw = pixwin_in[1]
+                for i, j in np.ndindex(getattr(alms, attr_name).shape[0],getattr(alms, attr_name).shape[1]):
+                    getattr(alms, attr_name)[i, j] = hp.almxfl(getattr(alms, attr_name)[i, j], pw)
+            if getattr(alms, attr_name).shape[1]==3:
+                for i, j in np.ndindex(getattr(alms, attr_name).shape[0],getattr(alms, attr_name).shape[1]):
+                    getattr(alms, attr_name)[i, j] = hp.almxfl(getattr(alms, attr_name)[i, j], pixwin_in[0]) if j==0 else hp.almxfl(getattr(alms, attr_name)[i, j], pixwin_in[1])
     return alms
 
 def _get_needlet_windows_(needlet_config, lmax):
@@ -384,18 +403,26 @@ def _get_nside_lmax_from_b_ell(b_ell,nside,lmax):
     return nside_, lmax_
 
 def _needlet_filtering(alms, b_ell, lmax_out):
-    filtered_alms = np.array([hp.almxfl(alms[:,c], b_ell) for c in range(alms.shape[-1])]).T
+    if alms.ndim == 2:
+        filtered_alms = np.array([hp.almxfl(alms[:,c], b_ell) for c in range(alms.shape[-1])]).T
+    elif alms.ndim == 1:
+        filtered_alms = hp.almxfl(alms, b_ell)
+
     if alms.shape[0] == hp.Alm.getsize(lmax_out):
         return filtered_alms
     else:
         lmax_j = np.min([hp.Alm.getlmax(alms.shape[0]), lmax_out])
-        alms_j = np.zeros((hp.Alm.getsize(lmax_out), alms.shape[-1]), dtype=complex)
         idx_lmax_in = np.array([hp.Alm.getidx(hp.Alm.getlmax(filtered_alms.shape[0]), ell, m) for ell in range(0, lmax_j+1) for m in range(ell + 1)])
         idx_lmax_out = np.array([hp.Alm.getidx(lmax_out, ell, m) for ell in range(0, lmax_j+1) for m in range(ell + 1)])
-        alms_j[idx_lmax_out, :] = filtered_alms[idx_lmax_in, :]
+        if alms.ndim == 2:
+            alms_j = np.zeros((hp.Alm.getsize(lmax_out), alms.shape[-1]), dtype=complex)
+            alms_j[idx_lmax_out, :] = filtered_alms[idx_lmax_in, :]
+        elif alms.ndim == 1:
+            alms_j = np.zeros((hp.Alm.getsize(lmax_out)), dtype=complex)
+            alms_j[idx_lmax_out] = filtered_alms[idx_lmax_in]
         return alms_j
 
-def _get_local_cov(input_maps, lmax, ilc_bias, b_ell=None, mask=None, reduce_bias=False):
+def _get_local_cov(input_maps, lmax, ilc_bias, b_ell=None, mask=None, reduce_bias=False, input_maps_2=None):
     if not isinstance(b_ell, np.ndarray):
         b_ell = np.ones(lmax+1)
     nmodes_band  = np.sum((2.*np.arange(0,lmax+1)+1.) * (b_ell)**2 )
@@ -408,13 +435,21 @@ def _get_local_cov(input_maps, lmax, ilc_bias, b_ell=None, mask=None, reduce_bia
 
     for i in range(input_maps.shape[0]):
         for k in range(i,input_maps.shape[0]):
-            if mask is None:
-                cov[i,k]=_get_local_cov_(input_maps[i], input_maps[k], pps, int(np.min([hp.npix2nside(input_maps.shape[1]),128])), reduce_bias=reduce_bias)
+            if input_maps_2 is None:
+                if mask is None:
+                    cov[i,k]=_get_local_cov_(input_maps[i], input_maps[k], pps, int(np.min([hp.npix2nside(input_maps.shape[1]),128])), reduce_bias=reduce_bias)
+                else:
+                    cov[i,k]=_get_local_cov_((input_maps[i]) * mask, (input_maps[k]) * mask, pps, int(hp.npix2nside(input_maps.shape[1])), reduce_bias=reduce_bias)
             else:
-                cov[i,k]=_get_local_cov_(input_maps[i], input_maps[k], pps, int(hp.npix2nside(input_maps.shape[1])), reduce_bias=reduce_bias)
+                if mask is None:
+                    cov[i,k]=_get_local_cov_(input_maps[i], input_maps_2[k], pps, int(np.min([hp.npix2nside(input_maps.shape[1]),128])), reduce_bias=reduce_bias)
+                else:
+                    cov[i,k]=_get_local_cov_((input_maps[i]) * mask, (input_maps_2[k]) * mask, pps, int(hp.npix2nside(input_maps.shape[1])), reduce_bias=reduce_bias)
+
     for i in range(input_maps.shape[0]):
         for k in range(i):
             cov[i,k]=cov[k,i]
+            
     return cov
 
 def _get_local_cov_(map1, map2, pps, *nside_covar, reduce_bias=False):
@@ -459,7 +494,7 @@ def _get_local_cov_(map1, map2, pps, *nside_covar, reduce_bias=False):
     
     # Back to pixel space
 
-    stat_out = hp.alm2map(alm_s, nside_covar, lmax=lmax_stat, verbose=False)
+    stat_out = hp.alm2map(alm_s, nside_covar, lmax=lmax_stat)
 
     return stat_out   
 
@@ -492,14 +527,68 @@ def _get_local_cov_new_(map1, map2, pps, *nside_covar):
     
     # Back to pixel space
 
-    stat_out = hp.alm2map(alm_s, nside_covar, lmax=lmax_stat, verbose=False)
+    stat_out = hp.alm2map(alm_s, nside_covar, lmax=lmax_stat)
 
     return stat_out    
 
 def _save_compsep_products(config: Configs, output_maps, compsep_run, nsim=None):
 #    if config_dir_outputs[-1] != "/":
 #        config_dir_outputs += "/"
-    complete_path = os.path.join(f'{compsep_run["method"]}_{compsep_run["domain"]}_bias{compsep_run["ilc_bias"]}')
+    path_out = _get_full_path_out(config, compsep_run)
+
+    for attr_name, attr_values in vars(output_maps).items():
+        if attr_name == "total":
+            label_out = "output_total"
+        elif attr_name == "cmb":
+            label_out = "output_cmb"
+        else:
+            label_out = attr_name + "_residuals"
+
+        path_c = os.path.join(path_out, f"{label_out}")
+        os.makedirs(path_c, exist_ok=True)
+        if compsep_run["method"] in ["gilc","gpilc"]:
+            for f, freq in enumerate(compsep_run["channels_out"]):
+                if nsim is None:
+                    hp.write_map(f"{path_c}/{config.field_out}_{label_out}_{config.instrument.channels_tags[freq]}_{config.fwhm_out}acm_ns{config.nside}.fits", attr_values[f], overwrite=True)
+                else:
+                    hp.write_map(f"{path_c}/{config.field_out}_{label_out}_{config.instrument.channels_tags[freq]}_{config.fwhm_out}acm_ns{config.nside}_{nsim}.fits", attr_values[f], overwrite=True)
+        else:
+            if nsim is None:
+                hp.write_map(f"{path_c}/{config.field_out}_{label_out}_{config.fwhm_out}acm_ns{config.nside}.fits", attr_values, overwrite=True)
+            else:
+                hp.write_map(f"{path_c}/{config.field_out}_{label_out}_{config.fwhm_out}acm_ns{config.nside}_{nsim}.fits", attr_values, overwrite=True)
+
+def _save_residuals_template(config: Configs, output_maps, compsep_run, nsim=None):
+#    if config_dir_outputs[-1] != "/":
+#        config_dir_outputs += "/"
+    path_out = compsep_run["compsep_path"]
+
+    gnilc_run = (re.search(r'(gilc_[^/]+)', compsep_run["gnilc_path"])).group(1)
+    if "needlet" in gnilc_run:
+        folder_after = (compsep_run["gnilc_path"]).split(gnilc_run + "/")[1].split("/")[0]
+        gnilc_run += f"_{folder_after}"
+
+    for attr_name, attr_values in vars(output_maps).items():
+        if attr_name == "total":
+            label_out = "fgres_templates"
+        elif attr_name == "fgds":
+            label_out = "fgres_templates_ideal"
+        else:
+            label_out = "fgres_templates_" + attr_name
+
+        path_c = os.path.join(path_out, f"{label_out}", gnilc_run)
+        os.makedirs(path_c, exist_ok=True)
+        if nsim is None:
+            hp.write_map(f"{path_c}/{config.field_out}_{label_out}_{config.fwhm_out}acm_ns{config.nside}.fits", attr_values, overwrite=True)
+        else:
+            hp.write_map(f"{path_c}/{config.field_out}_{label_out}_{config.fwhm_out}acm_ns{config.nside}_{nsim}.fits", attr_values, overwrite=True)
+
+def _get_full_path_out(config: Configs, compsep_run):
+    if compsep_run["method"] in ["mc_ilc", "c_ilc", "c_pilc"]:
+        complete_path = os.path.join(f'{compsep_run["method"]}_{compsep_run["domain"]}_bias{compsep_run["ilc_bias"]}_nls{"".join([str(x) for x in compsep_run["special_nls"]])}')    
+    else:
+        complete_path = os.path.join(f'{compsep_run["method"]}_{compsep_run["domain"]}_bias{compsep_run["ilc_bias"]}')
+
     if config.leakage_correction is not None:
         leak_def = (config.leakage_correction).split("_")[0] + (config.leakage_correction).split("_")[1] 
         if "_recycling" in config.leakage_correction:
@@ -507,6 +596,31 @@ def _save_compsep_products(config: Configs, output_maps, compsep_run, nsim=None)
                 iterations = int(re.search(r'iterations(\d+)', config.leakage_correction).group(1))
                 leak_def += f'_iters{iterations}'
         complete_path += f"_{leak_def}"
+
+    if compsep_run["method"] in ["cilc", "c_ilc","cpilc", "c_pilc"]:
+        if compsep_run["domain"] == "pixel":
+            mom_text = "".join(compsep_run["constraints"]["moments"])
+        elif compsep_run["domain"] == "needlet":
+            if all(list(set(row)) == list(set(compsep_run["constraints"]["moments"][0])) for row in compsep_run["constraints"]["moments"]):
+                mom_text = "".join(compsep_run["constraints"]["moments"][0])
+            else:
+                mom_text = ""
+                for idx, row in enumerate(compsep_run["constraints"]["moments"]):
+                    if idx == 0:
+                        mom_text += "".join(row)
+                    else:
+                        if list(set(row)) != list(set(compsep_run["constraints"]["moments"][idx-1])):
+                            mom_text += "_" + "".join(row)
+        if compsep_run["domain"] == "pixel":
+            all_depros = list(set(compsep_run["constraints"]["deprojection"]))
+        elif compsep_run["domain"] == "needlet":
+            all_depros = list(set(element for sublist in compsep_run["constraints"]["deprojection"] for element in sublist))
+        if len(all_depros)==1:
+            if all_depros[0] != 0.:
+                mom_text += f"_depro{all_depros[0]}"
+        else:
+            mom_text += "_mixeddepro"
+        complete_path = os.path.join(complete_path, mom_text)
 
     if compsep_run["domain"] == "needlet":
         text_ = f"{compsep_run['needlet_config']['needlet_windows']}"
@@ -521,18 +635,13 @@ def _save_compsep_products(config: Configs, output_maps, compsep_run, nsim=None)
         else:
             for bandpeak in compsep_run["needlet_config"]["ell_peaks"]:
                 text_ += f"_{bandpeak}"
+        if compsep_run["b_squared"]:
+            text_ += "_nlsquared"
         complete_path = os.path.join(complete_path, text_)
     path_out = os.path.join(config.path_outputs, complete_path)
 
-    for c in range(output_maps.shape[-1]):
-        path_c = os.path.join(path_out, f"{config.labels_outputs[c]}")
-        os.makedirs(path_c, exist_ok=True)
-        if nsim is None:
-            hp.write_map(f"{path_c}/{config.field_out}_{config.labels_outputs[c]}_{config.fwhm_out}acm_ns{config.nside}.fits", output_maps[..., c], overwrite=True)
-        else:
-            hp.write_map(f"{path_c}/{config.field_out}_{config.labels_outputs[c]}_{config.fwhm_out}acm_ns{config.nside}_{str(nsim).zfill(5)}.fits", output_maps[..., c], overwrite=True)
+    return path_out
 
-    
 def merge_dicts(d):
     if isinstance(d, list) and all(isinstance(item, dict) for item in d):
         if all(len(item) == 1 for item in d):
@@ -547,5 +656,55 @@ def merge_dicts(d):
     else:
         raise ValueError("Input must be a list of dictionaries or a single dictionary")
           
-        
+def obj_to_array(obj):
+    """
+    Convert an object with attributes to a numpy array.
+    """
+    if isinstance(obj, SimpleNamespace):
+        allowed_attributes = ["total", "noise", "fgds", "cmb", "dust", "synch", "ame", "co"]
+        array = []
+        for attr in allowed_attributes:
+            if hasattr(obj, attr):
+                array.append(getattr(obj, attr))
+        array = np.array(array)
+        if array.ndim == 3:
+            return np.transpose(array, axes=(1,2,0))
+        elif array.ndim == 4:
+            return np.transpose(array, axes=(1,2,3,0))
+    else:
+        raise ValueError("Input must be a SimpleNamespace object.")
 
+def array_to_obj(array, obj):
+    """
+    Convert a numpy array to an object with attributes.
+    """
+    allowed_attributes = ["total", "noise", "fgds", "cmb", "dust", "synch", "ame", "co"]
+    new_obj = SimpleNamespace()
+
+    count = 0
+    for attr in allowed_attributes:
+        if hasattr(obj, attr):
+            setattr(new_obj, attr, array[..., count])
+            count += 1
+    return new_obj
+
+def _slice_data(data, field_in, field_out):
+    data_out = SimpleNamespace()
+    for attr_name in vars(data):
+        setattr(data_out, attr_name, [])
+    
+    for idx, field in enumerate(field_in):
+        if field in field_out:
+            for attr_name in vars(data):
+                getattr(data_out, attr_name).append(getattr(data, attr_name)[:,idx])
+
+    for attr_name in vars(data_out):
+        if np.array(getattr(data_out, attr_name)).shape[0]==1:
+            setattr(data_out, attr_name, np.squeeze(np.transpose(np.array(getattr(data_out, attr_name)), axes=(1,0,2)), axis=1))        
+        else:
+            setattr(data_out, attr_name, np.transpose(np.array(getattr(data_out, attr_name)), axes=(1,0,2)))
+
+    return data_out
+
+    
+    

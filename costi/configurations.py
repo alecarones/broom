@@ -99,6 +99,7 @@ class Configs:
         self.nsims = self.config.get("nsims", 1)
         self.parallelize = self.config.get("parallelize", False)
         self.compsep_runs = self.config.get("compsep_runs", "")
+        self.compsep_fres_runs = self.config.get("compsep_fres_runs", "")
         self.foreground_models = self.config.get("foreground_models", ["d0","s0"])
         self.field_in = self.config["field_in"]
         self.field_out = self.config.get("field_out", "")        
@@ -106,21 +107,22 @@ class Configs:
         self.pixel_window_in = self.config.get("pixel_window_in", False)
         self.pixel_window_out = self.config.get("pixel_window_out", False)
         self.units = self.config.get("units", "uK_CMB")
+        self.coordinates = self.config.get("coordinates", "G")
         self.leakage_correction = self.config.get("leakage_correction", None)
-        if self.compsep_runs:
+        if self.compsep_runs or self.compsep_fres_runs:
             self.save_compsep_products = self.config.get("save_compsep_products", False)
             self.return_compsep_products = self.config.get("return_compsep_products", True)
             if not self.save_compsep_products and not self.return_compsep_products:
                 raise ValueError("At least one of save_compsep_products and return_compsep_products must be True.")
             if self.save_compsep_products:
                 self.path_outputs = self.config.get("path_outputs", os.getcwd() + "/outputs")
-                self.labels_outputs = self.config.get("labels_outputs", "")
-                if not self.labels_outputs:
-                    raise ValueError("Labels for the output files must be provided.")
+#                self.labels_outputs = self.config.get("labels_outputs", "")
+#                if not self.labels_outputs:
+#                    raise ValueError("Labels for the output files must be provided.")
         self.generate_input_simulations = self.config.get("generate_input_simulations", True)
+        self.bandpass_integrate = self.config.get("bandpass_integrate",False)
         if self.generate_input_simulations:
             self.save_input_simulations = self.config.get("save_input_simulations", False)
-            self.bandpass_integrate = self.config.get("bandpass_integrate",False)
             self.seed_noise = self.config.get("seed_noise", None)
             self.seed_cmb = self.config.get("seed_cmb", None)
             self.cls_cmb_path = self.config.get("cls_cmb_path", "")
