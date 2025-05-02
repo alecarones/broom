@@ -116,7 +116,7 @@ def component_separation(config: Configs, data, nsim = None, mask = None):  # sh
             setattr(outputs, attr, np.array(getattr(outputs, attr)))
         return outputs
 
-def _estimate_residuals(config: Configs, nsim = None, mask = None):  # shape (N_sims, lmax - 1)
+def estimate_residuals(config: Configs, nsim = None, mask = None):  # shape (N_sims, lmax - 1)
     r"""
 
     """
@@ -227,8 +227,8 @@ def _standardize_compsep_config(compsep_run, save_products=True):
             raise ValueError("clusters must be provided for methods 'mcilc' and 'mc_ilc'.")
         if not isinstance(compsep_run["clusters"], str):
             raise ValueError("'clusters' must be a string - either 'ideal' or a path.")
-        if compsep_run["clusters"] != "ideal":
-            if not os.path.exists(compsep_run["clusters"])
+#        if compsep_run["clusters"] != "ideal":
+#            if not os.path.exists(compsep_run["clusters"])
 
     if "save_weights" not in compsep_run:
         compsep_run["save_weights"] = False

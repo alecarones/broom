@@ -56,10 +56,10 @@ def _ilc(config: Configs, input_alms, compsep_run):
         elif input_alms.shape[1] == 2:
             fields_ilc = ["E", "B"]
     elif input_alms.ndim == 3:
-        if config.field_in in ["T", "E", "B"]:
-            fields_ilc = [config.field_in]
-        elif config.field_in in ["QU_E", "QU_B"]:
-            fields_ilc = [config.field_in[-1]]
+        if config.field_out in ["T", "E", "B"]:
+            fields_ilc = [config.field_out]
+        elif config.field_out in ["QU_E", "QU_B"]:
+            fields_ilc = [config.field_out[-1]]
 
     if input_alms.ndim == 4:
         output_maps = np.zeros((input_alms.shape[1], 12 * config.nside**2, input_alms.shape[3]))
