@@ -117,7 +117,7 @@ return_compsep_products: False # True #
 path_outputs: "/home/alecarones/Post-Doc/develop_code_nilcs/outputs/SO_SAT/d1s1" 
 
 # Component separation runs
-compsep_runs:
+compsep:
   - method: "ilc"
     domain: "needlet"
     needlet_config:
@@ -147,7 +147,7 @@ compsep_runs:
 # Configuration to get estimate of the foreground residuals.
 # In gnilc_path the code will look for the multifrequency cleaned foreground maps and the fields specified in field_in.
 # In compsep_path it will search for the component separation weights.
-compsep_fres_runs:
+compsep_residuals:
   - gnilc_path: "/home/alecarones/Post-Doc/develop_code_nilcs/outputs/SO_SAT/d1s1/gilc_needlet_bias0.0/cosine_0_50_100"
     compsep_path: "/home/alecarones/Post-Doc/develop_code_nilcs/outputs/SO_SAT/d1s1/ilc_needlet_bias0.0/cosine_0_50_100"
 
