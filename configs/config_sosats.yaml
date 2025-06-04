@@ -3,11 +3,11 @@
 
 # ==== GENERAL ==== #
 #Minimum multipole where power is injected in simulations
-lmin: 32
+lmin: 2
 # Nside parameter. Used to generate simulations and produce output of compsep.
-nside: 64
+nside: 128
 #Maximum multipole. Used to run component separation. Simulations are always produced up to lmax=3*nside-1.
-lmax: 128
+lmax: 300
 # Data type. Used to set how simulations must be returned (and/or saved) and which kind of data you are passing to compsep.
 data_type: "maps" # "maps" or "alms"
 
@@ -29,12 +29,6 @@ foreground_models: ["d1","s1"]
 experiment: "SO_SAT" 
 # If True, the maps will be brought to a common resolution before running compsep. If False, the maps will be used as they are. Default: True.
 bring_to_common_resolution: True 
-# Nature of inpute beams. Used to generate simulations and to bring maps to a common resolution before compsep.
-# If "file_l" or "file_lm" is chosen, the beams are loaded from 'beams_TEB_{frequency}GHz.fits' file in inputs_path/beams/{experiment} directory.
-# Default: "gaussian".
-input_beams: "gaussian" # "gaussian", "file_l" (symmetric but not gaussian beams), "file_lm" (asymmetric beams)
-# Path to read the beams if input_beams is not "guassian."
-beams_path: ""
 
 # Input field you are providing to compsep with alms or maps. 
 # It can be in ["T","E","B","QU","TQU","EB","TEB"] for maps and in ["T","E","B","EB","TEB"] for alms.
@@ -53,23 +47,34 @@ coordinates: "G"
 
 # Keywords for input simulations. These parameters are not needed for the compsep runs.
 
-# If True, the input simulations are generated. If False, the input simulations are loaded from the paths specified below. Default: True.
-generate_input_simulations: False #True #
+# If True, the input foregrounds are generated. If False, the input foregrounds are loaded from the paths specified below. Default: True.
+generate_input_foregrounds: False #True #
 # If True, when generating/loading input foregrounds, it will keep/load the single components (e.g. dust, synchrotron) of the foregrounds. Default: False.
-return_fgd_components: False
+return_fgd_components: True
 # If True, input foreground maps are obtained after bandpass integration. Default: False.
 # Bandpasses are assumed top-hat in intensity units and their width is read from the instrument configuration file. 
 bandpass_integrate: False
+
+# If True, the input noise maps are generated. If False, the input noise maps are loaded from the paths specified below. Default: True.
+generate_input_noise: False #True #
 # If not null, input noise maps will be generated starting from the provided seed. It must be integer. Default: null.
 seed_noise: null
+
+# If True, the input CMB maps are generated from the angular power spectrum specified in cls_cmb_path. 
+# If False, the input CMB maps are loaded from the paths specified below. Default: True.
+generate_input_cmb: False #True #
 # If not null, input CMB maps will be generated starting from the provided seed. It must be integer. Default: null.
 seed_cmb: null
 # Path to the theoretical CMB power spectra. Used to generate CMB simulations. If not provided, the default Planck 2018 best-fit is used.
-cls_cmb_path: "/home/alecarones/Post-Doc/develop_code_nilcs/data/Cls_Planck2018_lensed_r0.fits"
+cls_cmb_path: "/data/Cls_Planck2018_lensed_r0.fits"
+
+# If True, the input coadded maps will be generated as the sum of foreground, noise and CMB. If False, the input total data are loaded from the path specified below. Default: True.
+generate_input_data: False #True #
+
+
 # If True and generate_input_simulations is True, the input simulations are saved in the paths specified below. Default: False.
-save_input_simulations: True #False # 
-# If True and generate_input_simulations is False, the input simulations are loaded from the paths specified below. Default: True if generate_input_simulations is False.
-load_input_simulations: True #False #
+save_inputs: True #False # 
+
 # Input pixel window function. Default: False.
 # If True, the input maps/alms are convolved for the pixel window function (if simulated) and corrected for it before component separation.
 pixel_window_in: False
@@ -95,6 +100,8 @@ noise_path: "/home/alecarones/Post-Doc/develop_code_nilcs/inputs/SO_SAT/noise/no
 # Output pixel window function. If True, output compsep maps are convolved for the pixel window function. Default: False.
 pixel_window_out: False
 
+mask_path: null #"data/norm_nHits_SA_35FOV_ns512.fits"
+mask_type: "mask_for_compsep" #"observed_patch" # 
 # If provided, polarization maps will be corrected for EB-leakage before running component separation. Default: null.
 # It can be ["EB", "B"] followed by "_purify" or "_recycling".
 # If "_purify" is chosen, the standard purification procedure is implemented.
@@ -144,3 +151,6 @@ compsep_fres_runs:
   - gnilc_path: "/home/alecarones/Post-Doc/develop_code_nilcs/outputs/SO_SAT/d1s1/gilc_needlet_bias0.0/cosine_0_50_100"
     compsep_path: "/home/alecarones/Post-Doc/develop_code_nilcs/outputs/SO_SAT/d1s1/ilc_needlet_bias0.0/cosine_0_50_100"
 
+real_mc_tracers:
+  - channels_tracers: [20, 12]
+    path_tracers: "outputs/LiteBIRD_PTEP/d1s1/tracers"
