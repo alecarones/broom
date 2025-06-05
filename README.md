@@ -5,4 +5,4 @@ A Python package for component separation in CMB data analysis.
 ## Installation
 
 ```bash
-pip install git+https://github.com/yourusername/your_package.git
+pip install git+https://github.com/alecarones/broom.git
