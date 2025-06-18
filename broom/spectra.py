@@ -5,7 +5,7 @@ import fnmatch
 
 from ._compsep import _load_outputs
 from ._masking import _preprocess_mask, _get_mask, _smooth_masks
-from .routines import _slice_data, obj_out_to_array, _slice_outputs, _format_nsim
+from .routines import obj_out_to_array, _slice_outputs, _format_nsim
 from .configurations import Configs
 from types import SimpleNamespace
 from typing import Optional, Union, Dict, Any

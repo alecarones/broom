@@ -81,7 +81,7 @@ class Configs:
             self.instrument = InstrumentConfig()
             self._load_experiment_parameters()
             if self.generate_input_foregrounds and self.bandpass_integrate:
-                    if not hasattr(self.instrument, 'bandwidth') or not hasattr(self.instrument, 'path_bandpasses'):
+                    if not hasattr(self.instrument, 'bandwidth') and not hasattr(self.instrument, 'path_bandpasses'):
                         raise ValueError(f"If bandpass_integrate is True, 'bandwidth' or 'path_bandpasses' must be provided in the experiment yaml file.")
             self.bring_to_common_resolution = self.config.get("bring_to_common_resolution", True)
         
