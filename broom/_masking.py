@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pymaster as nmt
 import os
 
-from .routines import _slice_data, obj_out_to_array
+from .routines import _slice_outputs, obj_out_to_array
 from .configurations import Configs
 
 REMOTE = 'https://irsa.ipac.caltech.edu/data/Planck/release_2/'
@@ -151,7 +151,7 @@ def _get_mask(config: Configs, compute_cls: Dict[str, Any], nsim: Optional[str] 
     npix = obj_out_to_array(compute_cls["outputs"]).shape[-1]
     
     # Define the mask patterns to match against compute_cls["mask_type"]
-    mask_patterns = ['GAL*+fgres', 'GAL*0', 'GAL97', 'GAL99', 'fgres', 'config+fgres', 'config']
+    mask_patterns = ['GAL*+fgres', 'GAL*+fgtemp','GAL*0', 'GAL97', 'GAL99', 'fgres', 'fgtemp', 'config+fgres', 'config+fgtemp', 'config']
 
     # Case 1: No mask defined
     if compute_cls["mask_type"] is None and config.mask_path is None:
@@ -210,22 +210,42 @@ def _get_mask(config: Configs, compute_cls: Dict[str, Any], nsim: Optional[str] 
             mask_init = np.ones(npix)
 
         # Generating and returning the final mask according to the mask_type
-        if 'fgres' in compute_cls["mask_type"]:
+        if 'fgres' in compute_cls["mask_type"] or 'fgtemp' in compute_cls["mask_type"]:
             if not "fsky" in compute_cls:
-                raise ValueError("fsky must be defined in compute_cls when using 'fgres' in mask_type")
+                raise ValueError("fsky must be defined in compute_cls when using 'fgres' or 'fgtemp' in mask_type")
             
-            if not hasattr(compute_cls["outputs"], 'fgds_residuals'):
+            if 'fgres' in compute_cls["mask_type"]:
+                if not hasattr(compute_cls["outputs"], 'fgds_residuals'):
+                    from ._compsep import _load_outputs
+                    fgres = SimpleNamespace()
+                    filename = os.path.join(
+                        compute_cls["path"],
+                        f"fgds_residuals/{compute_cls['field_out']}_fgds_residuals_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}"
+                    )
+                    fgres.total = _load_outputs(filename, compute_cls["field_out"], nsim=nsim)
+                    #fgres = _slice_data(fgres, compute_cls["field_out"], compute_cls["field_cls_in"])
+                    fgres = _slice_outputs(fgres,compute_cls["field_out"],compute_cls["field_cls_in"])
+                    return get_threshold_mask(fgres.total,mask_init,compute_cls["field_cls_in"],compute_cls["fsky"],config.lmax,smooth_tracer=compute_cls["smooth_tracer"])
+                else:
+                    return get_threshold_mask(compute_cls["outputs"].fgds_residuals, mask_init, compute_cls["field_cls_in"], compute_cls["fsky"], config.lmax, smooth_tracer=compute_cls["smooth_tracer"])
+            
+            else:
+                if not hasattr(compute_cls, 'fgres_temp_for_masking'):
+                    raise ValueError("Template of fgds residuals must be defined in compute_cls as 'fgres_temp_for_masking' when using 'fgtemp' in mask_type")
+                
                 from ._compsep import _load_outputs
                 fgres = SimpleNamespace()
                 filename = os.path.join(
                     compute_cls["path"],
-                    f"fgds_residuals/{compute_cls['field_out']}_fgds_residuals_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}"
+                    f"fgres_templates/{compute_cls['fgres_temp_for_masking']}/{compute_cls['field_out']}_fgres_templates_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}"
                 )
                 fgres.total = _load_outputs(filename, compute_cls["field_out"], nsim=nsim)
-                fgres = _slice_data(fgres, compute_cls["field_out"], compute_cls["field_cls_in"])
-                return get_threshold_mask(fgres.total,mask_init,compute_cls["field_cls_in"],compute_cls["fsky"],config.lmax,smooth_tracer=compute_cls["smooth_tracer"])
-            else:
-                return get_threshold_mask(compute_cls["outputs"].fgds_residuals, mask_init, compute_cls["field_cls_in"], compute_cls["fsky"], config.lmax, smooth_tracer=compute_cls["smooth_tracer"])
+                fgres = _slice_outputs(fgres,compute_cls["field_out"],compute_cls["field_cls_in"])
+                if 'fgtemp^3' in compute_cls["mask_type"]:
+                    return get_threshold_mask(fgres.total**3,mask_init,compute_cls["field_cls_in"],compute_cls["fsky"],config.lmax,smooth_tracer=compute_cls["smooth_tracer"])
+                else:
+                    return get_threshold_mask(fgres.total,mask_init,compute_cls["field_cls_in"],compute_cls["fsky"],config.lmax,smooth_tracer=compute_cls["smooth_tracer"])
+                                    
         else:
             return mask_init if n_fields_in == 1 else np.repeat(mask_init[np.newaxis, :], n_fields_in, axis=0)
 
