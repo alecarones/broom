@@ -6,8 +6,38 @@ import string
 import numpy as np
 import healpy as hp
 
-from .utils import join, parse_args
+import argparse
+import yaml
 
+
+def join(loader: yaml.Loader, node: yaml.Node) -> str:
+    """
+    Custom YAML tag to join sequences into a single string.
+    """
+    seq = loader.construct_sequence(node)
+    return "".join([str(i) for i in seq])
+
+
+def parse_args() -> argparse.Namespace:
+    """
+    Parse command-line arguments, especially the configuration file path.
+
+    Returns:
+    - argparse.Namespace: The parsed arguments.
+    """
+    parser = argparse.ArgumentParser(
+        description="Parse arguments and return parser object"
+    )
+
+    parser.add_argument(
+        "-C",
+        "--config_path",
+        type=str,
+        default="configs/test_config.yaml",
+        help="Path to the configuration file. If not provided, takes the default path.",
+    )
+
+    return parser.parse_args()
 
 def get_params(config_path: Optional[str] = None) -> "Configs":
     yaml.add_constructor("!join", join)
@@ -91,7 +121,7 @@ class Configs:
         self.data_type = self.config["data_type"]
 
         self.lmin = self.config.get("lmin", 2)    
-        self.lmax = self.config.get("lmin", 2 * self.nside)
+        self.lmax = self.config.get("lmax", 2 * self.nside)
         self.nside_in = self.config.get("nside_in", self.nside)
         self.fwhm_out = self.config.get("fwhm_out", 2.5 * hp.nside2resol(self.nside, arcmin=True))
         self.verbose = self.config.get("verbose", False)
