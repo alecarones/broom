@@ -1,8 +1,28 @@
 # BROOM: Blind Reconstruction Of signal from Observations in the Microwaves
 
-A Python package for component separation in CMB data analysis.
+A Python package for blind component separation in CMB data analysis.
 
 ## Installation
 
+This package can be installed with: 
+
 ```bash
-pip install git+https://github.com/alecarones/broom.git
+pip install cmbroom
+
+In this case, if you want to use the few functionalities related to pymaster you should have the package already installed with version >= 2.4.
+
+Alternatively, it can be installed automatically with
+
+```bash
+pip install cmbroom[pymaster]
+
+but you **must first install the following system libraries** on your machine:
+
+**On Ubuntu/Debian:**
+```bash
+sudo apt update
+sudo apt install build-essential python3-dev libfftw3-dev libcfitsio-dev
+
+**On macOS (with Homebrew):**
+```bash
+brew install fftw cfitsio
