@@ -13,7 +13,7 @@ pip install cmbroom
 ```
 
 This installs the core functionality.  
-If you plan to use features that depend on `pymaster`, **you must install it separately** (version `>=2.4`).
+If you plan to use the few functions that depend on `pymaster`, **you must install it separately** (version `>=2.4`).
 
 ---
 
