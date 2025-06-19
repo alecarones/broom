@@ -12,23 +12,28 @@ You can install the base package using:
 pip install cmbroom
 ```
 
-In this case, if you want to use the few functionalities related to pymaster you should have the package already installed with version >= 2.4.
+This installs the core functionality.  
+If you plan to use features that depend on `pymaster`, **you must install it separately** (version `>=2.4`).
 
-Alternatively, it can be installed automatically with
+---
+
+### 🔧 To include `pymaster` automatically:
+
+You can install `cmbroom` along with its optional `pymaster` dependency by running:
 
 ```
 pip install cmbroom[pymaster]
 ```
 
-but you **must first install the following system libraries** on your machine:
+However, `pymaster` requires some additional system libraries to be installed **before** running the above command.
 
-**On Ubuntu/Debian:**
+#### ✅ On Ubuntu/Debian:
 ```
 sudo apt update
 sudo apt install build-essential python3-dev libfftw3-dev libcfitsio-dev
 ```
 
-**On macOS (with Homebrew):**
+#### ✅ On macOS (using Homebrew):
 ```
 brew install fftw cfitsio
 ```
