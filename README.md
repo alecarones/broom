@@ -39,3 +39,16 @@ sudo apt install build-essential python3-dev libfftw3-dev libcfitsio-dev
 ```
 brew install fftw cfitsio
 ```
+
+### Dependencies
+
+The dependencies are:
+
+- [numpy>1.18.5](https://numpy.org/)
+- [scipy>=1.8](https://scipy.org/)
+- [healpy>=1.15](https://healpy.readthedocs.io/)
+- [pysm3>=3.3.2](https://pysm3.readthedocs.io/en/latest/#)
+- [mtneedlet>=0.0.5](https://javicarron.github.io/mtneedlet/)
+- [sciki-learn>=1.7.0](https://scikit-learn.org/stable/)
+
+
