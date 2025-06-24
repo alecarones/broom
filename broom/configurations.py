@@ -130,10 +130,10 @@ class Configs:
         self.lmax = self.config.get("lmax") or 2 * self.nside
         self.nside_in = self.config.get("nside_in") or self.nside
         self.fwhm_out = self.config.get("fwhm_out") or 2.5 * hp.nside2resol(self.nside, arcmin=True)
-        self.verbose = self.config.get("verbose") or False
+        self.verbose = self.config.get("verbose", False)
         self.nsim_start = self.config.get("nsim_start") or 0
         self.nsims = self.config.get("nsims") or 1
-        self.parallelize = self.config.get("parallelize") or False
+        self.parallelize = self.config.get("parallelize", False)
         self.path_utils = self.config.get("path_utils") or os.path.join(base_dir, "utils")
         self.compsep = self.config.get("compsep") or ""
         self.compsep_residuals = self.config.get("compsep_residuals") or ""
@@ -144,34 +144,34 @@ class Configs:
         self.field_out = self.config.get("field_out") or "TQU"
         self.experiments_file = self.config.get("experiments_file") or os.path.join(self.path_utils, "experiments.yaml") 
         self.experiment = self.config.get("experiment") or ""
-        self.pixel_window_in = self.config.get("pixel_window_in") or False
-        self.pixel_window_out = self.config.get("pixel_window_out") or False
+        self.pixel_window_in = self.config.get("pixel_window_in", False)
+        self.pixel_window_out = self.config.get("pixel_window_out", False)
         self.units = self.config.get("units") or "uK_CMB"
         self.coordinates = self.config.get("coordinates") or "G"
 #        self.mask_path = self.config.get("mask_path")
 #        self.mask_type = self.config.get("mask_type") or "mask_for_compsep"
-        self.mask_observations = self.config.get("mask_observations") or None
-        self.mask_covariance = self.config.get("mask_covariance") or None
+        self.mask_observations = self.config.get("mask_observations", None)
+        self.mask_covariance = self.config.get("mask_covariance", None)
         self.leakage_correction = self.config.get("leakage_correction")
         if self.compsep or self.compsep_residuals or self.combine_outputs:
-            self.save_compsep_products = self.config.get("save_compsep_products") or True
-            self.return_compsep_products = self.config.get("return_compsep_products") or False
+            self.save_compsep_products = self.config.get("save_compsep_products", True)
+            self.return_compsep_products = self.config.get("return_compsep_products", False)
             if not self.save_compsep_products and not self.return_compsep_products:
                 raise ValueError("At least one of save_compsep_products and return_compsep_products must be True.")
         self.path_outputs = self.config.get("path_outputs") or os.path.join(os.getcwd(), "outputs", self.experiment, ''.join(self.foreground_models))
         self.path_outputs = os.path.normpath(os.path.join(os.getcwd(), self.path_outputs))
 
-        self.generate_input_foregrounds = self.config.get("generate_input_foregrounds") or True
-        self.generate_input_noise = self.config.get("generate_input_noise") or True
-        self.generate_input_cmb = self.config.get("generate_input_cmb") or True
-        self.generate_input_data = self.config.get("generate_input_data") or True
-        self.bandpass_integrate = self.config.get("bandpass_integrate") or False
+        self.generate_input_foregrounds = self.config.get("generate_input_foregrounds", True)
+        self.generate_input_noise = self.config.get("generate_input_noise", True)
+        self.generate_input_cmb = self.config.get("generate_input_cmb", True)
+        self.generate_input_data = self.config.get("generate_input_data", True)
+        self.bandpass_integrate = self.config.get("bandpass_integrate", False)
         if self.generate_input_foregrounds or self.generate_input_noise or self.generate_input_cmb or self.generate_input_data:
-            self.save_inputs = self.config.get("save_inputs") or False
+            self.save_inputs = self.config.get("save_inputs", False)
         if self.generate_input_noise:
-            self.seed_noise = self.config.get("seed_noise")
+            self.seed_noise = self.config.get("seed_noise", None)
         if self.generate_input_cmb:
-            self.seed_cmb = self.config.get("seed_cmb")
+            self.seed_cmb = self.config.get("seed_cmb", None)
             self.cls_cmb_path = self.config.get("cls_cmb_path") or os.path.join(base_dir, "utils", "Cls_Planck2018_lensed_r0.fits")
 
         # Input/output paths   
@@ -195,7 +195,7 @@ class Configs:
         self.fgds_path = self.config.get("fgds_path") or def_fgds_path
         self.fgds_path = os.path.normpath(os.path.join(os.getcwd(), self.fgds_path))
 
-        self.return_fgd_components = self.config.get("return_fgd_components") or False
+        self.return_fgd_components = self.config.get("return_fgd_components", False)
 
         self._validate_paths()
 
@@ -203,10 +203,10 @@ class Configs:
         if self.compute_spectra:
             self.delta_ell = self.config.get("delta_ell") or 1
             self.spectra_comp = self.config.get("spectra_comp") or "anafast"
-            self.return_Dell = self.config.get("return_Dell") or False
+            self.return_Dell = self.config.get("return_Dell", False)
             self.field_cls_out = self.config.get("field_cls_out") or self.field_out
-            self.save_spectra = self.config.get("save_spectra") or True
-            self.return_spectra = self.config.get("return_spectra") or True
+            self.save_spectra = self.config.get("save_spectra", True)
+            self.return_spectra = self.config.get("return_spectra", True)
             
     def _validate_paths(self):
         for name, flag in zip(
