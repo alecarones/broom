@@ -29,3 +29,4 @@ Issues = "https://github.com/alecarones/broom/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
+include = ["broom", "broom.*"]

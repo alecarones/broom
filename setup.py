@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="broom",
+    name="cmbroom",
     version="0.1.0",
     description="A Python package for blind component separation of microwave sky maps.",
     author="Alessandro Carones",
@@ -16,13 +16,14 @@ setup(
     long_description_content_type="text/markdown",
     license="GPL-3.0-or-later",
     python_requires=">=3.8",
-    packages=find_packages(where="."),
+    packages=find_packages(where=".",include=["broom", "broom.*"]),
     install_requires=[
         "numpy>=1.18.5",
         "scipy>=1.8",
         "healpy>=1.15",
         "pysm3>=3.3.2",
         "mtneedlet>=0.0.5",
+        "scikit-learn>=1.7.0",
     ],
     include_package_data=True,
     classifiers=[
