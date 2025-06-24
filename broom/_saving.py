@@ -29,19 +29,58 @@ def _save_compsep_products(
         Simulation index for saving multiple realizations.
     """
 
-    path_out = _get_full_path_out(config, compsep_run)
+    if 'path_out' not in compsep_run:
+        compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
 
     if compsep_run["method"] in ["cilc", "c_ilc","cpilc", "c_pilc"]:
-        if 'mixeddepro' in path_out:
-            moms_info = np.column_stack(
-                [compsep_run["constraints"]["moments"], compsep_run["constraints"]["deprojection"]]
-            )
-            np.savetxt(
-                os.path.join(path_out, "constraints_moments_deprojection.txt"),
-                moms_info,
-                fmt="%s",
-                header="Moments and deprojection constraints used in the component separation run"
-            )
+        if 'mixed' in compsep_run["path_out"]:
+            with open(os.path.join(compsep_run["path_out"], "constraints_info.txt"), "w") as f: 
+                f.write("# Moments and deprojection constraints used in the component separation run\n\n")
+                
+                moments_header = "# Moments per needlet band (if applicable):\n"
+                f.write(moments_header)
+                if compsep_run["domain"] == "needlet":
+                    for row in compsep_run["constraints"]["moments"]:
+                        f.write(" ".join(row) + "\n")
+                else:
+                    f.write(" ".join(compsep_run["constraints"]["moments"]) + "\n")
+                f.write("\n")
+                
+                depro_header = "# Deprojection coefficients per needlet band (if applicable):\n"
+                f.write(depro_header)
+                if compsep_run["domain"] == "needlet":
+                    for row in compsep_run["constraints"]["deprojection"]:
+                        f.write(" ".join(map(str, row)) + "\n")
+                else:
+                    f.write(" ".join(map(str, compsep_run["constraints"]["deprojection"])) + "\n")
+                f.write("\n")
+                
+                beta_d_header = "# Beta_d values per needlet band (if applicable):\n"
+                f.write(beta_d_header)
+                if compsep_run["domain"] == "needlet":
+                    for row in compsep_run["constraints"]["beta_d"]:
+                        f.write(f"{row}\n")
+                else:
+                    f.write(f'{compsep_run["constraints"]["beta_d"]}\n')
+                f.write("\n")
+                
+                T_d_header = "# T_d values per needlet band (if applicable):\n"
+                f.write(T_d_header)
+                if compsep_run["domain"] == "needlet":
+                    for row in compsep_run["constraints"]["T_d"]:
+                        f.write(f"{row}\n")
+                else:
+                    f.write(f'{compsep_run["constraints"]["T_d"]}\n')
+                f.write("\n")
+                
+                beta_s_header = "# Beta_s values per needlet band (if applicable):\n"
+                f.write(beta_s_header)
+                if compsep_run["domain"] == "needlet":
+                    for row in compsep_run["constraints"]["beta_s"]:
+                        f.write(f"{row}\n")
+                else:
+                    f.write(f'{compsep_run["constraints"]["beta_s"]}\n')
+                f.write("\n")
 
     for attr_name, attr_values in vars(output_maps).items():
         if attr_name == "total":
@@ -53,7 +92,7 @@ def _save_compsep_products(
         else:
             label_out = f"{attr_name}_residuals"
 
-        path_c = os.path.join(path_out, f"{label_out}")
+        path_c = os.path.join(compsep_run["path_out"], f"{label_out}")
         os.makedirs(path_c, exist_ok=True)
 
         if compsep_run["method"] in ["gilc","gpilc"]:
@@ -77,6 +116,10 @@ def _save_compsep_products(
             compsep_run["method"] in ["fgd_diagnostic", "fgd_P_diagnostic"]
             and compsep_run["domain"] == "needlet"
         ):
+            if nsim is not None:
+                path_c = os.path.join(path_c, f"{nsim}")
+                os.makedirs(path_c, exist_ok=True)
+            
             for j in range(attr_values.shape[-2]):
                 filename = (
                     f"{config.field_out}_{label_out}_nl{j}_{config.fwhm_out}acm_"
@@ -89,7 +132,7 @@ def _save_compsep_products(
                     hp.write_map(os.path.join(path_c, filename), attr_values[j], overwrite=True)
                 elif attr_values.ndim == 3:
                     hp.write_map(os.path.join(path_c, filename), attr_values[:,j], overwrite=True)
-        else:
+        else:              
             filename = (
                 f"{config.field_out}_{label_out}_{config.fwhm_out}acm_"
                 f"ns{config.nside}_lmax{config.lmax}"
@@ -189,8 +232,24 @@ def _get_full_path_out(config: Configs, compsep_run: Dict[str, Any]) -> str:
                     complete_path += f"_deproCMB{depro_val}_nls{'-'.join(map(str, nls_depro))}"
     else:
         complete_path = f'{compsep_run["method"]}_{compsep_run["domain"]}_bias{compsep_run["ilc_bias"]}'
-    
-    if config.leakage_correction is not None:
+
+    if compsep_run["method"] in ["gilc", "gpilc", "fgd_diagnostic", "fgd_P_diagnostic"]:
+        if not compsep_run["cmb_nuisance"]:
+            complete_path += "_nocmbnuisance"
+
+    if compsep_run["method"] != "mcilc":
+        if compsep_run["domain"] == "pixel":
+            if compsep_run["cov_noise_debias"] != 0.:
+                complete_path += f"_noidebias{compsep_run['cov_noise_debias']}"
+        elif compsep_run["domain"] == "needlet":
+            debias_array = np.array(compsep_run["cov_noise_debias"])        
+            if any(debias_array != 0.):
+                for debias_val in np.unique(debias_array[debias_array != 0.]):
+                    nls_debias = np.where(debias_array == debias_val)[0]
+                    complete_path += f"_noidebias{debias_val}_nls{'-'.join(map(str, nls_debias))}"
+
+#    if (config.leakage_correction is not None) and ("QU" in config.field_in) and (config.mask_type == "observed_patch"):
+    if (config.leakage_correction is not None) and ("QU" in config.field_in) and (config.mask_observations is not None):
         leak_def = (config.leakage_correction).split("_")[0] + (config.leakage_correction).split("_")[1] 
         if "_recycling" in config.leakage_correction:
             if "_iterations" in config.leakage_correction:
@@ -212,18 +271,65 @@ def _get_full_path_out(config: Configs, compsep_run: Dict[str, Any]) -> str:
                     else:
                         if list(set(row)) != list(set(compsep_run["constraints"]["moments"][idx-1])):
                             mom_text += "_" + "".join(row)
-        if compsep_run["domain"] == "pixel":
-            all_depros = list(set(compsep_run["constraints"]["deprojection"]))
-        elif compsep_run["domain"] == "needlet":
-            all_depros = list(set(element for sublist in compsep_run["constraints"]["deprojection"] for element in sublist))
+        
+        if isinstance(compsep_run["constraints"]["deprojection"], float):  # Handle case where deprojection is a single float
+            all_depros = [compsep_run["constraints"]["deprojection"]]
+        elif isinstance(compsep_run["constraints"]["deprojection"], list):  # Handle case where deprojection is a list
+            if all(isinstance(sublist, list) for sublist in compsep_run["constraints"]["deprojection"]):  # Check if it's a list of lists
+                all_depros = list(set(element for sublist in compsep_run["constraints"]["deprojection"] for element in sublist))
+            else:  # Handle case where deprojection is a flat list
+                all_depros = list(set(compsep_run["constraints"]["deprojection"]))
         if len(all_depros)==1:
             if all_depros[0] != 0.:
                 mom_text += f"_depro{all_depros[0]}"
         else:
+            mom_text += f"_mixeddepro"
+            
+        if isinstance(compsep_run["constraints"]["beta_d"], float):  # Handle case where beta_d is a single float
+            all_betad = [compsep_run["constraints"]["beta_d"]]
+        elif isinstance(compsep_run["constraints"]["beta_d"], list):  # Handle case where beta_d is a list
+            if all(isinstance(sublist, list) for sublist in compsep_run["constraints"]["beta_d"]):  # Check if it's a list of lists
+                all_betad = list(set(element for sublist in compsep_run["constraints"]["beta_d"] for element in sublist))
+            else:  # Handle case where beta_d is a flat list
+                all_betad = list(set(compsep_run["constraints"]["beta_d"]))
+        if len(all_betad)==1:
+            if all_betad[0] != 1.54:
+                mom_text += f"_bd{all_betad[0]}"
+        else:
+            mom_text += f"_mixedbd"
+
+        if isinstance(compsep_run["constraints"]["T_d"], float):  # Handle case where T_d is a single float
+            all_Td = [compsep_run["constraints"]["T_d"]]
+        elif isinstance(compsep_run["constraints"]["T_d"], list):  # Handle case where T_d is a list
+            if all(isinstance(sublist, list) for sublist in compsep_run["constraints"]["T_d"]):  # Check if it's a list of lists
+                all_Td = list(set(element for sublist in compsep_run["constraints"]["T_d"] for element in sublist))
+            else:  # Handle case where T_d is a flat list
+                all_Td = list(set(compsep_run["constraints"]["T_d"]))
+        if len(all_Td)==1:
+            if all_Td[0] != 20.:
+                mom_text += f"_Td{all_Td[0]}"
+        else:
+            mom_text += f"_mixedTd"
+
+        if isinstance(compsep_run["constraints"]["beta_s"], float):  # Handle case where beta_s is a single float
+            all_betas = [compsep_run["constraints"]["beta_s"]]
+        elif isinstance(compsep_run["constraints"]["beta_s"], list):  # Handle case where beta_s is a list
+            if all(isinstance(sublist, list) for sublist in compsep_run["constraints"]["beta_s"]):  # Check if it's a list of lists
+                all_betas = list(set(element for sublist in compsep_run["constraints"]["beta_s"] for element in sublist))
+            else:  # Handle case where beta_s is a flat list
+                all_betas = list(set(compsep_run["constraints"]["beta_s"]))
+        if len(all_betas)==1:
+            if all_betas[0] != -3.:
+                mom_text += f"_bs{all_betas[0]}"
+        else:
+            mom_text += f"_mixedbs"
+
+        if len(all_betas) > 1 or len(all_depros) > 1 or len(all_Td) > 1 or len(all_betad) > 1:
             case = 1
-            while os.path.exists(os.path.join(config.path_outputs, complete_path, f"{mom_text}_mixeddepro_case{case}")):
+            while os.path.exists(os.path.join(config.path_outputs, complete_path, f"{mom_text}_case{case}")):
                 case += 1
-            mom_text += f"_mixeddepro_case{case}"
+            mom_text += f"_case{case}"
+
         complete_path = os.path.join(complete_path, mom_text)
 
     if compsep_run["domain"] == "needlet":
@@ -239,7 +345,7 @@ def _get_full_path_out(config: Configs, compsep_run: Dict[str, Any]) -> str:
         else:
             for bandpeak in compsep_run["needlet_config"]["ell_peaks"]:
                 text_ += f"_{bandpeak}"
-        if compsep_run["b_squared"]:
+        if compsep_run["b_squared"] or compsep_run["method"] in ["pilc", "cpilc", "c_pilc", "gpilc", "fgd_P_diagnostic"]:
             text_ += "_nlsquared"
         complete_path = os.path.join(complete_path, text_)
 
@@ -247,6 +353,7 @@ def _get_full_path_out(config: Configs, compsep_run: Dict[str, Any]) -> str:
         text_ = compsep_run["mc_type"]
         for freq_tracer in compsep_run["channels_tracers"]:
             text_ += f"_{config.instrument.channels_tags[freq_tracer]}"
+        text_ += f"_{compsep_run['n_patches']}patches"
         complete_path = os.path.join(complete_path, text_)
 
     path_out = os.path.join(config.path_outputs, complete_path)
@@ -359,7 +466,7 @@ def save_ilc_weights(
     nl_scale: Optional[Union[int, None]] = None
 ) -> None:
     """
-    Save component separation weights to disk with appropriate metadata in filename.
+    Save ILC component separation weights to disk with appropriate metadata in filename.
 
     Parameters
     ----------
@@ -374,8 +481,7 @@ def save_ilc_weights(
     nl_scale : int, optional
         Needlet scale index for the corresponding ILC run.
     """
-    path_out = _get_full_path_out(config, compsep_run)
-    path_w = os.path.join(path_out, "weights")
+    path_w = os.path.join(compsep_run["path_out"], "weights")
     os.makedirs(path_w, exist_ok=True)
     filename = os.path.join(path_w, f"weights_{compsep_run['field']}_{config.fwhm_out}acm_ns{nside_}_lmax{config.lmax}")
     if nl_scale is not None:
@@ -406,14 +512,15 @@ def save_spectra(
     """
 
     path_spectra = os.path.join(compute_cls["path"], 'spectra')
-    mask_patterns = ['GAL*+fgres', 'GAL*0', 'GAL97', 'GAL99', 'fgres', 'config+fgres', 'config']
-    
+    mask_patterns = ['GAL*+fgres', 'GAL*+fgtemp', 'GAL*+fgtemp^3','GAL*0', 'GAL97', 'GAL99', 'fgres', 'fgtemp', 
+            'fgtemp^3', 'config+fgres', 'config+fgtemp', 'config+fgtemp^3', 'config']
+
     if compute_cls["mask_type"] is None and config.mask_path is None:
         mask_name = 'fullsky'
     elif compute_cls["mask_type"] is None and config.mask_path is not None:
         mask_name = "fullpatch"
     elif any(fnmatch.fnmatch(compute_cls["mask_type"], pattern) for pattern in mask_patterns):
-        if 'fgres' in compute_cls["mask_type"]:
+        if 'fgres' in compute_cls["mask_type"] or 'fgtemp' in compute_cls["mask_type"]:
             mask_name = compute_cls["mask_type"] + f"_fsky{compute_cls['fsky']}"
             if "smooth_tracer" in compute_cls:
                 mask_name += f"_{compute_cls['smooth_tracer']}deg"
@@ -431,12 +538,14 @@ def save_spectra(
     
     post_filename = f"_{nsim}" if nsim is not None else ""
 
+    pre_filename = "Dls" if config.return_Dell else "Cls"
+
     for component in compute_cls["components_for_cls"]:
         component_name = component.split('/')[0] if '/' in component else component
         os.makedirs(os.path.join(path_spectra, component), exist_ok=True)
         filename = os.path.join(
             path_spectra,
-            f"{component}/{config.field_cls_out}_{component_name}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}{post_filename}.fits"
+            f"{component}/{pre_filename}_{config.field_cls_out}_{component_name}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}{post_filename}.fits"
         )
         hp.write_cl(filename, getattr(cls_out, component_name), overwrite=True)
         

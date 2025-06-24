@@ -13,7 +13,7 @@ from .configurations import Configs
 from .routines import (
     _get_ell_filter,
     _get_beam_from_file,
-    _map2alm_kwargs,
+    _map2alm_kwargs, _log
 )
 
 prefix_to_attr = {
@@ -52,6 +52,7 @@ def _get_data_foregrounds_(config: Configs, **kwargs: Any) -> SimpleNamespace:
         Configuration parameters. It should have the following attributes:
         - `generate_input_foregrounds`: Whether to generate foreground maps.
         - `foreground_models`: List of foreground models to generate.
+        - 'path_utils': Path to utility files (e.g., depth maps, hits maps, bandpasses, beams).
         - 'instrument': a dictionary containing the instrument configuration, including:
             - `frequency`: List of instrument frequencies in GHz.
             - `beams`: Type of beams to be used (e.g., "gaussian", "file_l", "file_lm").
@@ -62,14 +63,21 @@ def _get_data_foregrounds_(config: Configs, **kwargs: Any) -> SimpleNamespace:
             - 'depth_P': Depth for polarization maps in arcmin*uK_CMB (optional).
                         If not provided, it will be assumed to be the intensity depth multiplied by sqrt(2).
                         Used if path_depth_maps is not provided.
-            - `path_beams`: Path to the beam files (if using "file_l" or "file_lm" beams).
+            - `path_beams`: Path to the beam files (if using "file_l" or "file_lm" beams). 
+                        The final path will be path_beams = config.path_utils + path_beams.
+                        The code will look for files named "{path_beams}_{channel_tag}.fits" for each frequency channel.
             - `channels_tags`: List of tags for each frequency channel, used for loading beams, bandpasses or depth maps.
             - 'bandwidths': List of relative bandwidths for each frequency channel (optional, used if bandpass_integrate is True).
                         Used if path_bandpasses is not provided.
-            - `path_depth_maps`: Path to depth maps (optional, used if generating noise).
-            - `path_hits_maps`: Path to hits maps (optional, used if generating noise and 'path_depth_maps' is not provided).
+            - `path_depth_maps`: Path to depth maps (optional, used if generating noise). 
+                        The total path will be path_depth_maps = config.path_utils + path_depth_maps.
+                        The code will look for files named "{path_depth_maps}_{channel_tag}.fits" for each frequency channel.
+            - `path_hits_maps`: Path to hits maps (optional, used if generating noise and 'depth_maps' is not provided).
+                        the final path will be path_hits_maps = config.path_utils + path_hits_maps.
+                        If it does not end with .fits, the code will look for files named "{path_hits_maps}_{channel_tag}.fits" for each frequency channel.
             - `path_bandpasses`: Path to bandpass files (optional, used if bandpass_integrate is True).
-                        It should contain files named as "bandpass_{channel_tag}.npy" for each channel tag.
+                        The final path will be path_bandpasses = config.path_utils + path_bandpasses.
+                        It will look for files named as "{path_bandpasses}_{channel_tag}.npy" for each channel tag.
                         Each file should be a 2D array which has the first column a list of frequencies in GHz and the second column the corresponding bandpass response.
             - `ell_knee`: List of knee frequencies for each channel for the noise power spectrum (optional).
                         If not provided, white noise is assumed.
@@ -118,8 +126,7 @@ def _get_data_foregrounds_(config: Configs, **kwargs: Any) -> SimpleNamespace:
         )
         
         if config.save_inputs:
-            if config.verbose:
-                print(f"Saving foreground maps in {config.fgds_path} directory")
+            _log(f"Saving foreground maps in {config.fgds_path} directory", verbose=config.verbose)
             _save_input_foregrounds(config.fgds_path, foregrounds, config.foreground_models)
     else:
         foregrounds = SimpleNamespace()
@@ -174,7 +181,8 @@ def _get_data_simulations_(
             - `path_depth_maps`: Path to depth maps (optional, used if generating noise).
             - `path_hits_maps`: Path to hits maps (optional, used if generating noise and 'path_depth_maps' is not provided).
             - `path_bandpasses`: Path to bandpass files (optional, used if bandpass_integrate is True).
-                        It should contain files named as "bandpass_{channel_tag}.npy" for each channel tag.
+                        The final path will be path_bandpasses = config.path_utils + path_bandpasses.
+                        The code will look for files named as "{path_bandpasses}_{channel_tag}.npy" for each channel tag.
                         Each file should be a 2D array which has the first column a list of frequencies in GHz and the second column the corresponding bandpass response.
             - `ell_knee`: List of knee frequencies for each channel for the noise power spectrum (optional).
                         If not provided, white noise is assumed.
@@ -205,6 +213,7 @@ def _get_data_simulations_(
     data = SimpleNamespace()
 
     if config.generate_input_cmb:
+        _log(f"Generating CMB simulation" + f" {nsim}" if nsim is not None else "", verbose=config.verbose)
         data.cmb = _get_cmb_simulation(config, nsim=nsim)
     elif config.cmb_path is not None:
         if config.verbose:
@@ -213,6 +222,7 @@ def _get_data_simulations_(
         data.cmb = _load_inputs(config.cmb_path, nsim=nsim)
 
     if config.generate_input_noise:
+        _log(f"Generating noise simulation" + f" {nsim}" if nsim is not None else "", verbose=config.verbose)
         data.noise = _get_noise_simulation(config, nsim=nsim, **kwargs)
     elif config.noise_path is not None:
         if config.verbose:
@@ -221,6 +231,7 @@ def _get_data_simulations_(
         data.noise = _load_inputs(config.noise_path, nsim=nsim)
 
     if config.generate_input_data:
+        _log(f"Generating coadded signal" + f" for simulation {nsim}" if nsim is not None else "", verbose=config.verbose)
         if hasattr(data, 'cmb') and hasattr(data, 'noise') and foregrounds is not None:
             data.total = data.noise + data.cmb + foregrounds.total
             if config.save_inputs:
@@ -347,13 +358,11 @@ def _get_noise_simulation(config: Configs, nsim: Optional[Union[int, str]] = Non
 
         # Load or set hits map if available
         if hasattr(config.instrument, 'path_hits_maps'):
-            if config.instrument.path_hits_maps[-5:] == ".fits":
+            if config.instrument.path_hits_maps.endswith(".fits"):
                 hits_map = hp.read_map(config.instrument.path_hits_maps, field=0, dtype=np.float64)
                 if hp.get_nside(hits_map) != config.nside:
                     hits_map = hp.ud_grade(hits_map, nside_out=config.nside, power=-2)
                 hits_map /= np.amax(hits_map)
-            else:
-                raise ValueError("path_hits_maps must be a .fits file.")
     else:
         depth_i = [1.] * len(config.instrument.frequency)
         depth_p = [1.] * len(config.instrument.frequency)
@@ -374,7 +383,7 @@ def _get_noise_simulation(config: Configs, nsim: Optional[Union[int, str]] = Non
     for nf, _ in enumerate(config.instrument.frequency):
         # Load depth maps if path provided
         if hasattr(config.instrument, 'path_depth_maps'):
-            depth_map_fn = os.path.join(config.instrument.path_depth_maps, f"depth_map_{config.instrument.channels_tags[nf]}.fits")
+            depth_map_fn = config.instrument.path_depth_maps + f"_{config.instrument.channels_tags[nf]}.fits"
             try:
                 depth_maps_in = hp.read_map(depth_map_fn, field=(0,1), dtype=np.float64)
             except IndexError:
@@ -389,7 +398,7 @@ def _get_noise_simulation(config: Configs, nsim: Optional[Union[int, str]] = Non
             del depth_maps_in
         elif hasattr(config.instrument, 'path_hits_maps'):
             if not config.instrument.path_hits_maps.endswith(".fits"):
-                hits_file = os.path.join(config.instrument.path_hits_maps, f"hits_map_{config.instrument.channels_tags[nf]}.fits")
+                hits_file = config.instrument.path_hits_maps + f"_{config.instrument.channels_tags[nf]}.fits"
                 hits_map = hp.read_map(hits_file, field=0, dtype=np.float64)
                 if hp.get_nside(hits_map) != config.nside:
                     hits_map = hp.ud_grade(hits_map, nside_out=config.nside, power=-2)
@@ -482,8 +491,10 @@ def _get_cmb_simulation(config: Configs, nsim: Optional[Union[int, str]] = None,
     # Getting default path to CMB power spectrum, if not provided in config
     if not config.cls_cmb_path:
         # Define the path to the FITS file
-        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-        config.cls_cmb_path = os.path.join(base_dir, "utils", "Cls_Planck2018_lensed_r0.fits")
+        raise ValueError(
+            "No CMB power spectrum path provided. Please set 'cls_cmb_path' in the configuration."
+        )
+        
 
     # Load the CMB power spectrum FITS file
     cls_cmb = hp.read_cl(config.cls_cmb_path)
@@ -507,9 +518,7 @@ def _get_cmb_simulation(config: Configs, nsim: Optional[Union[int, str]] = None,
                 nside_out=config.nside if config.pixel_window_in else None
             )
         else:
-            beamfile = os.path.join(
-                config.instrument.path_beams, f"beam_TEB_{config.instrument.channels_tags[idx]}.fits"
-            )
+            beamfile = config.instrument.path_beams + f"_{config.instrument.channels_tags[idx]}.fits"
             alm_cmb_i = _smooth_input_alms_(
                 alm_cmb,
                 beam_path=beamfile,
@@ -701,7 +710,7 @@ def _get_foreground_component(
         if bandpass_integrate:
             if hasattr(instrument, 'path_bandpasses'):
                 # Reading bandpass from file
-                bandpass_file = os.path.join(instrument.path_bandpasses, f"bandpass_{instrument.channels_tags[idx]}.npy")
+                bandpass_file = instrument.path_bandpasses + f"_{instrument.channels_tags[idx]}.npy"
                 frequencies, bandpass_weights = np.load(bandpass_file)
             else:
                 # Create a top-hat bandpass
@@ -731,7 +740,7 @@ def _get_foreground_component(
                 nside_out=nside_out if pixel_window else None
             )
         else:
-            beamfile = os.path.join(instrument.path_beams, f"/beam_TEB_{instrument.channels_tags[idx]}.fits")
+            beamfile = instrument.path_beams + f"_{instrument.channels_tags[idx]}.fits"
             alm_emission = _smooth_input_alms_(
                 alm_emission,
                 beam_path=beamfile,

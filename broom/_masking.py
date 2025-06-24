@@ -5,14 +5,14 @@ from types import SimpleNamespace
 import pymaster as nmt
 import os
 
-from .routines import _slice_outputs, obj_out_to_array
+from .routines import _slice_outputs, obj_out_to_array, _slice_data
 from .configurations import Configs
 
 REMOTE = 'https://irsa.ipac.caltech.edu/data/Planck/release_2/'
 import os.path as op
 from astropy.utils.data import download_file
 import astropy
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional, Union, Tuple
 
 
 def _preprocess_mask(mask: np.ndarray, nside_out: int) -> np.ndarray:
@@ -39,8 +39,8 @@ def _preprocess_mask(mask: np.ndarray, nside_out: int) -> np.ndarray:
     if isinstance(mask, np.ndarray):
         try:
             nside_mask = hp.get_nside(mask)
-            if not is_binary_mask(mask):
-                print("Provided mask is not binary. Mask is assumed to be a hits map.")
+#            if not is_binary_mask(mask):
+#                print("Provided mask is not binary. Mask is assumed to be a hits map.")
             if nside_mask < nside_out:
                 print("Provided mask has lower HEALPix resolution than that required for outputs. Mask will be upgraded to the output resolution.")
                 mask = _upgrade_mask(mask, nside_out)
@@ -121,7 +121,7 @@ def _get_mask(config: Configs, compute_cls: Dict[str, Any], nsim: Optional[str] 
     ----------
     config: Configs
         Global configuration object. It specifies:
-            - mask_path: Path to the mask file which has been used in component separation. Optional. 
+            - mask_covariance: Path to the mask fits file which has been used in component separation. Optional. 
                          It is used only if compute_cls["mask_type"] is None.
             - nside: HEALPix resolution of the component separation products.
             - fwhm_out: Full width at half maximum of output maps.
@@ -151,15 +151,19 @@ def _get_mask(config: Configs, compute_cls: Dict[str, Any], nsim: Optional[str] 
     npix = obj_out_to_array(compute_cls["outputs"]).shape[-1]
     
     # Define the mask patterns to match against compute_cls["mask_type"]
-    mask_patterns = ['GAL*+fgres', 'GAL*+fgtemp','GAL*0', 'GAL97', 'GAL99', 'fgres', 'fgtemp', 'config+fgres', 'config+fgtemp', 'config']
+    mask_patterns = ['GAL*+fgres', 'GAL*+fgtemp', 'GAL*+fgtemp^3','GAL*0', 'GAL97', 'GAL99', 'fgres', 'fgtemp', 
+            'fgtemp^3', 'config+fgres', 'config+fgtemp', 'config+fgtemp^3', 'config']
 
     # Case 1: No mask defined
-    if compute_cls["mask_type"] is None and config.mask_path is None:
+#    if compute_cls["mask_type"] is None and config.mask_path is None:
+    if compute_cls["mask_type"] is None and config.mask_observations is None and config.mask_covariance is None:
         return np.ones(npix) if n_fields_in == 1 else np.ones((n_fields_in, npix))
 
     # Case 2: Use config-defined mask
-    if compute_cls["mask_type"] is None and config.mask_path is not None:
-        mask_spectra = _preprocess_mask(hp.read_map(config.mask_path, field=0), config.nside)
+#    if compute_cls["mask_type"] is None and config.mask_path is not None:
+#        mask_spectra = _preprocess_mask(hp.read_map(config.mask_path, field=0), config.nside)
+    if compute_cls["mask_type"] is None and (config.mask_observations is not None or config.mask_covariance is not None):
+        _, mask_spectra = get_masks_for_compsep(config.mask_observations, config.mask_covariance, config.nside)
         return mask_spectra if n_fields_in == 1 else np.repeat(mask_spectra[np.newaxis, :], n_fields_in, axis=0)
         
     # Case 3: Load from FITS file directly        
@@ -168,14 +172,14 @@ def _get_mask(config: Configs, compute_cls: Dict[str, Any], nsim: Optional[str] 
             raise ValueError("mask_path must be a string and defined in compute_cls when mask_type is 'from_fits'")
 
         if n_fields_in == 1:
-            return hp.read_map(compute_cls["mask_path"], field=0)
+            return _preprocess_mask(hp.read_map(compute_cls["mask_path"], field=0), config.nside)
         
         mask_spectra = np.zeros((n_fields_in, npix))
-        mask_spectra[0] = hp.read_map(compute_cls["mask_path"], field=0)
+        mask_spectra[0] = _preprocess_mask(hp.read_map(compute_cls["mask_path"], field=0), config.nside)
         if compute_cls["field_cls_in"] == "TQU":
             try:
-                mask_spectra[1] = hp.read_map(compute_cls["mask_path"], field=1)
-                mask_spectra[2] = hp.read_map(compute_cls["mask_path"], field=1)
+                mask_spectra[1] = _preprocess_mask(hp.read_map(compute_cls["mask_path"], field=1), config.nside)
+                mask_spectra[2] = _preprocess_mask(hp.read_map(compute_cls["mask_path"], field=1), config.nside)
             except IndexError:
                 mask_spectra[1:3] = mask_spectra[0]
         elif compute_cls["field_cls_in"] in ["QU","QU_E","QU_B"]:
@@ -183,7 +187,7 @@ def _get_mask(config: Configs, compute_cls: Dict[str, Any], nsim: Optional[str] 
         else:
             for i in range(1,n_fields_in):
                 try:
-                    mask_spectra[i] = hp.read_map(compute_cls["mask_path"], field=i)
+                    mask_spectra[i] = _preprocess_mask(hp.read_map(compute_cls["mask_path"], field=i), config.nside)
                 except IndexError:
                     mask_spectra[i] = mask_spectra[0]
         return mask_spectra
@@ -199,48 +203,56 @@ def _get_mask(config: Configs, compute_cls: Dict[str, Any], nsim: Optional[str] 
             rot = hp.Rotator(coord=f"G{config.coordinates}") if config.coordinates != "G" else None
             mask_init = hp.ud_grade(get_planck_mask(0, field=idx_m, nside=512),hp.npix2nside(npix))
             # Applying coordinate rotation if needed
-            if coordinates != "G":
+            if config.coordinates != "G":
                 alm_mask = hp.map2alm(mask_init, lmax=2*hp.npix2nside(npix), pol=False)
                 rot.rotate_alm(alm_mask, inplace=True)
                 mask_init = hp.alm2map(alm_mask, nside_out=hp.npix2nside(npix), lmax=2*hp.npix2nside(npix), pol=False)
             mask_init = mask_init == 1.
         elif 'config' in compute_cls["mask_type"]:
-            mask_init = np.ones(npix) if config.mask_path is None else hp.read_map(config.mask_path, field=0) == 1.
+#            mask_init = np.ones(npix) if config.mask_path is None else _preprocess_mask(hp.read_map(config.mask_path, field=0), config.nside)
+            if config.mask_observations is not None or config.mask_covariance is not None:
+                _, mask_init = get_masks_for_compsep(config.mask_observations, config.mask_covariance, config.nside)
+            else:
+                mask_init = np.ones(npix)
         else:
             mask_init = np.ones(npix)
 
         # Generating and returning the final mask according to the mask_type
         if 'fgres' in compute_cls["mask_type"] or 'fgtemp' in compute_cls["mask_type"]:
+            mask_init = mask_init == 1.
+
             if not "fsky" in compute_cls:
                 raise ValueError("fsky must be defined in compute_cls when using 'fgres' or 'fgtemp' in mask_type")
             
             if 'fgres' in compute_cls["mask_type"]:
                 if not hasattr(compute_cls["outputs"], 'fgds_residuals'):
-                    from ._compsep import _load_outputs
+                    from ._compsep import _load_outputs_
                     fgres = SimpleNamespace()
                     filename = os.path.join(
                         compute_cls["path"],
                         f"fgds_residuals/{compute_cls['field_out']}_fgds_residuals_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}"
                     )
-                    fgres.total = _load_outputs(filename, compute_cls["field_out"], nsim=nsim)
-                    #fgres = _slice_data(fgres, compute_cls["field_out"], compute_cls["field_cls_in"])
-                    fgres = _slice_outputs(fgres,compute_cls["field_out"],compute_cls["field_cls_in"])
+                    fgres.total = _load_outputs_(filename, compute_cls["field_out"], nsim=nsim)
+                    if len(compute_cls['field_out']) > 1:
+                        #fgres = _slice_data(fgres, compute_cls["field_out"], compute_cls["field_cls_in"])
+                        fgres = _slice_outputs(fgres,compute_cls["field_out"],compute_cls["field_cls_in"])
                     return get_threshold_mask(fgres.total,mask_init,compute_cls["field_cls_in"],compute_cls["fsky"],config.lmax,smooth_tracer=compute_cls["smooth_tracer"])
                 else:
                     return get_threshold_mask(compute_cls["outputs"].fgds_residuals, mask_init, compute_cls["field_cls_in"], compute_cls["fsky"], config.lmax, smooth_tracer=compute_cls["smooth_tracer"])
             
             else:
-                if not hasattr(compute_cls, 'fgres_temp_for_masking'):
+                if 'fgres_temp_for_masking' not in compute_cls:
                     raise ValueError("Template of fgds residuals must be defined in compute_cls as 'fgres_temp_for_masking' when using 'fgtemp' in mask_type")
                 
-                from ._compsep import _load_outputs
+                from ._compsep import _load_outputs_
                 fgres = SimpleNamespace()
                 filename = os.path.join(
                     compute_cls["path"],
                     f"fgres_templates/{compute_cls['fgres_temp_for_masking']}/{compute_cls['field_out']}_fgres_templates_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}"
                 )
-                fgres.total = _load_outputs(filename, compute_cls["field_out"], nsim=nsim)
-                fgres = _slice_outputs(fgres,compute_cls["field_out"],compute_cls["field_cls_in"])
+                fgres.total = _load_outputs_(filename, compute_cls["field_out"], nsim=nsim)
+                if len(compute_cls['field_out']) > 1:
+                    fgres =  _slice_outputs(fgres,compute_cls["field_out"],compute_cls["field_cls_in"])
                 if 'fgtemp^3' in compute_cls["mask_type"]:
                     return get_threshold_mask(fgres.total**3,mask_init,compute_cls["field_cls_in"],compute_cls["fsky"],config.lmax,smooth_tracer=compute_cls["smooth_tracer"])
                 else:
@@ -489,3 +501,33 @@ def get_planck_mask(apo: int = 5, nside: int = 2048, field: int = 3, info: bool 
         hp.write_map(local_file, output)
         return output[field]
 
+def get_masks_for_compsep(mask_obs: Union[str, np.ndarray, None]
+    , mask_cov: Union[str, np.ndarray, None]
+    , nside: int) -> Tuple[Union[np.ndarray, None], Union[np.ndarray, None]]:
+
+    if mask_obs is not None:
+        if not isinstance(mask_obs, (str, np.ndarray)):
+            raise ValueError("mask_observations must be a string full path to a HEALPix mask fits file or a numpy array.")
+
+        if isinstance(mask_obs, str):
+            mask_obs = hp.read_map(mask_obs, field=0)
+        mask_obs = _preprocess_mask(mask_obs, nside)
+        mask_obs /= np.max(mask_obs)  # Normalizing mask to have values between 0 and 1
+    else:
+        mask_obs = None
+        
+    if mask_cov is not None:
+        if not isinstance(mask_cov, (str, np.ndarray)):
+            raise ValueError("mask_covariance must be a string full path to a HEALPix mask fits file or a numpy array.")
+
+        if isinstance(mask_cov, str):
+            mask_cov = hp.read_map(mask_cov, field=0)
+        mask_cov = _preprocess_mask(mask_cov, nside)
+        mask_cov /= np.max(mask_cov)  # Normalizing mask to have values between 0 and 1
+        if mask_obs is not None:
+            mask_cov[mask_obs == 0.] = 0.  # Ensuring that the covariance mask is zero where the observation mask is zero
+            mask_obs[mask_cov == 0.] = 0.  # Ensuring that the observation mask is zero where the covariance mask is zero
+    else:
+        mask_cov = mask_obs
+
+    return mask_obs, mask_cov

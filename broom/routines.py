@@ -44,7 +44,7 @@ def _bl_from_fwhms(fwhm_out: float, fwhm_in: float, lmax: int) -> np.ndarray:
 
 def _bl_from_file(beam_path: str, channel: str, fwhm_out: float, input_beams: str, lmax: int) -> np.ndarray:
     """Load beam transfer function from file and compute output/input ratio."""
-    beam_file = f"{beam_path}/beam_TEB_{channel}.fits"
+    beam_file = f"{beam_path}_{channel}.fits"
     
     bl_in = _get_beam_from_file(beam_file,lmax,symmetric_beam=(input_beams != "file_lm"))
     bl_out_l = hp.gauss_beam(np.radians(fwhm_out/60.), lmax=lmax,pol=True)
@@ -327,7 +327,7 @@ def obj_to_array(obj: SimpleNamespace) -> np.ndarray:
         raise ValueError("Input must be a SimpleNamespace object.")
     
     allowed_attributes = [
-        "total", "fgds", "noise", "cmb", "dust", "synch", "ame",
+        "total", "fgds", "noise", "nuisance", "cmb", "dust", "synch", "ame",
         "co", "freefree", "cib", "tsz", "ksz", "radio_galaxies"
     ]
     
@@ -384,7 +384,7 @@ def array_to_obj(array: np.ndarray, obj: SimpleNamespace) -> SimpleNamespace:
         SimpleNamespace with attributes set from array slices.
     """
     allowed_attributes = [
-        "total", "fgds", "noise", "cmb", "dust", "synch", "ame",
+        "total", "fgds", "noise", "nuisance", "cmb", "dust", "synch", "ame",
         "co", "freefree", "cib", "tsz", "ksz", "radio_galaxies"
     ]
     

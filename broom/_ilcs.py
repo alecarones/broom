@@ -8,6 +8,7 @@ from ._needlets import  _get_nside_lmax_from_b_ell, _get_needlet_windows_, _need
 from ._seds import _get_CMB_SED, _get_moments_SED, _standardize_cilc
 from .clusters import _adapt_tracers_path, _cea_partition, _rp_partition, \
                       get_scalar_tracer, get_scalar_tracer_nl, initialize_scalar_tracers
+
 from types import SimpleNamespace
 import os
 from typing import Any, Optional, Union, Dict, List, Tuple
@@ -57,6 +58,9 @@ def ilc(config: Configs, input_alms: SimpleNamespace, compsep_run: Dict, **kwarg
         - "n_patches": (int) Number of patches to use in MC-ILC. Default: 50.
         - "mc_type": (str), needed if method is "mcilc" or "mc_ilc".
             Type of MC-ILC to use. Options: "cea_ideal", "rp_ideal", "cea_real", "rp_real". Default: "cea_real".
+        - "cov_noise_debias": (float, list) Noise covariance debiasing factor. 
+            If different from 0. it will debias the covariance matrix by a factor cov_noise_debias * noise_covariance.
+            It must be a list with the same length as the number of needlet scales if domain is "needlet", otherwise a single float.
         - "special_nls": (list) List of needlet scales where moment deprojection is applied in c_ilc and clustering in mc_ilc.
         - "constraints": Dictionary to be used if method is "cilc" or "c_ilc". It must contain:
             - "moments": list of strings with moments to be deprojected in cILC. It can be a list of lists if domain is "needlet".
@@ -84,10 +88,18 @@ def ilc(config: Configs, input_alms: SimpleNamespace, compsep_run: Dict, **kwarg
     if compsep_run["method"] in ["mcilc", "mc_ilc"]:
         if compsep_run["mc_type"] in ["cea_ideal", "rp_ideal"]:
             if not hasattr(input_alms, "fgds"):
-                raise ValueError("The input_alms object must have fgds attribute for ideal tracer in MC-ILC.")
+                raise ValueError("The input_alms object must have 'fgds' attribute for ideal tracer in MC-ILC.")
+    
+    if compsep_run["method"] != "mcilc":
+        if np.any(np.array(compsep_run["cov_noise_debias"] != 0.)):
+            if not hasattr(input_alms, "noise"):
+                raise ValueError("The input_alms object must have 'noise'' attribute for debiasing the covariance.")
+            compsep_run["noise_idx"] = 2 if hasattr(input_alms, "fgds") else 1
                     
     # Perform the core ILC component separation
     output_maps = _ilc(config, obj_to_array(input_alms), compsep_run, **kwargs)
+
+    compsep_run.pop("noise_idx", None)
     
     # Post-process outputs (e.g., convert EB to QU if needed)
     output_maps = _ilc_post_processing(config, output_maps, compsep_run, **kwargs)
@@ -254,7 +266,7 @@ def _ilc_scalar(
 #    elif compsep_run["domain"] == "harmonic":
 #        output_maps = _hilc(config, input_alms, compsep_run)
     else:
-        raise ValueError(f"Unsupported domain {compsep_run['domain']} in compsep_run.")
+        raise ValueError(f"Unsupported domain {compsep_run['domain']} in compsep.")
 
 def _ilc_needlet(
     config: Configs,
@@ -286,9 +298,9 @@ def _ilc_needlet(
         b_ell = b_ell**2
 
     if compsep_run['save_needlets']:
-        path_out = _get_full_path_out(config, compsep_run)
-        os.makedirs(path_out, exist_ok=True)
-        np.save(os.path.join(path_out, "needlet_bands"), b_ell)
+        compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
+        os.makedirs(compsep_run["path_out"], exist_ok=True)
+        np.save(os.path.join(compsep_run["path_out"], "needlet_bands"), b_ell)
 
     output_alms = np.zeros((input_alms.shape[1], input_alms.shape[-1]), dtype=complex)
     for j in range(b_ell.shape[0]):
@@ -394,15 +406,17 @@ def _ilc_pixel(config: Configs, input_alms: np.ndarray, compsep_run: Dict, **kwa
         Reconstructed sky maps in pixel space.
     """
     npix = 12 * config.nside ** 2
-    n_channels, _, n_comps = input_alms.shape
-
-    input_maps = np.zeros((n_channels, npix, n_comps))
-
-    for n in range(n_channels):
+    _, _, n_comps = input_alms.shape
+    
+    good_channels = _get_good_channels_nl(config, np.ones(config.lmax + 1))
+    input_maps = np.zeros((good_channels.shape[0], npix, n_comps))
+    
+    for n, channel in enumerate(good_channels):
         input_maps[n] = np.array([
-            hp.alm2map(np.ascontiguousarray(input_alms[n, :, c]), config.nside,
+            hp.alm2map(np.ascontiguousarray(input_alms[channel, :, c]), config.nside,
                        lmax=config.lmax, pol=False) for c in range(n_comps)
         ]).T
+
 
     if compsep_run["method"]=="mcilc":
         tracer = get_scalar_tracer(compsep_run["tracers"])
@@ -447,18 +461,18 @@ def _ilc_maps(config: Configs, input_maps: np.ndarray, compsep_run: Dict,
     np.ndarray
         Cleaned output sky maps of shape (n_pixels, n_components).
     """
-    good_channels_nl = _get_good_channels_nl(config, b_ell)
-    freqs = np.array(config.instrument.frequency)[good_channels_nl]
+
+    good_channels = _get_good_channels_nl(config, b_ell)
+    freqs = np.array(config.instrument.frequency)[good_channels]
 
     # Bandwidth setup    
     if config.bandpass_integrate:
         if hasattr(config.instrument, "path_bandpasses"):
             bandwidths = [
-                os.path.join(config.instrument.path_bandpasses,
-                             f"bandpass_{config.instrument.channels_tags[i]}.npy")
-                for i in good_channels_nl] 
+                config.instrument.path_bandpasses + f"_{config.instrument.channels_tags[i]}.npy"
+                for i in good_channels] 
         else: 
-            bandwidths = np.array(config.instrument.bandwidth)[good_channels_nl]
+            bandwidths = np.array(config.instrument.bandwidth)[good_channels]
     else:
         bandwidths = None
 
@@ -477,6 +491,12 @@ def _ilc_maps(config: Configs, input_maps: np.ndarray, compsep_run: Dict,
         compsep_run["e"] = np.array(compsep_run["constraints"]["deprojection"][compsep_run["special_nls"] == nl_scale])
 
     cov = get_ilc_cov(input_maps[...,0], config.lmax, compsep_run, b_ell)
+    noise_debias = compsep_run["cov_noise_debias"] if compsep_run["domain"] == "pixel" else compsep_run["cov_noise_debias"][nl_scale]
+    if noise_debias != 0.:
+        cov_n = get_ilc_cov(input_maps[...,compsep_run["noise_idx"]], config.lmax, compsep_run, b_ell)
+        cov = cov - noise_debias * cov_n
+        del cov_n
+
     inv_cov = get_inv_cov(cov)
     del cov
 
@@ -484,6 +504,8 @@ def _ilc_maps(config: Configs, input_maps: np.ndarray, compsep_run: Dict,
     del inv_cov
 
     if compsep_run["save_weights"]:
+        if 'path_out' not in compsep_run:
+            compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
         save_ilc_weights(config, w_ilc, compsep_run,
                          hp.npix2nside(input_maps.shape[-2]), nl_scale=nl_scale)
     
@@ -534,8 +556,8 @@ def _mcilc_maps(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
     np.ndarray
         Cleaned output sky maps of shape (n_pixels, n_components).
     """
-    good_channels_nl = _get_good_channels_nl(config, b_ell)
-    A_cmb = _get_CMB_SED(np.array(config.instrument.frequency)[good_channels_nl], units=config.units)
+    good_channels = _get_good_channels_nl(config, b_ell)
+    A_cmb = _get_CMB_SED(np.array(config.instrument.frequency)[good_channels], units=config.units)
 
     if "cea" in compsep_run["mc_type"]:
         return _mcilc_cea_(config, input_maps, tracer, compsep_run, A_cmb, nl_scale=nl_scale)
@@ -581,6 +603,8 @@ def _mcilc_cea_(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
     w_mcilc = get_mcilc_weights(input_maps[...,0], patches, A_cmb, compsep_run)
 
     if compsep_run["save_weights"]:
+        if 'path_out' not in compsep_run:
+            compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
         save_ilc_weights(config, w_mcilc, compsep_run, hp.npix2nside(input_maps.shape[-2]), nl_scale=nl_scale)
     
     compsep_run.pop("A", None)
@@ -638,6 +662,8 @@ def _mcilc_rp_(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
         output_maps += (np.einsum('ij,ijk->jk', w_mcilc, input_maps) / iterations)
 
     if compsep_run["save_weights"]:
+        if 'path_out' not in compsep_run:
+            compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
         save_ilc_weights(config, w_mcilc_save, compsep_run,
                          hp.npix2nside(input_maps.shape[-2]), nl_scale=nl_scale)
 
@@ -840,7 +866,7 @@ def get_mcilc_cov(
     np.ndarray
         Covariance matrix per pixel, shape (n_channels, n_channels, n_valid_pixels).
     """
-    cov=np.zeros((inputs.shape[0], inputs.shape[0], np.sum(mask_mcilc > 0.)))
+    cov=np.zeros((inputs.shape[0], inputs.shape[0], inputs.shape[-1]))
     
     if reduce_bias:
         neigh = hp.get_all_neighbours(hp.npix2nside(inputs.shape[1]), np.argwhere(mask_mcilc > 0.)[:, 0])
@@ -862,9 +888,9 @@ def get_mcilc_cov(
         for patch in np.unique(patches):
             patch_mask = (patches == patch) & (mask_mcilc > 0.)
             patch_cov = np.mean(np.einsum('ik,jk->ijk', (inputs * mask_mcilc)[:,patch_mask], (inputs * mask_mcilc)[:,patch_mask]),axis=2)
-            cov[...,((patches==patch) & (mask_mcilc>0.))] = np.repeat(patch_cov[:, :, np.newaxis], np.sum(patch_mask), axis=2)
+            cov[...,(patches==patch)] = np.repeat(patch_cov[:, :, np.newaxis], np.sum(patches==patch), axis=2)
 
-    return cov
+    return cov[...,mask_mcilc > 0.]
 
 def get_inv_cov(cov: np.ndarray) -> np.ndarray:
     """

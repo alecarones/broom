@@ -31,7 +31,7 @@ def get_residuals_template(
         - save_compsep_products: Boolean indicating whether to save the residuals templates.
         - return_compsep_products: Boolean indicating whether to return the residuals templates.
         - mask_type: Type of mask to apply, e.g., "observed_patch".
-        - leakage_correction: Method for leakage correction, e.g., "mask_only", "purify", or "recycling". Used 
+        - leakage_correction: Method for leakage correction, e.g., "purify", or "recycling". Used 
           only for PILC residuals estimation.
         - field_out: The field to be outputted, e.g., "E", "B", "EB", "QU", "QU_E", or "QU_B".
     
@@ -382,11 +382,13 @@ def _get_fres_pixel(
         Estimate of foreground residuals for component separation of a single scalar field in pixel domain.
         Shape is (n_pixels, n_comps).
     """
+    good_channels = _get_good_channels_nl(config, np.ones(config.lmax + 1))
+
     # Convert alms to maps
-    input_maps = np.zeros((input_alms.shape[0], 12 * config.nside**2, input_alms.shape[-1]))
-    for n in range(input_alms.shape[0]):
+    input_maps = np.zeros((good_channels.shape[0], 12 * config.nside**2, input_alms.shape[-1]))
+    for n, channel in enumerate(good_channels_nl):
         input_maps[n] = np.array([
-            hp.alm2map(np.ascontiguousarray(input_alms[n, :, c]), config.nside, lmax=config.lmax, pol=False)
+            hp.alm2map(np.ascontiguousarray(input_alms[channel, :, c]), config.nside, lmax=config.lmax, pol=False)
             for c in range(input_alms.shape[-1])
         ]).T
 
@@ -467,32 +469,32 @@ def _get_fres_P_needlet(
 
     if process_outputs:
         for c in range(output_maps.shape[-1]):
-            if "mask" in compsep_run and config.mask_type == "observed_patch" and config.leakage_correction is not None:
-                if "_purify" in config.leakage_correction:
-                    alm_out = purify_master(
-                        output_maps[..., c], compsep_run["mask"], config.lmax,
-                        purify_E=("E" in config.leakage_correction)
-                    )
-                    alm_out = np.concatenate([(0.*alm_out[0])[np.newaxis],alm_out], axis=0)
-                elif "_recycling" in config.leakage_correction:
-                    iterations = (
-                        int(re.search(r'iterations(\d+)', config.leakage_correction).group(1))
-                        if "_iterations" in config.leakage_correction else 0
-                    )
-                    alm_out = purify_recycling(
-                        output_maps[..., c], output_maps[..., 0],
-                        np.ceil(compsep_run["mask"]), config.lmax,
-                        purify_E=("E" in config.leakage_correction),
-                        iterations=iterations
-                    )
-                    alm_out = np.concatenate([(0.*alm_out[0])[np.newaxis],alm_out], axis=0)
-                elif config.leakage_correction=="mask_only":
-                    alm_out = hp.map2alm(np.array([0.*output_maps[0,:,c],output_maps[0,:,c],output_maps[1,:,c]]) * compsep_run["mask"],lmax=config.lmax, pol=True, **kwargs)
-            else:
-                alm_out = hp.map2alm(
-                    [0.*output_maps[0,:,c], output_maps[0,:,c], output_maps[1,:,c]],
-                    lmax=config.lmax, pol=True, **kwargs
-                )
+#            if "mask" in compsep_run and config.mask_type == "observed_patch" and config.leakage_correction is not None:
+#                if "_purify" in config.leakage_correction:
+#                    alm_out = purify_master(
+#                        output_maps[..., c], compsep_run["mask"], config.lmax,
+#                        purify_E=("E" in config.leakage_correction)
+#                    )
+#                    alm_out = np.concatenate([(0.*alm_out[0])[np.newaxis],alm_out], axis=0)
+#                elif "_recycling" in config.leakage_correction:
+#                    iterations = (
+#                        int(re.search(r'iterations(\d+)', config.leakage_correction).group(1))
+#                        if "_iterations" in config.leakage_correction else 0
+#                    )
+#                    alm_out = purify_recycling(
+#                        output_maps[..., c], output_maps[..., 0],
+#                        np.ceil(compsep_run["mask"]), config.lmax,
+#                        purify_E=("E" in config.leakage_correction),
+#                        iterations=iterations
+#                    )
+#                    alm_out = np.concatenate([(0.*alm_out[0])[np.newaxis],alm_out], axis=0)
+#                elif config.leakage_correction=="mask_only":
+#                    alm_out = hp.map2alm(np.array([0.*output_maps[0,:,c],output_maps[0,:,c],output_maps[1,:,c]]) * compsep_run["mask"],lmax=config.lmax, pol=True, **kwargs)
+#            else:
+            alm_out = hp.map2alm(
+                [0.*output_maps[0,:,c], output_maps[0,:,c], output_maps[1,:,c]],
+                lmax=config.lmax, pol=True, **kwargs
+            )
 
             if (config.field_out in ["QU", "QU_E", "QU_B"]):
                 output_maps[...,c] = hp.alm2map(alm_out, config.nside, lmax=config.lmax, pol=True, pixwin=True)[1:]
@@ -624,28 +626,30 @@ def _get_fres_P_pixel(config: Configs, input_alms, compsep_run, **kwargs):
         Estimate of foreground residuals from PILC in pixel domain.
         Shape is (n_fields, n_pixels, n_comps) where n_fields depends on config.field_out.
     """
+    good_channels = _get_good_channels_nl(config, np.ones(config.lmax + 1))
 
-    input_maps = np.zeros((input_alms.shape[0], 2, 12 * config.nside**2, input_alms.shape[-1]))
-    for n in range(input_alms.shape[0]):
+    input_maps = np.zeros((good_channels.shape[0], 2, 12 * config.nside**2, input_alms.shape[-1]))
+    
+    for n, channel in enumerate(good_channels):
         for c in range(input_alms.shape[-1]):
             if input_alms.ndim == 4:
                 input_maps[n, ..., c] = hp.alm2map(
-                    np.array([0. * input_alms[n, 0, :, c],
-                              input_alms[n, 0, :, c],
-                              input_alms[n, 1, :, c]]),
+                    np.array([0. * input_alms[channel, 0, :, c],
+                              input_alms[channel, 0, :, c],
+                              input_alms[channel, 1, :, c]]),
                     config.nside, lmax=config.lmax, pol=True)[1:]
             elif input_alms.ndim == 3:
                 if compsep_run["field_in_cs"] in ["QU_E", "E"]:
                     input_maps[n, ..., c] = hp.alm2map(
-                        np.array([0. * input_alms[n, :, c],
-                                  input_alms[n, :, c],
-                                  0. * input_alms[n, :, c]]),
+                        np.array([0. * input_alms[channel, :, c],
+                                  input_alms[channel, :, c],
+                                  0. * input_alms[channel, :, c]]),
                         config.nside, lmax=config.lmax, pol=True)[1:]
                 elif compsep_run["field_in_cs"] in ["QU_B", "B"]:
                     input_maps[n, ..., c] = hp.alm2map(
-                        np.array([0. * input_alms[n, :, c],
-                                  0. * input_alms[n, :, c],
-                                  input_alms[n, :, c]]),
+                        np.array([0. * input_alms[channel, :, c],
+                                  0. * input_alms[channel, :, c],
+                                  input_alms[channel, :, c]]),
                         config.nside, lmax=config.lmax, pol=True)[1:]
 
     weights_filename = os.path.join(config.path_outputs, compsep_run["compsep_path"], "weights")
@@ -676,32 +680,32 @@ def _get_fres_P_pixel(config: Configs, input_alms, compsep_run, **kwargs):
 
     if process_outputs:
         for c in range(output_maps.shape[-1]):
-            if "mask" in compsep_run and config.mask_type == "observed_patch" and config.leakage_correction is not None:
-                if "_purify" in config.leakage_correction:
-                    alm_out = purify_master(
-                        output_maps[..., c], compsep_run["mask"], config.lmax,
-                        purify_E=("E" in config.leakage_correction)
-                    )
-                    alm_out = np.concatenate([(0.*alm_out[0])[np.newaxis],alm_out], axis=0)
-                elif "_recycling" in config.leakage_correction:
-                    iterations = (
-                        int(re.search(r'iterations(\d+)', config.leakage_correction).group(1))
-                        if "_iterations" in config.leakage_correction else 0
-                    )
-                    alm_out = purify_recycling(
-                        output_maps[..., c], output_maps[..., 0],
-                        np.ceil(compsep_run["mask"]), config.lmax,
-                        purify_E=("E" in config.leakage_correction),
-                        iterations=iterations
-                    )
-                    alm_out = np.concatenate([(0.*alm_out[0])[np.newaxis],alm_out], axis=0)
-                elif config.leakage_correction=="mask_only":
-                    alm_out = hp.map2alm(np.array([0.*output_maps[0,:,c],output_maps[0,:,c],output_maps[1,:,c]]) * compsep_run["mask"],lmax=config.lmax, pol=True, **kwargs)
-            else:
-                alm_out = hp.map2alm(
-                    [0.*output_maps[0,:,c], output_maps[0,:,c], output_maps[1,:,c]],
-                    lmax=config.lmax, pol=True, **kwargs
-                )
+#            if "mask" in compsep_run and config.mask_type == "observed_patch" and config.leakage_correction is not None:
+#                if "_purify" in config.leakage_correction:
+#                    alm_out = purify_master(
+#                        output_maps[..., c], compsep_run["mask"], config.lmax,
+#                        purify_E=("E" in config.leakage_correction)
+#                    )
+#                    alm_out = np.concatenate([(0.*alm_out[0])[np.newaxis],alm_out], axis=0)
+#                elif "_recycling" in config.leakage_correction:
+#                    iterations = (
+#                        int(re.search(r'iterations(\d+)', config.leakage_correction).group(1))
+#                        if "_iterations" in config.leakage_correction else 0
+#                    )
+#                    alm_out = purify_recycling(
+#                        output_maps[..., c], output_maps[..., 0],
+#                        np.ceil(compsep_run["mask"]), config.lmax,
+#                        purify_E=("E" in config.leakage_correction),
+#                        iterations=iterations
+#                    )
+#                    alm_out = np.concatenate([(0.*alm_out[0])[np.newaxis],alm_out], axis=0)
+                #elif config.leakage_correction=="mask_only":
+                #    alm_out = hp.map2alm(np.array([0.*output_maps[0,:,c],output_maps[0,:,c],output_maps[1,:,c]]) * compsep_run["mask"],lmax=config.lmax, pol=True, **kwargs)
+#            else:
+            alm_out = hp.map2alm(
+                [0.*output_maps[0,:,c], output_maps[0,:,c], output_maps[1,:,c]],
+                lmax=config.lmax, pol=True, **kwargs
+            )
 
             if (config.field_out in ["QU", "QU_E", "QU_B"]):
                 output_maps[...,c] = hp.alm2map(alm_out, config.nside, lmax=config.lmax, pol=True, pixwin=True)[1:]

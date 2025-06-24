@@ -219,9 +219,10 @@ def _maps_to_alms_channel(config: Configs, maps, field_in, mask_in, fell, total_
             else:
                 alms_out = np.zeros((3, hp.Alm.getsize(config.lmax)), dtype=complex)
                 alms_out[0] = hp.map2alm((maps[0] * mask_bin_in), lmax=config.lmax, **kwargs)
-                if config.leakage_correction == "mask_only":
-                    alms_out[1:] = hp.map2alm(maps * mask_in, lmax=config.lmax, pol=True, **kwargs)[1:]
-                elif "_purify" in config.leakage_correction:
+#                if config.leakage_correction == "mask_only":
+#                    alms_out[1:] = hp.map2alm(maps * mask_in, lmax=config.lmax, pol=True, **kwargs)[1:]
+#                elif "_purify" in config.leakage_correction:
+                if "_purify" in config.leakage_correction:
                     alms_out[1:] = purify_master(maps[1:], mask_in, config.lmax,purify_E=("E" in config.leakage_correction))
                 elif "_recycling" in config.leakage_correction:
                     alms_out[1:] = purify_recycling(maps[1:], total_maps[1:], mask_bin_in, config.lmax, purify_E=("E" in config.leakage_correction), iterations=iterations, **kwargs)
@@ -242,13 +243,14 @@ def _maps_to_alms_channel(config: Configs, maps, field_in, mask_in, fell, total_
             ):
                 alms_out = hp.map2alm(np.vstack((0. * maps[0], maps)) * mask_bin_in, lmax=config.lmax, pol=field_in=="QU", **kwargs)[1:]
             else:
-                if config.leakage_correction == "mask_only":
-                    alms_out = hp.map2alm(np.vstack((0. * maps[0], maps)) * mask_in, lmax=config.lmax, pol=True, **kwargs)[1:]
-                elif "_purify" in config.leakage_correction:
+#                if config.leakage_correction == "mask_only":
+#                    alms_out = hp.map2alm(np.vstack((0. * maps[0], maps)) * mask_in, lmax=config.lmax, pol=True, **kwargs)[1:]
+#                elif "_purify" in config.leakage_correction:
+                if "_purify" in config.leakage_correction:
                     alms_out = purify_master(maps, mask_in, config.lmax, purify_E=("E" in config.leakage_correction))
                 elif "_recycling" in config.leakage_correction:
                     alms_out = purify_recycling(
-                    maps, total_maps, mask_bin_in, lmax,
+                    maps, total_maps, mask_bin_in, config.lmax,
                     purify_E=("E" in config.leakage_correction),
                     iterations=iterations,
                     **kwargs

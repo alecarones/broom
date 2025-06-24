@@ -226,7 +226,12 @@ def _get_nside_lmax_from_b_ell(b_ell: np.ndarray, nside: int, lmax: int) -> Tupl
     Tuple[int, int]
         Recommended (nside, lmax) values to be used for needlet maps generation.
     """
-    max_b = np.max(np.nonzero(b_ell)) / 2
+
+    max_b = np.max(np.nonzero(b_ell)) 
+    if max_b == lmax:
+        return nside, lmax
+    
+    max_b = max_b / 2
 
     # If the band is non zero only for ell <= 16, nside and lmax are set to 8 and 16
     if max_b <= 8:
@@ -235,8 +240,10 @@ def _get_nside_lmax_from_b_ell(b_ell: np.ndarray, nside: int, lmax: int) -> Tupl
     for k in range(3, 12):
         lower, upper = 2**k, 2**(k + 1)
         if lower < max_b <= upper:
-            return upper, 2 * upper
-    
+            if upper <= nside:
+                return upper, 2 * upper
+            else:
+                return nside, 2 * nside
     return nside, lmax
 
 def _needlet_filtering(alms: np.ndarray, b_ell: np.ndarray, lmax_out: int) -> np.ndarray:

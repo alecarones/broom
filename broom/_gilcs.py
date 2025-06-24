@@ -43,8 +43,10 @@ def gilc(config: Configs, input_alms: SimpleNamespace, compsep_run: Dict[str, An
         Dictionary with component separation parameters. It should include:
         - domain : str, either "pixel" or "needlet" for the component separation domain.
         - channels_out : list, indices of the frequency channels to reconstruct with GILC. Default is all channels.
-        - depro_cmb : Optional[Union[float, list, np.ndarray]], deprojection factor for CMB (scalar or per needlet band). Default is None.
-        - m_bias : Optional[Union[float, list, np.ndarray]], bias for the mean of the reconstructed maps (scalar or per needlet band). Default is 0.
+        - depro_cmb : Optional[Union[float, list, np.ndarray]], deprojection factor for CMB (scalar or list per needlet bands). Default is None.
+        - m_bias : Optional[Union[float, list, np.ndarray]], if not zero, it will include m_bias more (if m_bias > 0) 
+                   or less (if m_bias < 0) modes in the reconstructed GNILC maps. Default is 0.
+                   It can be a list if different values are needed for different needlet bands.
         - cmb_nuisance : bool, whether to include CMB alms in the nuisance covariance. Default is True.
         - needlet_config: Dictionary containing needlet settings. Needed if domain is "needlet". It should include:
             - "needlet_windows": Type of needlet windows ('cosine', 'standard', 'mexican').
@@ -65,16 +67,20 @@ def gilc(config: Configs, input_alms: SimpleNamespace, compsep_run: Dict[str, An
     """
 
     compsep_run = _standardize_gnilc_run(compsep_run, input_alms.total.shape[0], config.lmax)
+    
+    compsep_run["nuis_idx"] = get_nuisance_idx(input_alms, compsep_run, config.verbose)
+    if np.any(np.array(compsep_run["cov_noise_debias"] != 0.)):
+        if not hasattr(input_alms, "noise"):
+            raise ValueError("The input_alms object must have 'noise'' attribute for debiasing the covariance.")
+        compsep_run["noise_idx"] = 2 if hasattr(input_alms, "fgds") else 1
+    print("Using nuisance alms with indices:", compsep_run["nuis_idx"])
 
-    if hasattr(input_alms, "nuisance"):
-        nuis_alms = getattr(input_alms, "nuisance")
-    else:
-        _log("No nuisance alms provided. Using input CMB and noise alms as nuisance.", verbose=config.verbose)
-        nuis_alms = input_alms.cmb + input_alms.noise if compsep_run.get("cmb_nuisance", True) else input_alms.noise
-
-    output_maps = _gilc(config, obj_to_array(input_alms), nuis_alms, compsep_run, **kwargs)
+    output_maps = _gilc(config, obj_to_array(input_alms), compsep_run, **kwargs)
     
     output_maps = _gilc_post_processing(config, output_maps, compsep_run, **kwargs)
+
+    compsep_run.pop("nuis_idx", None)
+    compsep_run.pop("noise_idx", None)
 
     outputs = array_to_obj(output_maps, input_alms)
     del output_maps
@@ -137,13 +143,31 @@ def fgd_diagnostic(config: Configs, input_alms: SimpleNamespace, compsep_run: Di
     if not "cmb_nuisance" in compsep_run:
         compsep_run["cmb_nuisance"] = True            
      
-    if hasattr(input_alms, "nuisance"):
-        nuis_alms = getattr(input_alms, "nuisance")
-    else:
-        _log("No nuisance alms provided. Using input CMB and noise alms as nuisance.", verbose=config.verbose)
-        nuis_alms = input_alms.cmb + input_alms.noise if compsep_run["cmb_nuisance"] else input_alms.noise
+    compsep_run["nuis_idx"] = get_nuisance_idx(input_alms, compsep_run, config.verbose)
+    if np.any(np.array(compsep_run["cov_noise_debias"] != 0.)):
+        if not hasattr(input_alms, "noise"):
+            raise ValueError("The input_alms object must have 'noise'' attribute for debiasing the covariance.")
+        compsep_run["noise_idx"] = 2 if hasattr(input_alms, "fgds") else 1
 
-    output_maps = _fgd_diagnostic(config, input_alms.total, nuis_alms, compsep_run)
+    if isinstance(compsep_run["nuis_idx"], int):
+        nuis_alms = (obj_to_array(input_alms))[...,compsep_run["nuis_idx"]]
+    elif isinstance(compsep_run["nuis_idx"], list):
+        nuis_alms = (obj_to_array(input_alms))[...,compsep_run["nuis_idx"][0]] + (obj_to_array(input_alms))[...,compsep_run["nuis_idx"][1]]
+    inputs_alms_for_diagn = np.concatenate([
+        input_alms.total[...,np.newaxis],
+        nuis_alms[...,np.newaxis]],axis=-1)
+    del nuis_alms
+
+    if np.any(np.array(compsep_run["cov_noise_debias"] != 0.)):
+        noi_alms = (obj_to_array(input_alms))[...,compsep_run["noise_idx"]]
+        inputs_alms_for_diagn = np.concatenate([inputs_alms_for_diagn, noi_alms[...,np.newaxis]], axis=-1)
+        del noi_alms
+
+    output_maps = _fgd_diagnostic(config, inputs_alms_for_diagn, compsep_run)
+    del inputs_alms_for_diagn
+
+    compsep_run.pop("nuis_idx", None)
+    compsep_run.pop("noise_idx", None)
 
     outputs = SimpleNamespace(m=output_maps)
 
@@ -155,6 +179,73 @@ def fgd_diagnostic(config: Configs, input_alms: SimpleNamespace, compsep_run: Di
     if config.return_compsep_products:
         return outputs
     return None
+
+def get_nuisance_idx(
+    input_alms: SimpleNamespace,
+    compsep_run: Dict[str, Any],
+    verbose: bool = False,
+) -> Union[int, List[int]]:
+    """
+    Determines the index or indices of nuisance alms based on the input alms object and component separation parameters.
+
+    Parameters
+    ----------
+    input_alms: SimpleNamespace
+        Input alms object containing fields like 'total', 'nuisance', 'cmb', and 'noise'.
+    compsep_run: Dict[str, Any]
+        Component separation parameters including 'cmb_nuisance'.
+    verbose: bool, optional
+        If True, prints additional information about the nuisance alms being used. Default is False.
+    
+    Returns
+    -------
+    Union[int, List[int]]
+        Index or list of indices for nuisance alms.
+    
+    Raises  
+    ------
+    ValueError
+        If the input_alms object does not have the required attributes for nuisance covariance.
+    """
+
+    has_nuisance = hasattr(input_alms, "nuisance")
+    has_noise    = hasattr(input_alms, "noise")
+    has_fgds     = hasattr(input_alms, "fgds")
+    has_cmb      = hasattr(input_alms, "cmb")
+
+    # ――― Case A: explicit nuisance alms already present ―――
+    if has_nuisance:
+        if has_noise and has_fgds:
+            return 3
+        elif not has_noise and not has_fgds:
+            return 1
+        else:
+            return 2
+    
+    # ――― Case B: need to build nuisance from CMB / noise ―――
+    cmb_nuisance = compsep_run.get("cmb_nuisance", True)
+
+    if cmb_nuisance and (not has_cmb or not has_noise):
+        raise ValueError(
+            "cmb_nuisance=True: 'cmb' and 'noise' must be present in input_alms."
+        )
+    if not cmb_nuisance and not has_noise:
+        raise ValueError(
+            "cmb_nuisance=False: 'noise' must be present in input_alms."
+        )
+    
+    if cmb_nuisance:
+        _log("No nuisance alms provided. Using input noise and CMB alms as nuisance.", verbose=verbose)
+    else:
+        _log("No nuisance alms provided. Using input noise alms as nuisance.", verbose=verbose)
+        
+    if not cmb_nuisance:
+        # CMB excluded from nuisance covariance
+        return 2 if has_fgds else 1
+    else:
+        # CMB included
+        return [2, 3] if has_fgds else [1, 2]
+
 
 def _gilc_post_processing(config: Configs, output_maps: np.ndarray, compsep_run: Dict[str, Any], **kwargs) -> np.ndarray:
     """
@@ -204,7 +295,7 @@ def _gilc_post_processing(config: Configs, output_maps: np.ndarray, compsep_run:
             output_maps[:,compsep_run["mask"] == 0.,:] = 0.
         return output_maps
 
-def _gilc(config: Configs, input_alms: np.ndarray, nuis_alms: np.ndarray, compsep_run: Dict[str, Any], **kwargs) -> np.ndarray:
+def _gilc(config: Configs, input_alms: np.ndarray, compsep_run: Dict[str, Any], **kwargs) -> np.ndarray:
     """
     Apply GILC component separation routine to each provided scalar field.
 
@@ -215,10 +306,6 @@ def _gilc(config: Configs, input_alms: np.ndarray, nuis_alms: np.ndarray, compse
     input_alms: np.ndarray
         Input alms (3D or 4D array). 
         Shape should be (n_channels, n_fields, n_alms, n_components) for 4D or (n_channels, n_alms, n_components) for 3D.
-    nuis_alms: np.ndarray
-        Nuisance alms to be used in nuisance covariance. 
-        It has to include components to be deprojected with GILC.
-        Shape should be (n_channels, (n_fields), n_alms).
     compsep_run: Dict[str, Any]
         Parameters for the GILC component separation run. See 'gilc' function for details.
     **kwargs: 
@@ -233,12 +320,12 @@ def _gilc(config: Configs, input_alms: np.ndarray, nuis_alms: np.ndarray, compse
     if input_alms.ndim == 4:
         output_maps = np.zeros((len(compsep_run["channels_out"]), input_alms.shape[1], 12 * config.nside**2, input_alms.shape[-1]))
         for i in range(input_alms.shape[1]):
-            output_maps[:,i] = _gilc_scalar(config, input_alms[:, i], nuis_alms[:, i], compsep_run, **kwargs)
+            output_maps[:,i] = _gilc_scalar(config, input_alms[:, i], compsep_run, **kwargs)
     elif input_alms.ndim == 3:
-        output_maps = _gilc_scalar(config, input_alms, nuis_alms, compsep_run, **kwargs)
+        output_maps = _gilc_scalar(config, input_alms, compsep_run, **kwargs)
     return output_maps
 
-def _fgd_diagnostic(config: Configs, input_alms: np.ndarray, nuis_alms: np.ndarray, compsep_run: Dict[str, Any]) -> np.ndarray:
+def _fgd_diagnostic(config: Configs, input_alms: np.ndarray, compsep_run: Dict[str, Any]) -> np.ndarray:
     """
     Foreground diagnostic map generation.
 
@@ -247,11 +334,8 @@ def _fgd_diagnostic(config: Configs, input_alms: np.ndarray, nuis_alms: np.ndarr
     config: Configs
         Configuration object with general settings. See 'fgd_diagnostic' function for details.
     input_alms: np.ndarray
-        Input alms (3D or 2D array). 
-        Shape should be (n_channels, (n_fields), n_alms) being 3D if multiple fields are provided, or 2D if only one field is provided.
-    nuis_alms: np.ndarray
-        Nuisance alms to be used in nuisance covariance. 
-        Shape should match input_alms, i.e., (n_channels, (n_fields), n_alms).
+        Input alms (4D or 3D array). 
+        Shape should be (n_channels, (n_fields), n_alms, n_comps) being 4D if multiple fields are provided, or 3D if only one field is provided.
     compsep_run: Dict[str, Any] 
         Parameters for foreground diagnostic. See 'fgd_diagnostic' function for details.
 
@@ -261,7 +345,7 @@ def _fgd_diagnostic(config: Configs, input_alms: np.ndarray, nuis_alms: np.ndarr
         Output diagnostic maps.
         Shape will be ((n_fields), npix) if domain is "pixel", or ((n_fields), n_bands, npix) if domain is "needlet".
     """
-    if input_alms.ndim == 3:
+    if input_alms.ndim == 4:
         if compsep_run["domain"]=="needlet":
             nls_number = _get_needlet_windows_(compsep_run["needlet_config"], config.lmax).shape[0]
             output_maps = np.zeros((input_alms.shape[1], nls_number, 12 * config.nside**2))
@@ -269,10 +353,10 @@ def _fgd_diagnostic(config: Configs, input_alms: np.ndarray, nuis_alms: np.ndarr
             output_maps = np.zeros((input_alms.shape[1], 12 * config.nside**2))
 
         for i in range(input_alms.shape[1]):
-            output_maps[i] = _fgd_diagnostic_scalar(config, input_alms[:, i], nuis_alms[:, i], compsep_run)
+            output_maps[i] = _fgd_diagnostic_scalar(config, input_alms[:, i], compsep_run)
 
-    elif input_alms.ndim == 2:
-        output_maps = _fgd_diagnostic_scalar(config, input_alms, nuis_alms, compsep_run)
+    elif input_alms.ndim == 3:
+        output_maps = _fgd_diagnostic_scalar(config, input_alms, compsep_run)
 
     return output_maps
 
@@ -348,7 +432,7 @@ def _standardize_gnilc_run(compsep_run: Dict[str, Any], n_freqs: int, lmax: int)
      
     return compsep_run
 
-def _gilc_scalar(config: Configs, input_alms: np.ndarray, nuis_alms: np.ndarray, compsep_run: Dict[str, Any], **kwargs) -> np.ndarray:
+def _gilc_scalar(config: Configs, input_alms: np.ndarray, compsep_run: Dict[str, Any], **kwargs) -> np.ndarray:
     """
     Apply GILC component separation in pixel or needlet domain.
 
@@ -358,8 +442,6 @@ def _gilc_scalar(config: Configs, input_alms: np.ndarray, nuis_alms: np.ndarray,
         Configuration object. See `gilc` for details.
     input_alms : np.ndarray
         Input alm coefficients. Shape should be (n_channels, n_alms, n_components).
-    nuis_alms : np.ndarray
-        Nuisance alm coefficients. Shape should be (n_channels, n_alms).
     compsep_run : dict
         Dictionary with GILC parameters. See `gilc` for details.
 
@@ -369,14 +451,14 @@ def _gilc_scalar(config: Configs, input_alms: np.ndarray, nuis_alms: np.ndarray,
         Separated component maps. Shape will be (n_channels_out, npix, n_components).
     """
     if compsep_run["domain"] == "pixel":
-        return _gilc_pixel(config, input_alms, nuis_alms, compsep_run, **kwargs)
+        return _gilc_pixel(config, input_alms, compsep_run, **kwargs)
     elif compsep_run["domain"] == "needlet":
-        return _gilc_needlet(config, input_alms, nuis_alms, compsep_run, **kwargs)
+        return _gilc_needlet(config, input_alms, compsep_run, **kwargs)
     else:
         raise ValueError(f"Unsupported domain: {compsep_run['domain']}")
 
 
-def _fgd_diagnostic_scalar(config: Configs, input_alms: np.ndarray, nuis_alms: np.ndarray, compsep_run: Dict[str, Any]) -> np.ndarray:
+def _fgd_diagnostic_scalar(config: Configs, input_alms: np.ndarray, compsep_run: Dict[str, Any]) -> np.ndarray:
     """
     Get Foreground Diagnostic maps for provided scalar field either in pixel or needlet domain.
 
@@ -386,8 +468,6 @@ def _fgd_diagnostic_scalar(config: Configs, input_alms: np.ndarray, nuis_alms: n
         Configuration object. See `fgd_diagnostic` for details.
     input_alms : np.ndarray
         Input alm coefficients. Shape should be (n_channels, n_alms).
-    nuis_alms : np.ndarray
-        Nuisance alm coefficients. Shape should be (n_channels, n_alms).
     compsep_run : dict
         Dictionary with run parameters. See `fgd_diagnostic` for details.
 
@@ -397,13 +477,13 @@ def _fgd_diagnostic_scalar(config: Configs, input_alms: np.ndarray, nuis_alms: n
         Foreground diagnostic maps. Shape will be (npix) if domain is "pixel", or (n_bands, npix) if domain is "needlet".
     """
     if compsep_run["domain"] == "pixel":
-        return _fgd_diagnostic_pixel(config, input_alms, nuis_alms, compsep_run)
+        return _fgd_diagnostic_pixel(config, input_alms, compsep_run)
     elif compsep_run["domain"] == "needlet":
-        return _fgd_diagnostic_needlet(config, input_alms, nuis_alms, compsep_run)
+        return _fgd_diagnostic_needlet(config, input_alms, compsep_run)
     else:
         raise ValueError(f"Unsupported domain: {compsep_run['domain']}")
 
-def _gilc_pixel(config: Configs, input_alms: np.ndarray, nuis_alms: np.ndarray, compsep_run: Dict[str, Any], **kwargs) -> np.ndarray:
+def _gilc_pixel(config: Configs, input_alms: np.ndarray, compsep_run: Dict[str, Any], **kwargs) -> np.ndarray:
     """
     GILC in pixel domain.
 
@@ -413,8 +493,6 @@ def _gilc_pixel(config: Configs, input_alms: np.ndarray, nuis_alms: np.ndarray, 
         Configuration object. See `gilc` for details.
     input_alms : np.ndarray
         Input spherical harmonic coefficients. Shape should be (n_channels, n_alms, n_components).
-    nuis_alms : np.ndarray
-        Nuisance alm coefficients. Shape should be (n_channels, n_alms).
     compsep_run : dict
         Component separation settings. See `gilc` for details.
     kwargs : dict
@@ -429,20 +507,17 @@ def _gilc_pixel(config: Configs, input_alms: np.ndarray, nuis_alms: np.ndarray, 
     compsep_run["good_channels"] = _get_good_channels_nl(config, np.ones(lmax+1))
 
     input_maps = np.zeros((compsep_run["good_channels"].shape[0], 12 * config.nside**2, input_alms.shape[-1]))
-    nuis_maps = np.zeros((compsep_run["good_channels"].shape[0], 12 * config.nside**2))
-
     for n, channel in enumerate(compsep_run["good_channels"]):
         input_maps[n] = np.array([hp.alm2map(np.ascontiguousarray(input_alms[channel, :, c]), config.nside, lmax=config.lmax, pol=False) for c in range(input_alms.shape[-1])]).T
-        nuis_maps[n] = hp.alm2map(np.ascontiguousarray(nuis_alms[channel]), config.nside, lmax=config.lmax, pol=False)
 
     output_maps = _gilc_maps(
         config,
         input_maps,
-        nuis_maps,
         compsep_run,
         np.ones(config.lmax + 1),
         depro_cmb=compsep_run["depro_cmb"],
-        m_bias=compsep_run["m_bias"]
+        m_bias=compsep_run["m_bias"],
+        noise_debias=compsep_run["cov_noise_debias"]
     )
     
     del compsep_run['good_channels']
@@ -457,18 +532,16 @@ def _gilc_pixel(config: Configs, input_alms: np.ndarray, nuis_alms: np.ndarray, 
 
     return output_maps
 
-def _fgd_diagnostic_pixel(config: Configs, input_alms: np.ndarray, nuis_alms: np.ndarray, compsep_run: dict) -> np.ndarray:
+def _fgd_diagnostic_pixel(config: Configs, input_alms: np.ndarray, compsep_run: dict) -> np.ndarray:
     """
-    Generate pixel-domain diagnostic maps from input and nuisance alms.
+    Generate pixel-domain diagnostic maps from input alms.
 
     Parameters
     ----------
     config: Configs
         Configuration object with general settings, including nside and lmax. See `fgd_diagnostic` for details.
     input_alms: np.ndarray
-        Input spherical harmonic coefficients. Shape should be (n_channels, n_alms).
-    nuis_alms: np.ndarray
-        Nuisance alm coefficients. Shape should be (n_channels, n_alms).
+        Input spherical harmonic coefficients. Shape should be (n_channels, n_alms, n_comps).
     compsep_run: dict
         Dictionary with component separation parameters, including mask (if available). See `fgd_diagnostic` for details.
 
@@ -481,14 +554,11 @@ def _fgd_diagnostic_pixel(config: Configs, input_alms: np.ndarray, nuis_alms: np
 
     compsep_run["good_channels"] = _get_good_channels_nl(config, np.ones(lmax+1))
 
-    input_maps = np.zeros((compsep_run["good_channels"].shape[0], 12 * config.nside**2))
-    nuis_maps = np.zeros((compsep_run["good_channels"].shape[0], 12 * config.nside**2))
-
+    input_maps = np.zeros((compsep_run["good_channels"].shape[0], 12 * config.nside**2, input_alms.shape[-1]))
     for n, channel in enumerate(compsep_run["good_channels"]):
-        input_maps[n] = hp.alm2map(np.ascontiguousarray(input_alms[channel]), config.nside, lmax=config.lmax, pol=False)
-        nuis_maps[n] = hp.alm2map(np.ascontiguousarray(nuis_alms[channel]), config.nside, lmax=config.lmax, pol=False)
+        input_maps[n] = np.array([hp.alm2map(np.ascontiguousarray(input_alms[channel, :, c]), config.nside, lmax=config.lmax, pol=False) for c in range(input_alms.shape[-1])]).T
 
-    output_maps = _get_diagnostic_maps(config, input_maps, nuis_maps, compsep_run, np.ones(config.lmax+1))
+    output_maps = _get_diagnostic_maps(config, input_maps, compsep_run, np.ones(config.lmax+1), noise_debias=compsep_run["cov_noise_debias"])
 
     del compsep_run['good_channels']
 
@@ -497,7 +567,7 @@ def _fgd_diagnostic_pixel(config: Configs, input_alms: np.ndarray, nuis_alms: np
 
     return output_maps
 
-def _gilc_needlet(config: Configs, input_alms: np.ndarray, nuis_alms: np.ndarray, compsep_run: dict, **kwargs) -> np.ndarray:
+def _gilc_needlet(config: Configs, input_alms: np.ndarray, compsep_run: dict, **kwargs) -> np.ndarray:
     """
     Apply GILC in the needlet domain.
 
@@ -508,8 +578,6 @@ def _gilc_needlet(config: Configs, input_alms: np.ndarray, nuis_alms: np.ndarray
         Configuration object which includes general settings like nside and lmax. See `gilc` for details.
     input_alms: np.ndarray
         Input alms with shape (n_channels, n_alms, n_components).
-    nuis_alms: np.ndarray
-        Nuisance alm coefficients with shape (n_channels, n_alms).
     compsep_run: dict
         GILC parameters including needlet configuration. See `gilc` for details.
     **kwargs: dict
@@ -525,15 +593,16 @@ def _gilc_needlet(config: Configs, input_alms: np.ndarray, nuis_alms: np.ndarray
         b_ell = b_ell**2
 
     if compsep_run['save_needlets']:
-        path_out = _get_full_path_out(config, compsep_run)
-        os.makedirs(path_out, exist_ok=True)
-        np.save(os.path.join(path_out, "needlet_bands"), b_ell)
+        compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
+        os.makedirs(compsep_run["path_out"], exist_ok=True)
+        np.save(os.path.join(compsep_run["path_out"], "needlet_bands"), b_ell)
         
     output_alms = np.zeros((len(compsep_run["channels_out"]), input_alms.shape[1], input_alms.shape[-1]), dtype=complex)
     for j in range(b_ell.shape[0]):
         output_alms += _gilc_needlet_j(
-            config, input_alms, nuis_alms, compsep_run,
-            b_ell[j], depro_cmb=compsep_run["depro_cmb"][j], m_bias=compsep_run["m_bias"][j], **kwargs
+            config, input_alms, compsep_run,
+            b_ell[j], depro_cmb=compsep_run["depro_cmb"][j], m_bias=compsep_run["m_bias"][j], 
+            noise_debias=compsep_run["cov_noise_debias"][j], **kwargs
         )
 
     output_maps = np.zeros((output_alms.shape[0], 12 * config.nside**2, output_alms.shape[-1]))
@@ -545,7 +614,7 @@ def _gilc_needlet(config: Configs, input_alms: np.ndarray, nuis_alms: np.ndarray
 
     return output_maps
 
-def _fgd_diagnostic_needlet(config: Configs, input_alms: np.ndarray, nuis_alms: np.ndarray, compsep_run: dict) -> np.ndarray:
+def _fgd_diagnostic_needlet(config: Configs, input_alms: np.ndarray, compsep_run: dict) -> np.ndarray:
     """
     Compute diagnostic maps of foreground emission at different needlet scales.
 
@@ -555,8 +624,6 @@ def _fgd_diagnostic_needlet(config: Configs, input_alms: np.ndarray, nuis_alms: 
         Configuration object which includes general settings like nside and lmax. See `fgd_diagnostic` for details.
     input_alms: np.ndarray
         Input alms with shape (n_channels, n_alms).
-    nuis_alms: np.ndarray
-        Nuisance alm coefficients with shape (n_channels, n_alms).
     compsep_run: dict
         Dictionary with component separation parameters, including needlet configuration. See `fgd_diagnostic` for details.
 
@@ -570,21 +637,22 @@ def _fgd_diagnostic_needlet(config: Configs, input_alms: np.ndarray, nuis_alms: 
         b_ell = b_ell**2
 
     if compsep_run['save_needlets']:
-        path_out = _get_full_path_out(config, compsep_run)
-        os.makedirs(path_out, exist_ok=True)
-        np.save(os.path.join(path_out, "needlet_bands"), b_ell)
+        compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
+        os.makedirs(compsep_run["path_out"], exist_ok=True)
+        np.save(os.path.join(compsep_run["path_out"], "needlet_bands"), b_ell)
         
     output_maps = np.zeros((b_ell.shape[0], 12 * config.nside**2))
     for j in range(b_ell.shape[0]):
-        output_maps[j] = _fgd_diagnostic_needlet_j(config, input_alms, nuis_alms, compsep_run, b_ell[j])
+        output_maps[j] = _fgd_diagnostic_needlet_j(config, input_alms, compsep_run, b_ell[j], noise_debias=compsep_run["cov_noise_debias"][j])
     
     if "mask" in compsep_run:
         output_maps[:,compsep_run["mask"] == 0.] = 0.
 
     return output_maps
 
-def _gilc_needlet_j(config: Configs, input_alms: np.ndarray, nuis_alms: np.ndarray, compsep_run: dict,
-                    b_ell: np.ndarray, depro_cmb: Optional[float] = None, m_bias: Optional[int] = 0, **kwargs) -> np.ndarray:
+def _gilc_needlet_j(config: Configs, input_alms: np.ndarray, compsep_run: dict,
+                    b_ell: np.ndarray, depro_cmb: Optional[float] = None, m_bias: Optional[int] = 0, 
+                    noise_debias: Optional[float] = 0., **kwargs) -> np.ndarray:
     """
     Perform GNILC component separation in a specific needlet band.
 
@@ -595,8 +663,6 @@ def _gilc_needlet_j(config: Configs, input_alms: np.ndarray, nuis_alms: np.ndarr
         Configuration object which includes general settings like nside, lmax, units. See `gilc` for details.
     input_alms: np.ndarray
         Input alms for the scalar fields. Shape should be (n_channels, n_alms, n_components).
-    nuis_alms: np.ndarray
-        Nuisance alm coefficients. Shape should be (n_channels, n_alms).
     compsep_run: dict
         Dictionary with component separation parameters. See `gilc` for details.
     b_ell: np.ndarray
@@ -606,6 +672,9 @@ def _gilc_needlet_j(config: Configs, input_alms: np.ndarray, nuis_alms: np.ndarr
         Residual CMB in GNILC maps will be at the level of depro_CMB * CMB_input.
     m_bias: int, optional
         It will include m_bias more (if m_bias > 0) or less (if m_bias < 0) modes in the reconstructed GNILC maps.
+    noise_debias: float, optional
+        Noise debiasing factor. If set to a non-zero value, it will subtract a 'noise_debias' fraction of
+        noise covariance from the input and nuisance covariance matrices.
     **kwargs: dict
         Additional keyword arguments for healpy function map2alm.
 
@@ -622,19 +691,15 @@ def _gilc_needlet_j(config: Configs, input_alms: np.ndarray, nuis_alms: np.ndarr
     compsep_run["good_channels"] = _get_good_channels_nl(config, b_ell)
 
     input_maps_nl = np.zeros((compsep_run["good_channels"].shape[0], 12 * nside_**2, input_alms.shape[-1]))
-    nuis_maps_nl = np.zeros((compsep_run["good_channels"].shape[0], 12 * nside_**2))
-
     for n, channel in enumerate(compsep_run["good_channels"]):
         input_alms_j = _needlet_filtering(input_alms[channel], b_ell, lmax_)
-        nuis_alms_j = _needlet_filtering(nuis_alms[channel], b_ell, lmax_)
         input_maps_nl[n] = np.array([
             hp.alm2map(np.ascontiguousarray(input_alms_j[:, c]), nside_, lmax=lmax_, pol=False)
             for c in range(input_alms.shape[-1])
         ]).T
-        nuis_maps_nl[n] = hp.alm2map(np.ascontiguousarray(nuis_alms_j), nside_, lmax=lmax_, pol=False)
 
-    output_maps_nl = _gilc_maps(config, input_maps_nl, nuis_maps_nl, compsep_run, b_ell, depro_cmb=depro_cmb, m_bias=m_bias)
-    del input_maps_nl, nuis_maps_nl
+    output_maps_nl = _gilc_maps(config, input_maps_nl, compsep_run, b_ell, depro_cmb=depro_cmb, m_bias=m_bias, noise_debias=noise_debias)
+    del input_maps_nl
 
     output_alms_j = np.zeros((output_maps_nl.shape[0], hp.Alm.getsize(config.lmax), output_maps_nl.shape[-1]), dtype=complex)
     
@@ -652,8 +717,9 @@ def _gilc_needlet_j(config: Configs, input_alms: np.ndarray, nuis_alms: np.ndarr
 
     return output_alms_j
 
-def _fgd_diagnostic_needlet_j(config: Configs, input_alms: np.ndarray, nuis_alms: np.ndarray,
-                               compsep_run: dict, b_ell: np.ndarray) -> np.ndarray:
+def _fgd_diagnostic_needlet_j(config: Configs, input_alms: np.ndarray,
+                               compsep_run: dict, b_ell: np.ndarray, noise_debias: Optional[float] = 0.
+                            ) -> np.ndarray:
     """
     Compute diagnostic map of foreground complexity for a specific needlet band.
 
@@ -663,12 +729,13 @@ def _fgd_diagnostic_needlet_j(config: Configs, input_alms: np.ndarray, nuis_alms
         Configuration object which includes general settings like nside and lmax. See `fgd_diagnostic` for details.
     input_alms: np.ndarray
         Input alms for the scalar fields. Shape should be (n_channels, n_alms).
-    nuis_alms: np.ndarray
-        Nuisance alm coefficients. Shape should be (n_channels, n_alms).
     compsep_run: dict
         Dictionary with component separation parameters. See `fgd_diagnostic` for details.
     b_ell: np.ndarray
         Needlet band window function for the current band. Shape should be (lmax+1,).
+    noise_debias: float, optional
+        Noise debiasing factor. If set to a non-zero value, it will subtract a 'noise_debias' fraction of
+        noise covariance from the input and nuisance covariance matrices.
     
     Returns
     -------
@@ -684,17 +751,16 @@ def _fgd_diagnostic_needlet_j(config: Configs, input_alms: np.ndarray, nuis_alms
     compsep_run["good_channels"] = _get_good_channels_nl(config, b_ell)
 #    compsep_run["good_channels"] = np.arange(input_alms.shape[0])
 
-    input_maps_nl = np.zeros((compsep_run["good_channels"].shape[0], 12 * nside_**2))
-    nuis_maps_nl = np.zeros((compsep_run["good_channels"].shape[0], 12 * nside_**2))
-
+    input_maps_nl = np.zeros((compsep_run["good_channels"].shape[0], 12 * nside_**2, input_alms.shape[-1]))
     for n, channel in enumerate(compsep_run["good_channels"]):
         input_alms_j = _needlet_filtering(input_alms[channel], b_ell, lmax_)
-        nuis_alms_j = _needlet_filtering(nuis_alms[channel], b_ell, lmax_)
-        input_maps_nl[n] = hp.alm2map(np.ascontiguousarray(input_alms_j), nside_, lmax=lmax_, pol=False)
-        nuis_maps_nl[n] = hp.alm2map(np.ascontiguousarray(nuis_alms_j), nside_, lmax=lmax_, pol=False)
+        input_maps_nl[n] = np.array([
+            hp.alm2map(np.ascontiguousarray(input_alms_j[:, c]), nside_, lmax=lmax_, pol=False)
+            for c in range(input_alms.shape[-1])
+        ]).T
 
-    output_maps_nl = _get_diagnostic_maps(config, input_maps_nl, nuis_maps_nl, compsep_run, b_ell)
-    del input_maps_nl, nuis_maps_nl
+    output_maps_nl = _get_diagnostic_maps(config, input_maps_nl, compsep_run, b_ell, noise_debias=noise_debias)
+    del input_maps_nl
     
     if hp.get_nside(output_maps_nl) < config.nside:
         output_maps_nl = hp.ud_grade(output_maps_nl, nside_out=config.nside)
@@ -706,11 +772,11 @@ def _fgd_diagnostic_needlet_j(config: Configs, input_alms: np.ndarray, nuis_alms
 def _gilc_maps(
     config: Configs,
     input_maps: np.ndarray,
-    nuis_maps: np.ndarray,
     compsep_run: Dict[str, Any],
     b_ell: np.ndarray,
     depro_cmb: Optional[float] = None,
-    m_bias: Union[int, float] = 0
+    m_bias: Union[int, float] = 0,
+    noise_debias: Optional[float] = 0.,
 ) -> np.ndarray:
     """
     Apply GILC component separation to the provided scalar multifrequency maps.
@@ -721,9 +787,6 @@ def _gilc_maps(
         Configuration object which includes general settings like nside and lmax. See `gilc` for details.
     input_maps: np.ndarray
         Input maps for the scalar fields. Shape should be (n_channels, npix, n_components).
-    nuis_maps: np.ndarray
-        Nuisance maps to be used in nuisance covariance. 
-        Shape should be (n_channels, npix).
     compsep_run: Dict[str, Any]
         Dictionary with component separation parameters. See `gilc` for details.
     b_ell: np.ndarray
@@ -733,6 +796,9 @@ def _gilc_maps(
         Residual CMB in GNILC maps will be at the level of depro_CMB * CMB_input.
     m_bias: int, optional
         It will include m_bias more (if m_bias > 0) or less (if m_bias < 0) modes in the reconstructed GNILC maps.
+    noise_debias: float, optional
+        Noise debiasing factor. If set to a non-zero value, it will subtract a 'noise_debias' fraction of
+        noise covariance from the input and nuisance covariance matrices.
     
     Returns
     -------
@@ -740,9 +806,18 @@ def _gilc_maps(
         Output GNILC maps with shape (n_channels_out, npix, n_components).
     
     """
-
+    # Compute covariance matrices for input and nuisance maps
     cov = (get_ilc_cov(input_maps[...,0], config.lmax, compsep_run, b_ell)).T
-    cov_n = (get_ilc_cov(nuis_maps, config.lmax, compsep_run, b_ell)).T
+    if isinstance(compsep_run["nuis_idx"], int):
+        cov_n = (get_ilc_cov(input_maps[...,compsep_run["nuis_idx"]], config.lmax, compsep_run, b_ell)).T
+    elif isinstance(compsep_run["nuis_idx"], list):
+        cov_n = (get_ilc_cov(input_maps[...,compsep_run["nuis_idx"][0]] + input_maps[...,compsep_run["nuis_idx"][1]], config.lmax, compsep_run, b_ell)).T
+
+    if noise_debias != 0.:
+        cov_noi = (get_ilc_cov(input_maps[...,compsep_run["noise_idx"]], config.lmax, compsep_run, b_ell)).T
+        cov = cov - noise_debias * cov_noi
+        cov_n = cov_n - noise_debias * cov_noi
+        del cov_noi
 
     λ, U = Cn_C_Cn(cov,cov_n)
     λ[λ<1.]=1.
@@ -769,9 +844,9 @@ def _gilc_maps(
 def _get_diagnostic_maps(
     config: Configs,
     input_maps: np.ndarray,
-    nuis_maps: np.ndarray,
     compsep_run: dict,
-    b_ell: np.ndarray
+    b_ell: np.ndarray,
+    noise_debias: Optional[float] = 0.,
 ) -> np.ndarray:
     """
     Get diagnostic maps of foreground complexity for provided scalar field either in pixel or needlet domain.
@@ -781,14 +856,14 @@ def _get_diagnostic_maps(
     config: Configs
         Configuration object which includes general settings like nside and lmax. See `fgd_diagnostic` for details.
     input_maps: np.ndarray
-        Input maps for the scalar fields. Shape should be (n_channels, npix).
-    nuis_maps: np.ndarray
-        Nuisance maps to be used in nuisance covariance.
-        Shape should be (n_channels, npix).
+        Input maps for the scalar fields. Shape should be (n_channels, npix, n_comps).
     compsep_run: dict
         Dictionary with component separation parameters. See `fgd_diagnostic` for details.
     b_ell: np.ndarray
         Needlet band window function for the current band. Shape should be (lmax+1,).
+    noise_debias: float, optional
+        Noise debiasing factor. If set to a non-zero value, it will subtract a 'noise_debias' fraction of
+        noise covariance from the input and nuisance covariance matrices.
     
     Returns
     -------
@@ -798,8 +873,14 @@ def _get_diagnostic_maps(
 
     """
 
-    cov = (get_ilc_cov(input_maps, config.lmax, compsep_run, b_ell)).T
-    cov_n = (get_ilc_cov(nuis_maps, config.lmax, compsep_run, b_ell)).T
+    cov = (get_ilc_cov(input_maps[...,0], config.lmax, compsep_run, b_ell)).T
+    cov_n = (get_ilc_cov(input_maps[...,1], config.lmax, compsep_run, b_ell)).T
+    
+    if noise_debias != 0.:
+        cov_noi = (get_ilc_cov(input_maps[...,2], config.lmax, compsep_run, b_ell)).T
+        cov = cov - noise_debias * cov_noi
+        cov_n = cov_n - noise_debias * cov_noi
+        del cov_noi
 
     λ, U = Cn_C_Cn(cov,cov_n)
     λ[λ<1.]=1.

@@ -2,7 +2,7 @@ import numpy as np
 import healpy as hp
 from .configurations import Configs
 from .routines import _get_local_cov, _EB_to_QU, _E_to_QU, _B_to_QU, obj_to_array, array_to_obj
-from ._saving import _save_compsep_products, _get_full_path_out
+from ._saving import _save_compsep_products, _get_full_path_out, save_ilc_weights
 from ._needlets import _get_nside_lmax_from_b_ell, _get_needlet_windows_, _needlet_filtering, _get_good_channels_nl
 from ._ilcs import _standardize_cilc, get_inv_cov
 from .leakage import purify_master, purify_recycling
@@ -50,6 +50,9 @@ def pilc(config: Configs, input_alms: SimpleNamespace, compsep_run: Dict[str, An
             If not provided, it is set to the value of config.save_compsep_products. Default: True.
         - "mask": (optional) HEALPix mask which will exclude (unobserved) regions from covariance computation. 
             It must be a 1D array with shape (12 * nside**2,). If non-binary, it will be used to weigh pixel in covariance computation.
+        - "cov_noise_debias": (float, list) Noise covariance debiasing factor. 
+            If different from 0. it will debias the covariance matrix by a factor cov_noise_debias * noise_covariance.
+            It must be a list with the same length as the number of needlet scales if domain is "needlet", otherwise a single float.
         - "special_nls": (list) List of needlet scales where moment deprojection is applied in c_pilc.
         - "constraints": Dictionary to be used if method is "cpilc" or "c_pilc". It must contain:
             - "moments": list of strings with moments to be deprojected in cPILC. It can be a list of lists if domain is "needlet".
@@ -74,6 +77,11 @@ def pilc(config: Configs, input_alms: SimpleNamespace, compsep_run: Dict[str, An
 
     if compsep_run["method"] == "cpilc" or compsep_run["method"] == "c_pilc":
         compsep_run = _standardize_cilc(compsep_run, config.lmax)
+
+    if np.any(np.array(compsep_run["cov_noise_debias"] != 0.)):
+        if not hasattr(input_alms, "noise"):
+            raise ValueError("The input_alms object must have 'noise'' attribute for debiasing the covariance.")
+        compsep_run["noise_idx"] = 2 if hasattr(input_alms, "fgds") else 1
 
     output_maps = _pilc(config, obj_to_array(input_alms), compsep_run, **kwargs)
     
@@ -154,9 +162,9 @@ def _pilc_needlet(config: Configs, input_alms: np.ndarray, compsep_run: Dict[str
     b_ell = b_ell**2
 
     if compsep_run['save_needlets']:
-        path_out = _get_full_path_out(config, compsep_run)
-        os.makedirs(path_out, exist_ok=True)
-        np.save(os.path.join(path_out, "needlet_bands"), b_ell)
+        compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
+        os.makedirs(compsep_run["path_out"], exist_ok=True)
+        np.save(os.path.join(compsep_run["path_out"], "needlet_bands"), b_ell)
     
     output_maps = np.zeros((2, hp.nside2npix(config.nside), input_alms.shape[-1]))
     
@@ -167,27 +175,24 @@ def _pilc_needlet(config: Configs, input_alms: np.ndarray, compsep_run: Dict[str
        (config.field_out in ["E", "B", "EB"]):
 
         for c in range(output_maps.shape[-1]):
-            if "mask" in compsep_run and config.mask_type == "observed_patch":
-                if "_purify" in config.leakage_correction:
-                    alm_out = purify_master(output_maps[...,c], compsep_run["mask"], config.lmax, purify_E=("E" in config.leakage_correction))
-                    alm_out = np.concatenate([(0.*alm_out[0])[np.newaxis],alm_out], axis=0)
-                elif "_recycling" in config.leakage_correction:
-                    if "_iterations" in config.leakage_correction:
-                        iterations = int(re.search(r'iterations(\d+)', config.leakage_correction).group(1))
-                    else:
-                        iterations = 0
-                    alm_out = purify_recycling(output_maps[...,c], output_maps[...,0], np.ceil(compsep_run["mask"]), config.lmax,
-                                               purify_E=("E" in config.leakage_correction),
-                                               iterations=iterations)
-                    alm_out = np.concatenate([(0.*alm_out[0])[np.newaxis],alm_out], axis=0)
-                elif config.leakage_correction=="mask_only":
-                    alm_out = hp.map2alm(np.array([0.*output_maps[0,:,c],output_maps[0,:,c],output_maps[1,:,c]]) * compsep_run["mask"],
-                                         lmax=config.lmax, pol=True, **kwargs)
-                else:
-                    alm_out = hp.map2alm([0.*output_maps[0,:,c],output_maps[0,:,c],output_maps[1,:,c]],
-                                         lmax=config.lmax, pol=True, **kwargs)
-            else:
-                alm_out = hp.map2alm([0.*output_maps[0,:,c],output_maps[0,:,c],output_maps[1,:,c]],
+#            if "mask" in compsep_run and config.mask_type == "observed_patch" and config.leakage_correction is not None:
+#                if "_purify" in config.leakage_correction:
+#                    alm_out = purify_master(output_maps[...,c], compsep_run["mask"], config.lmax, purify_E=("E" in config.leakage_correction))
+#                    alm_out = np.concatenate([(0.*alm_out[0])[np.newaxis],alm_out], axis=0)
+#                elif "_recycling" in config.leakage_correction:
+#                    if "_iterations" in config.leakage_correction:
+#                        iterations = int(re.search(r'iterations(\d+)', config.leakage_correction).group(1))
+#                    else:
+#                        iterations = 0
+#                    alm_out = purify_recycling(output_maps[...,c], output_maps[...,0], np.ceil(compsep_run["mask"]), config.lmax,
+#                                            purify_E=("E" in config.leakage_correction),
+#                                            iterations=iterations)
+#                    alm_out = np.concatenate([(0.*alm_out[0])[np.newaxis],alm_out], axis=0)
+#                elif config.leakage_correction=="mask_only":
+#                    alm_out = hp.map2alm(np.array([0.*output_maps[0,:,c],output_maps[0,:,c],output_maps[1,:,c]]) * compsep_run["mask"],
+#                                         lmax=config.lmax, pol=True, **kwargs)
+#            else:
+            alm_out = hp.map2alm([0.*output_maps[0,:,c],output_maps[0,:,c],output_maps[1,:,c]],
                                          lmax=config.lmax, pol=True, **kwargs)
 
             if (config.field_out in ["QU", "QU_E", "QU_B"]) and config.pixel_window_out:
@@ -289,16 +294,19 @@ def _pilc_pixel(
         - For "QU" or "EB, shape is (2, npix, n_comps)
         - For "E" or "B", shape is (npix, n_comps)
     """
-    input_maps = np.zeros((input_alms.shape[0], 2, 12 * config.nside**2, input_alms.shape[-1]))
-    for n in range(input_alms.shape[0]):
+    good_channels = _get_good_channels_nl(config, np.ones(config.lmax+1))
+
+    input_maps = np.zeros((good_channels.shape[0], 2, 12 * config.nside**2, input_alms.shape[-1]))
+
+    for n, channel in enumerate(good_channels):
         for c in range(input_alms.shape[-1]):
             if input_alms.ndim == 4:
-                input_maps[n,...,c] = hp.alm2map(np.array([0.*input_alms[n, 0, :, c],input_alms[n, 0, :, c],input_alms[n, 1, :, c]]), config.nside, lmax=config.lmax, pol=True)[1:]      
+                input_maps[n,...,c] = hp.alm2map(np.array([0.*input_alms[channel, 0, :, c],input_alms[channel, 0, :, c],input_alms[channel, 1, :, c]]), config.nside, lmax=config.lmax, pol=True)[1:]      
             elif input_alms.ndim == 3:
                 if config.field_out in ["QU_E", "E"]:
-                    input_maps[n,...,c] = hp.alm2map(np.array([0.*input_alms[n, :, c],input_alms[n, :, c],0.*input_alms[n, :, c]]), config.nside, lmax=config.lmax, pol=True)[1:]
+                    input_maps[n,...,c] = hp.alm2map(np.array([0.*input_alms[channel, :, c],input_alms[channel, :, c],0.*input_alms[channel, :, c]]), config.nside, lmax=config.lmax, pol=True)[1:]
                 elif config.field_out in ["QU_B", "B"]:
-                    input_maps[n,...,c] = hp.alm2map(np.array([0.*input_alms[n, :, c],0.*input_alms[n, :, c],input_alms[n, :, c]]), config.nside, lmax=config.lmax, pol=True)[1:]
+                    input_maps[n,...,c] = hp.alm2map(np.array([0.*input_alms[channel, :, c],0.*input_alms[channel, :, c],input_alms[channel, :, c]]), config.nside, lmax=config.lmax, pol=True)[1:]
 
     output_maps = _pilc_maps(config, input_maps, compsep_run, np.ones(config.lmax+1))
 
@@ -306,28 +314,25 @@ def _pilc_pixel(
        (config.field_out in ["E", "B", "EB"]):
 
         for c in range(output_maps.shape[-1]):
-            if "mask" in compsep_run and config.mask_type == "observed_patch":
-                if "_purify" in config.leakage_correction:
-                    alm_out = purify_master(output_maps[...,c], compsep_run["mask"], config.lmax, purify_E=("E" in config.leakage_correction))
-                    alm_out = np.concatenate([(0.*alm_out[0])[np.newaxis],alm_out], axis=0)
-                elif "_recycling" in config.leakage_correction:
-                    if "_iterations" in config.leakage_correction:
-                        iterations = int(re.search(r'iterations(\d+)', config.leakage_correction).group(1))
-                    else:
-                        iterations = 0
-                    alm_out = purify_recycling(output_maps[...,c], output_maps[...,0], np.ceil(compsep_run["mask"]), config.lmax,
-                                               purify_E=("E" in config.leakage_correction),
-                                               iterations=iterations)
-                    alm_out = np.concatenate([(0.*alm_out[0])[np.newaxis],alm_out], axis=0)
-                elif config.leakage_correction=="mask_only":
-                    alm_out = hp.map2alm(np.array([0.*output_maps[0,:,c],output_maps[0,:,c],output_maps[1,:,c]]) * compsep_run["mask"],
-                                         lmax=config.lmax, pol=True, **kwargs)
-                else:
-                    alm_out = hp.map2alm([0.*output_maps[0,:,c],output_maps[0,:,c],output_maps[1,:,c]],
-                                         lmax=config.lmax, pol=True, **kwargs)
-            else:
-                alm_out = hp.map2alm([0.*output_maps[0,:,c],output_maps[0,:,c],output_maps[1,:,c]],
-                                         lmax=config.lmax, pol=True, **kwargs)
+#            if "mask" in compsep_run and config.mask_type == "observed_patch" and config.leakage_correction is not None:
+#                if "_purify" in config.leakage_correction:
+#                    alm_out = purify_master(output_maps[...,c], compsep_run["mask"], config.lmax, purify_E=("E" in config.leakage_correction))
+#                    alm_out = np.concatenate([(0.*alm_out[0])[np.newaxis],alm_out], axis=0)
+#                elif "_recycling" in config.leakage_correction:
+#                    if "_iterations" in config.leakage_correction:
+#                        iterations = int(re.search(r'iterations(\d+)', config.leakage_correction).group(1))
+#                    else:
+#                        iterations = 0
+#                    alm_out = purify_recycling(output_maps[...,c], output_maps[...,0], np.ceil(compsep_run["mask"]), config.lmax,
+#                                            purify_E=("E" in config.leakage_correction),
+#                                            iterations=iterations)
+#                    alm_out = np.concatenate([(0.*alm_out[0])[np.newaxis],alm_out], axis=0)
+#                elif config.leakage_correction=="mask_only":
+#                    alm_out = hp.map2alm(np.array([0.*output_maps[0,:,c],output_maps[0,:,c],output_maps[1,:,c]]) * compsep_run["mask"],
+#                                         lmax=config.lmax, pol=True, **kwargs)
+#            else:
+            alm_out = hp.map2alm([0.*output_maps[0,:,c],output_maps[0,:,c],output_maps[1,:,c]],
+                                        lmax=config.lmax, pol=True, **kwargs)
 
             # Convert Alms back to maps
             if (config.field_out in ["QU", "QU_E", "QU_B"]) and config.pixel_window_out:
@@ -386,15 +391,18 @@ def _pilc_maps(
         Reconstructed PILC CMB maps of shape (2, n_pix, n_comps), with 2 corresponding to QU fields.
     """
 
-    good_channels_nl = _get_good_channels_nl(config, b_ell)
-    freqs = np.array(config.instrument.frequency)[good_channels_nl]
+    good_channels = _get_good_channels_nl(config, b_ell)
+    freqs = np.array(config.instrument.frequency)[good_channels]
 
-    bandwidths = (
-        config.instrument.path_bandpasses
-        if config.bandpass_integrate and hasattr(config.instrument, "path_bandpasses")
-        else np.array(config.instrument.bandwidth)[good_channels_nl]
-        if config.bandpass_integrate else None
-    )
+    if config.bandpass_integrate:
+        if hasattr(config.instrument, "path_bandpasses"):
+            bandwidths = [
+                config.instrument.path_bandpasses + f"_{config.instrument.channels_tags[i]}.npy"
+                for i in good_channels] 
+        else: 
+            bandwidths = np.array(config.instrument.bandwidth)[good_channels]
+    else:
+        bandwidths = None
 
     A_cmb = _get_CMB_SED(freqs, units=config.units)
 
@@ -418,6 +426,12 @@ def _pilc_maps(
         _assign_moment_constraints(scale_idx)
 
     cov = get_prilc_cov(input_maps[...,0], config.lmax, compsep_run, b_ell)
+    noise_debias = compsep_run["cov_noise_debias"] if compsep_run["domain"] == "pixel" else compsep_run["cov_noise_debias"][nl_scale]
+    if noise_debias != 0.:
+        cov_n = get_prilc_cov(input_maps[...,compsep_run["noise_idx"]], config.lmax, compsep_run, b_ell)
+        cov = cov - noise_debias * cov_n
+        del cov_n
+
     inv_cov = get_inv_cov(cov)
     del cov
 
@@ -425,19 +439,11 @@ def _pilc_maps(
     del inv_cov
 
     if compsep_run["save_weights"]:
-        path_out = _get_full_path_out(config, compsep_run)
-        path_w = os.path.join(path_out, "weights")
-        os.makedirs(path_w, exist_ok=True)
-        filename = os.path.join(
-            path_w,
-            f"weights_{compsep_run['field']}_{config.fwhm_out}acm_ns{hp.npix2nside(input_maps.shape[-2])}_lmax{config.lmax}"
-        )
-        if nl_scale is not None:
-            filename += f"_nl{nl_scale}"
-        if compsep_run["nsim"] is not None:
-            filename += f"_{compsep_run['nsim']}"
-        np.save(filename, w_pilc)
-    
+        if 'path_out' not in compsep_run:
+            compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
+        save_ilc_weights(config, w_pilc, compsep_run,
+                         hp.npix2nside(input_maps.shape[-2]), nl_scale=nl_scale)
+        
     compsep_run.pop("A", None)
     compsep_run.pop("e", None)
 
@@ -596,7 +602,7 @@ def get_pilc_cov(
             cov_qq_uu[..., mask == 0.0] = fallback_cov_qq_uu
             fallback_qu_uq = np.mean(np.einsum('ik,jk->ijk', input_maps[:, 0, valid], input_maps[:, 1, valid]), axis=-1) - \
                            np.mean(np.einsum('ik,jk->ijk', input_maps[:, 1, valid], input_maps[:, 0, valid]), axis=-1)
-            cov_qu_uq[..., mask == 0.0] = fallback_cov_qu_uq
+            cov_qu_uq[..., mask == 0.0] = np.repeat(fallback_cov_qu_uq[..., np.newaxis], np.sum(mask == 0.0), axis=-1)
     
     cov = np.concatenate((
         np.concatenate((cov_qq_uu, -cov_qu_uq), axis=1),
@@ -650,7 +656,7 @@ def get_prilc_cov(
             mask_valid = mask > 0.0
             fallback_cov = np.mean(np.einsum('ik,jk->ijk', input_maps[:, 0, mask_valid], input_maps[:, 0, mask_valid]), axis=-1) + \
                            np.mean(np.einsum('ik,jk->ijk', input_maps[:, 1, mask_valid], input_maps[:, 1, mask_valid]), axis=-1)
-            cov[..., mask == 0.0] = fallback_cov
+            cov[..., mask == 0.0] = np.repeat(fallback_cov[..., np.newaxis], np.sum(mask == 0.0), axis=-1)
 
     return cov
 

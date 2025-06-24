@@ -8,7 +8,7 @@ def purify_master(QU_maps,mask,lmax, return_E=True, return_B=True, purify_E=Fals
     except ImportError:
         raise ImportError("pymaster is required for NaMaster purification. Please install it.")
 
-    print('Performing NaMaster purification.')
+#    print('Performing NaMaster purification.')
 
     maskbin = np.zeros_like(mask)
     maskbin[mask > 0.] = 1.
@@ -26,7 +26,7 @@ def purify_master(QU_maps,mask,lmax, return_E=True, return_B=True, purify_E=Fals
         raise ValueError("At least one of 'return_E' and 'return_B' must be True.")
 
 def purify_recycling(QU_maps, QU_full_maps, mask,lmax, return_E=True, return_B=True, purify_E=False, iterations=0, **kwargs):
-    print('Performing recycling purification.')
+#    print('Performing recycling purification.')
     maskbin = np.zeros_like(mask)
     maskbin[mask > 0.] = 1.
     lm = hp.Alm.getsize(lmax)

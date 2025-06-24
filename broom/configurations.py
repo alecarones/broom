@@ -57,7 +57,7 @@ class InstrumentConfig:
     #alpha_knee: list = field(default_factory=list)
     #channels_tags: list = field(default_factory=list)
 
-    def load_from_yaml(self, yaml_data: Dict[str, Any], experiment: str):
+    def load_from_yaml(self, yaml_data: Dict[str, Any], experiment: str, path_utils: str):
         experiment_data = yaml_data.get(experiment, {})
 
         attrs = [
@@ -78,6 +78,10 @@ class InstrumentConfig:
         else:
             if 'fwhm' not in experiment_data:
                 raise ValueError(f"FWHM must be provided in the yaml file for gaussian beams.")
+
+        for attr in ['path_bandpasses', 'path_hits_maps', 'path_depth_maps', 'path_beams']:
+            if hasattr(self, attr):
+                setattr(self, attr, os.path.join(path_utils, getattr(self, attr)))
 
         self.channels_tags = experiment_data.get("channels_tags", [])
         if not self.channels_tags:
@@ -113,92 +117,96 @@ class Configs:
             if self.generate_input_foregrounds and self.bandpass_integrate:
                     if not hasattr(self.instrument, 'bandwidth') and not hasattr(self.instrument, 'path_bandpasses'):
                         raise ValueError(f"If bandpass_integrate is True, 'bandwidth' or 'path_bandpasses' must be provided in the experiment yaml file.")
-            self.bring_to_common_resolution = self.config.get("bring_to_common_resolution", True)
+            self.bring_to_common_resolution = self.config.get("bring_to_common_resolution") or True
         
 
     def _store_passed_settings(self):
         self.nside = self.config["nside"]
         self.data_type = self.config["data_type"]
 
-        self.lmin = self.config.get("lmin", 2)    
-        self.lmax = self.config.get("lmax", 2 * self.nside)
-        self.nside_in = self.config.get("nside_in", self.nside)
-        self.fwhm_out = self.config.get("fwhm_out", 2.5 * hp.nside2resol(self.nside, arcmin=True))
-        self.verbose = self.config.get("verbose", False)
-        self.nsim_start = self.config.get("nsim_start", 0)
-        self.nsims = self.config.get("nsims", 1)
-        self.parallelize = self.config.get("parallelize", False)
-        self.compsep = self.config.get("compsep", "")
-        self.compsep_residuals = self.config.get("compsep_residuals", "")
-        self.real_mc_tracers = self.config.get("real_mc_tracers", "")
-        self.foreground_models = self.config.get("foreground_models", ["d0","s0"])
-        self.field_in = self.config.get("field_in", "TQU")
-        self.field_out = self.config.get("field_out", "TQU")        
-        self.experiment = self.config.get("experiment", "")
-        self.pixel_window_in = self.config.get("pixel_window_in", False)
-        self.pixel_window_out = self.config.get("pixel_window_out", False)
-        self.units = self.config.get("units", "uK_CMB")
-        self.coordinates = self.config.get("coordinates", "G")
-        self.mask_path = self.config.get("mask_path", None)
-        self.mask_type = self.config.get("mask_type", "mask_for_compsep")
-        self.leakage_correction = self.config.get("leakage_correction", None)
-        if self.compsep or self.compsep_residuals:
-            self.save_compsep_products = self.config.get("save_compsep_products", True)
-            self.return_compsep_products = self.config.get("return_compsep_products", False)
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+
+        self.lmin = self.config.get("lmin") or 2    
+        self.lmax = self.config.get("lmax") or 2 * self.nside
+        self.nside_in = self.config.get("nside_in") or self.nside
+        self.fwhm_out = self.config.get("fwhm_out") or 2.5 * hp.nside2resol(self.nside, arcmin=True)
+        self.verbose = self.config.get("verbose") or False
+        self.nsim_start = self.config.get("nsim_start") or 0
+        self.nsims = self.config.get("nsims") or 1
+        self.parallelize = self.config.get("parallelize") or False
+        self.path_utils = self.config.get("path_utils") or os.path.join(base_dir, "utils")
+        self.compsep = self.config.get("compsep") or ""
+        self.compsep_residuals = self.config.get("compsep_residuals") or ""
+        self.real_mc_tracers = self.config.get("real_mc_tracers") or ""
+        self.combine_outputs = self.config.get("combine_outputs") or ""
+        self.foreground_models = self.config.get("foreground_models") or ["d0","s0"]
+        self.field_in = self.config.get("field_in") or "TQU"
+        self.field_out = self.config.get("field_out") or "TQU"
+        self.experiments_file = self.config.get("experiments_file") or os.path.join(self.path_utils, "experiments.yaml") 
+        self.experiment = self.config.get("experiment") or ""
+        self.pixel_window_in = self.config.get("pixel_window_in") or False
+        self.pixel_window_out = self.config.get("pixel_window_out") or False
+        self.units = self.config.get("units") or "uK_CMB"
+        self.coordinates = self.config.get("coordinates") or "G"
+#        self.mask_path = self.config.get("mask_path")
+#        self.mask_type = self.config.get("mask_type") or "mask_for_compsep"
+        self.mask_observations = self.config.get("mask_observations") or None
+        self.mask_covariance = self.config.get("mask_covariance") or None
+        self.leakage_correction = self.config.get("leakage_correction")
+        if self.compsep or self.compsep_residuals or self.combine_outputs:
+            self.save_compsep_products = self.config.get("save_compsep_products") or True
+            self.return_compsep_products = self.config.get("return_compsep_products") or False
             if not self.save_compsep_products and not self.return_compsep_products:
                 raise ValueError("At least one of save_compsep_products and return_compsep_products must be True.")
-            if self.save_compsep_products:
-                self.path_outputs = self.config.get("path_outputs", os.path.join(os.getcwd(), "outputs", self.experiment, ''.join(self.foreground_models)))
-                self.path_outputs = os.path.normpath(os.path.join(os.getcwd(), self.path_outputs))
-#                self.labels_outputs = self.config.get("labels_outputs", "")
-#                if not self.labels_outputs:
-#                    raise ValueError("Labels for the output files must be provided.")
-        self.generate_input_foregrounds = self.config.get("generate_input_foregrounds", True)
-        self.generate_input_noise = self.config.get("generate_input_noise", True)
-        self.generate_input_cmb = self.config.get("generate_input_cmb", True)
-        self.generate_input_data = self.config.get("generate_input_data", True)
-        self.bandpass_integrate = self.config.get("bandpass_integrate",False)
+        self.path_outputs = self.config.get("path_outputs") or os.path.join(os.getcwd(), "outputs", self.experiment, ''.join(self.foreground_models))
+        self.path_outputs = os.path.normpath(os.path.join(os.getcwd(), self.path_outputs))
+
+        self.generate_input_foregrounds = self.config.get("generate_input_foregrounds") or True
+        self.generate_input_noise = self.config.get("generate_input_noise") or True
+        self.generate_input_cmb = self.config.get("generate_input_cmb") or True
+        self.generate_input_data = self.config.get("generate_input_data") or True
+        self.bandpass_integrate = self.config.get("bandpass_integrate") or False
         if self.generate_input_foregrounds or self.generate_input_noise or self.generate_input_cmb or self.generate_input_data:
-            self.save_inputs = self.config.get("save_inputs", False)
+            self.save_inputs = self.config.get("save_inputs") or False
         if self.generate_input_noise:
-            self.seed_noise = self.config.get("seed_noise", None)
+            self.seed_noise = self.config.get("seed_noise")
         if self.generate_input_cmb:
-            self.seed_cmb = self.config.get("seed_cmb", None)
-            self.cls_cmb_path = self.config.get("cls_cmb_path", "")
+            self.seed_cmb = self.config.get("seed_cmb")
+            self.cls_cmb_path = self.config.get("cls_cmb_path") or os.path.join(base_dir, "utils", "Cls_Planck2018_lensed_r0.fits")
 
         # Input/output paths   
         dataname = f"total_{self.data_type}_ns{self.nside}_lmax{self.lmax}"
         def_data_path = os.path.join(os.getcwd(), "inputs", self.experiment, "total", ''.join(self.foreground_models), dataname)
-        self.data_path = self.config.get("data_path", def_data_path)
+        self.data_path = self.config.get("data_path") or def_data_path
         self.data_path = os.path.normpath(os.path.join(os.getcwd(), self.data_path))
 
         noisename = f"noise_{self.data_type}_ns{self.nside}_lmax{self.lmax}"
         def_noise_path = os.path.join(os.getcwd(), "inputs", self.experiment, "noise", noisename)
-        self.noise_path = self.config.get("noise_path", def_noise_path)
+        self.noise_path = self.config.get("noise_path") or def_noise_path
         self.noise_path = os.path.normpath(os.path.join(os.getcwd(), self.noise_path))
 
         cmbname = f"cmb_{self.data_type}_ns{self.nside}_lmax{self.lmax}"
         def_cmb_path = os.path.join(os.getcwd(), "inputs", self.experiment, "cmb", cmbname)
-        self.cmb_path = self.config.get("cmb_path", def_cmb_path)
+        self.cmb_path = self.config.get("cmb_path") or def_cmb_path
         self.cmb_path = os.path.normpath(os.path.join(os.getcwd(), self.cmb_path))
 
         fgdsname = f"foregrounds_{self.data_type}_ns{self.nside}_lmax{self.lmax}"
         def_fgds_path = os.path.join(os.getcwd(), "inputs", self.experiment, "foregrounds", ''.join(self.foreground_models), fgdsname)
-        self.fgds_path = self.config.get("fgds_path", def_fgds_path)
+        self.fgds_path = self.config.get("fgds_path") or def_fgds_path
         self.fgds_path = os.path.normpath(os.path.join(os.getcwd(), self.fgds_path))
 
-        self.return_fgd_components = self.config.get("return_fgd_components", False)
+        self.return_fgd_components = self.config.get("return_fgd_components") or False
 
         self._validate_paths()
 
-        self.compute_spectra = self.config.get("compute_spectra", "")
+        self.compute_spectra = self.config.get("compute_spectra") or ""
         if self.compute_spectra:
-            self.delta_ell = self.config.get("delta_ell", 1)
-            self.spectra_comp = self.config.get("spectra_comp", "anafast")
-            self.return_Dell = self.config.get("return_Dell", False)
-            self.field_cls_out = self.config.get("field_cls_out", self.field_out)
-            self.save_spectra = self.config.get("save_spectra", True)
-            self.return_spectra = self.config.get("return_spectra", True)
+            self.delta_ell = self.config.get("delta_ell") or 1
+            self.spectra_comp = self.config.get("spectra_comp") or "anafast"
+            self.return_Dell = self.config.get("return_Dell") or False
+            self.field_cls_out = self.config.get("field_cls_out") or self.field_out
+            self.save_spectra = self.config.get("save_spectra") or True
+            self.return_spectra = self.config.get("return_spectra") or True
             
     def _validate_paths(self):
         for name, flag in zip(
@@ -209,11 +217,11 @@ class Configs:
                 raise ValueError(f"Path '{name}' must be specified.")
 
     def _load_experiment_parameters(self):
-        experiments_yaml_path = os.path.join("utils", "experiments.yaml")
+        experiments_yaml_path = self.experiments_file
         if os.path.exists(experiments_yaml_path):
             with open(experiments_yaml_path, 'r') as file:
                 experiments_data = yaml.safe_load(file)
-                self.instrument.load_from_yaml(experiments_data, self.experiment)
+                self.instrument.load_from_yaml(experiments_data, self.experiment, self.path_utils)
 
     def to_dict_for_mc(self) -> Dict[str, Any]:
         """
@@ -232,8 +240,10 @@ class Configs:
             'units': self.units,
             'coordinates': self.coordinates,
             'bandpass_integrate': self.bandpass_integrate,
-            'mask_path': self.mask_path,
-            'verbose': self.verbose}
+#            'mask_path': self.mask_path,
+            'mask_observations': self.mask_observations,
+            'verbose': self.verbose,
+            'cls_cmb_path': self.cls_cmb_path,}
 
   
     

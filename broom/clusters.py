@@ -43,16 +43,18 @@ def get_and_save_real_tracers_B(
         - `pixel_window_out`: Boolean indicating whether to apply the pixel window function to the output tracer.
         - `verbose`: Boolean indicating whether to print information about the process.
     
-    foregrounds : SimpleNamespace, optional
+    foregrounds : np.ndarray, optional
         Foregrounds data to be used in the simulations for tracer generation. If None, the foregrounds will be generated using the configuration parameters.
+        If provided, it should be a 3D array with shape: 
+        - (n_channels, 3, n_pixels) if config.data_type is "maps" with 3 corresponding to (T, Q, U) and n_pixels matching the config.nside.
+        - (n_channels, 3, n_alms) if config.data_type is "alms" with 3 corresponding to (T, E, B) and n_alms matching the config.lmax.
     
     systematics : np.ndarray, optional
         Systematics data to be added to the simulations for tracer generation. If None, no systematics are added.
-        If data_type is "maps", it should be a 3D array with shape (n_channels, n_fields, n_pixels) 
-            where n_fields is either 2 (only polarization) or 3 and nside is larger or equal to the output nside.
-        If data_type is "alms", it should be a 2D or 3D array with shape (n_channels, ..., n_alms), with associated lmax larger or equal to the chosen lmax.
-        If 3D, the last entry of the second dimension will be interpreted as the B-mode field.
-
+        If provided, it should be a 3D array with shape: 
+        - (n_channels, 3, n_pixels) if config.data_type is "maps" with 3 corresponding to (T, Q, U) and n_pixels matching the config.nside.
+        - (n_channels, 3, n_alms) if config.data_type is "alms" with 3 corresponding to (T, E, B) and n_alms matching the config.lmax.
+    
     kwargs : dict, optional
         Additional keyword arguments to be passed to healpy 'map2alm' function.
 
@@ -71,17 +73,19 @@ def get_and_save_real_tracers_B(
 
     mc_data = get_mc_data(config_mc, foregrounds=foregrounds, **kwargs)
 
-    if systematics is not None:
-        print("Adding systematic effect to the data")
-        systematics = _adapt_systamatics(
-            systematics, mc_data.total.shape, config.lmax,
-            data_type=config_mc.data_type, **kwargs
-        )
-        mc_data.total = mc_data.total + systematics
+#    if systematics is not None:
+#        print("Adding systematic effect to the data")
+#        systematics = _adapt_systamatics(
+#            systematics, mc_data.total.shape, config.lmax,
+#            data_type=config_mc.data_type, **kwargs
+#        )
+#        mc_data.total = mc_data.total + systematics
 
     config_mc.compsep = get_tracers_compsep(config.real_mc_tracers[0]["channels_tracers"], config.lmax)
 
     _log(f"Generating the MC-ILC tracers for {config.experiment} experiment and {''.join(config.foreground_models)} foreground model", verbose=config_mc.verbose)
+
+    #mc_data.nuisance = mc_data.noise + mc_data.cmb
 
     tracers = component_separation(config_mc, mc_data)
     
@@ -96,100 +100,6 @@ def get_and_save_real_tracers_B(
         config_mc.fwhm_out,
         config_mc.lmax
     )
-
-
-def _adapt_systamatics(
-    systematics: np.ndarray,
-    data_shape: Tuple[int, ...],
-    lmax: int,
-    data_type: str = "maps",
-    pixel_window_in: bool = False,
-    **kwargs: Any
-) -> np.ndarray:
-    """
-    Adapt the systematics to the data shape and type.
-
-    Parameters
-    ----------
-    systematics : np.ndarray
-        The systematics data to be adapted. It can be either a 2D or 3D array. 
-    data_shape : tuple
-        The shape of the data to which the systematics should be adapted.
-    lmax : int
-        The maximum multipole associated to the data.
-    data_type : str, optional
-        The data type associated to data, either "maps" or "alms". Default is "maps".
-    pixel_window_in : bool, optional
-        Whether to apply the pixel window correction to the input systematics. Default is False.
-    kwargs : dict, optional
-        Additional keyword arguments to be passed to healpy 'map2alm' function.
-
-    Returns
-    -------
-    np.ndarray
-        The adapted systematics data, either as a 2D or 3D array depending on the input data type.
-    """
-
-    if systematics.shape[0] != data_shape[0]:
-        raise ValueError("The systematics and data must have the same number of channels.")
-
-    if data_type == "maps":
-        if (systematics.ndim != 3) or (systematics.shape[1] not in [2, 3]) or (systematics.shape[-1] < data_shape[-1]):
-            raise ValueError("If 'data_type' is 'maps', the systematics must be a 3D array with shape "
-                             "(n_channels, n_fields, n_pixels) with n_fields = 2 or 3 and nside >= output nside.")
-        
-        if systematics.shape[-1] > data_shape[-1]:
-            if systematics.shape[1] == 2:
-                systematics = np.concatenate((
-                    np.zeros((systematics.shape[0], 1, systematics.shape[-1])),
-                    systematics
-                ), axis=1)
-            systematics_ = np.zeros((systematics.shape[0], 2, data_shape[-1]))
-            for i in range(systematics.shape[0]):
-                alm_syst = hp.map2alm(systematics[i], lmax=lmax, pol=True, **kwargs)
-                if pixel_window_in:
-                    pw_in = hp.pixwin(hp.npix2nside(systematics.shape[-1]), lmax=lmax, pol=True)
-                    pw_out = hp.pixwin(hp.npix2nside(data_shape[-1]), lmax=lmax, pol=True)
-                    pw = pw_out / pw_in
-                    pw[np.isnan(pw)] = 0.0
-                    pw[np.isinf(pw)] = 0.0
-                    for k in range(1,3):
-                        alm_syst[k] = hp.almxfl(alm_syst[k], pw[1])
-                systematics_[i] = hp.alm2map(alm_syst, nside=hp.npix2nside(data_shape[-1]), lmax=lmax, pol=True)[1:]
-            return systematics_              
-
-        else:
-            if systematics.shape[1] == 2:
-                return systematics
-            elif systematics.shape[1] == 3:
-                return systematics[:, 1:]
-
-    elif data_type == "alms":
-        if (systematics.ndim == 3 and systematics.shape[1] not in [1, 2, 3]) or (systematics.shape[-1] < data_shape[-1]):
-            raise ValueError("If 'data_type' is 'alms', the systematics must be a 2D or 3D array with shape (n_channels, ..., n_alms) with lmax larger or equal to the chosen lmax.")
-
-        if hp.Alm.getlmax(data_shape[-1]) < hp.Alm.getlmax(systematics.shape[-1]):
-            idx_lmax = np.array([
-                hp.Alm.getidx(hp.Alm.getlmax(systematics.shape[-1]), ell, m)
-                for ell in range(2, hp.Alm.getlmax(data_shape[-1]) + 1)
-                for m in range(ell + 1)
-            ])
-            idx_config_lmax = np.array([
-                hp.Alm.getidx(hp.Alm.getlmax(data_shape[-1]), ell, m)
-                for ell in range(2, hp.Alm.getlmax(data_shape[-1]) + 1)
-                for m in range(ell + 1)
-            ])
-            systematics_ = np.zeros((systematics.shape[0], data_shape[-1]), dtype=complex)
-            if systematics.ndim==2:
-                systematics_[:, idx_config_lmax] = systematics[:, idx_lmax]
-            elif systematics.ndim==3:
-                systematics_[:, idx_config_lmax] = systematics[:, -1, idx_lmax]
-            return systematics_
-        else:
-            if systematics.ndim == 2:
-                return systematics
-            elif systematics.ndim == 3:
-                return systematics[:, -1]
 
 def _save_real_tracers_B(tracers, path_tracers, tags, fwhm_out, lmax):
     """
@@ -440,17 +350,16 @@ def _cea_partition(
     np.ndarray
         A 1D array of the same shape as the input map, where each pixel is assigned a patch number from 0 to n_patches-1.
     """
-
-    split = np.array(np.array_split(np.sort(map_),n_patches))
+    split = np.array_split(np.sort(map_),n_patches)
     patches = np.zeros(12 * (hp.get_nside(map_))**2)
     
     for n in range(n_patches):
         if n==0:
-            patches[map_ <= np.max(split[n])] = float(n)
+            patches[map_ <= max(split[n])] = float(n)
         elif n==(n_patches-1):
-            patches[map_ >= np.min(split[n])] = float(n)
+            patches[map_ >= min(split[n])] = float(n)
         else:
-            patches[(np.min(split[n]) <= map_) & (map_ <= np.max(split[n]))] = float(n)
+            patches[(min(split[n]) <= map_) & (map_ <= max(split[n]))] = float(n)
             
     return patches
 
@@ -564,8 +473,8 @@ def get_tracers_compsep(
             bl = _get_needlet_windows_(needlet_config, lmax)
         return needlet_config["merging_needlets"]
 
-    merging_needlets_1 = generate_merging_needlets([0, 16, 20, 25, 35])
-    merging_needlets_2 = generate_merging_needlets([0, 12, 15, 20, 25, 35])
+    merging_needlets_1 = generate_merging_needlets([0, 16, 20, 23, 25, 27, 29, 40])
+    merging_needlets_2 = generate_merging_needlets([0, 12, 15, 20, 23, 25, 27, 29, 40])
 
 
     tracers_compsep = [
@@ -624,7 +533,6 @@ def get_mc_config(config: Configs) -> Configs:
             config_mc.generate_input_foregrounds = False
         config_mc.generate_input_noise = True #
         config_mc.generate_input_cmb = True #
-        config_mc.cls_cmb_path = "utils/Cls_Planck2018_lensed_r0.fits"
         config_mc.generate_input_data = True #
         config_mc.save_inputs = True # 
         config_mc.seed_cmb = None
@@ -643,8 +551,8 @@ def get_mc_config(config: Configs) -> Configs:
 
     config_mc.save_compsep_products = False #
     config_mc.return_compsep_products = True
-    config_mc.mask_type = "mask_for_compsep"
-    config_mc.verbose = False
+#    config_mc.mask_type = "mask_for_compsep"
+    config_mc.mask_covariance = None
 
     if config_mc.data_type == "maps":
         config_mc.field_in = "QU"
@@ -658,7 +566,8 @@ def get_mc_config(config: Configs) -> Configs:
 
 def get_mc_data(
     config_mc: "Configs",
-    foregrounds: Optional[SimpleNamespace] = None,
+    foregrounds: Optional[np.ndarray] = None,
+    systematics: Optional[np.ndarray] = None,
     **kwargs
 ) -> Any:
     """
@@ -686,9 +595,14 @@ def get_mc_data(
 
     if foregrounds is None:
         mc_foregrounds = _get_data_foregrounds_(config_mc)
-        mc_data = _get_data_simulations_(config_mc, mc_foregrounds)
     else:
-        mc_data = _get_data_simulations_(config_mc, foregrounds)
+        mc_foregrounds = SimpleNamespace()
+        mc_foregrounds.total = foregrounds
+
+    mc_data = _get_data_simulations_(config_mc, mc_foregrounds)
+
+    if systematics is not None:
+        mc_data.total = mc_data.total + systematics
 
     return _slice_data(mc_data, config_mc.mc_data_field, config_mc.field_in)
 
