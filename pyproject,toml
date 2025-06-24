@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cmbroom"
+version = "0.1.0"
+description = "A Python package for blind component separation of microwave sky maps."
+authors = [{name = "Alessandro Carones", email = "acarones@sissa.it"}]
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "GPL-3.0-or-later"}
+dependencies = [
+    "numpy>=1.18.5",
+    "scipy>=1.8",
+    "healpy>=1.15",
+    "pysm3>=3.3.2",
+    "mtneedlet>=0.0.5",
+    "scikit-learn>=1.7.0"]
+
+[project.optional-dependencies]
+pymaster = ["pymaster>=2.4"]
+
+
+[project.urls]
+Homepage = "https://github.com/alecarones/broom"
+Source = "https://github.com/alecarones/broom"
+Issues = "https://github.com/alecarones/broom/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
