@@ -292,7 +292,7 @@ def _gilc_post_processing(config: Configs, output_maps: np.ndarray, compsep_run:
         
     else:
         if "mask" in compsep_run:
-            output_maps[:,compsep_run["mask"] == 0.,:] = 0.
+            output_maps[...,compsep_run["mask"] == 0.,:] = 0.
         return output_maps
 
 def _gilc(config: Configs, input_alms: np.ndarray, compsep_run: Dict[str, Any], **kwargs) -> np.ndarray:
@@ -552,7 +552,7 @@ def _fgd_diagnostic_pixel(config: Configs, input_alms: np.ndarray, compsep_run: 
         Diagnostic map of foregrounc complexity.
     """
 
-    compsep_run["good_channels"] = _get_good_channels_nl(config, np.ones(lmax+1))
+    compsep_run["good_channels"] = _get_good_channels_nl(config, np.ones(config.lmax+1))
 
     input_maps = np.zeros((compsep_run["good_channels"].shape[0], 12 * config.nside**2, input_alms.shape[-1]))
     for n, channel in enumerate(compsep_run["good_channels"]):
@@ -869,7 +869,6 @@ def _get_diagnostic_maps(
     -------
     np.ndarray
         Diagnostic map of foreground complexity for the provided scalar field.
-        Shape will be (npix) if domain is "pixel", or (n_bands, npix) if domain is "needlet".
 
     """
 
@@ -889,9 +888,17 @@ def _get_diagnostic_maps(
     m = _get_gilc_m(λ) 
 
     if isinstance(m, (int, float)):
-        m = np.repeat(m, input_maps.shape[-1])
-
-    return m
+        m = np.repeat(m, input_maps.shape[-2])
+        if "mask" in compsep_run:
+            m[compsep_run["mask"] == 0.] = 0.
+        return m
+    else:
+        if "mask" in compsep_run:
+            m_full = np.zeros(input_maps.shape[-2])
+            m_full[compsep_run["mask"] > 0.] = m
+            return m_full
+        else:
+            return m
 
 def _get_gilc_weights(
     config: Configs,

@@ -215,7 +215,7 @@ def _get_full_path_out(config: Configs, compsep_run: Dict[str, Any]) -> str:
         complete_path = f'{compsep_run["method"]}_{compsep_run["domain"]}_bias{compsep_run["ilc_bias"]}'
         if compsep_run["domain"] == "pixel":
             if compsep_run["m_bias"] != 0:
-                ccomplete_path += f"_m{compsep_run['m_bias']:+}"
+                complete_path += f"_m{compsep_run['m_bias']:+}"
             if compsep_run["depro_cmb"] is not None:
                 complete_path += f"_deproCMB{compsep_run['depro_cmb']}"
         elif compsep_run["domain"] == "needlet":

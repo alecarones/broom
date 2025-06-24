@@ -262,7 +262,7 @@ def _gpilc_pixel(config: Configs, input_alms: np.ndarray, compsep_run: Dict[str,
         Output maps after performing GPILC in pixel space. Shape will depend on the input alms and compsep_run settings.
     """
 
-    compsep_run["good_channels"] = _get_good_channels_nl(config, np.ones(lmax+1))
+    compsep_run["good_channels"] = _get_good_channels_nl(config, np.ones(config.lmax+1))
 #    compsep_run["good_channels"] = np.arange(input_alms.shape[0])
 
     input_maps = np.zeros((input_alms.shape[0], 2, 12 * config.nside**2, input_alms.shape[-1]))
@@ -270,7 +270,7 @@ def _gpilc_pixel(config: Configs, input_alms: np.ndarray, compsep_run: Dict[str,
     def alm_to_polmap(E=None, B=None):
         T = np.zeros_like(E if E is not None else B)
         return hp.alm2map([T, E if E is not None else T, B if B is not None else T],
-                          config.nside, lmax=lmax, pol=True)[1:]
+                          config.nside, lmax=config.lmax, pol=True)[1:]
 
     for n in range(input_alms.shape[0]):
         for c in range(input_alms.shape[-1]):
@@ -821,6 +821,9 @@ def _fgd_P_diagnostic_maps(
     λ[λ<1.]=1.
 
     m = _get_gilc_m(λ)
+
+    if isinstance(m, (int, float)):
+        m = np.repeat(m, input_maps.shape[-2])
 
     return m
 
