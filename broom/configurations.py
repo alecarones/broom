@@ -152,7 +152,7 @@ class Configs:
 #        self.mask_type = self.config.get("mask_type") or "mask_for_compsep"
         self.mask_observations = self.config.get("mask_observations", None)
         self.mask_covariance = self.config.get("mask_covariance", None)
-        self.leakage_correction = self.config.get("leakage_correction")
+        self.leakage_correction = self.config.get("leakage_correction", None)
         if self.compsep or self.compsep_residuals or self.combine_outputs:
             self.save_compsep_products = self.config.get("save_compsep_products", True)
             self.return_compsep_products = self.config.get("return_compsep_products", False)
