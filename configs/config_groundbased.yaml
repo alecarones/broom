@@ -1,0 +1,134 @@
+# ==================================== PARAMETERS ==================================== #
+
+
+# ==== GENERAL ==== #
+lmin: 2
+nside: 128
+lmax: 256
+data_type: "maps" # "maps" or "alms"
+fwhm_out: 30.
+
+nsim_start: 0 
+nsims: 1
+parallelize: False # 
+verbose: True
+
+# ==== DATA AND INSTRUMENT ==== #
+
+foreground_models: ["d1","s1"] 
+path_utils: ""
+experiments_file: ""
+
+experiment: "SO_SAT" 
+field_in: "TQU"  
+field_out: "QU" 
+
+units: "uK_CMB"
+coordinates: "C" 
+
+# ==== INPUT SIMULATIONS ==== #
+
+generate_input_foregrounds: True #
+return_fgd_components: False
+bandpass_integrate: False
+
+generate_input_noise: True #
+seed_noise: null
+generate_input_cmb: True #
+seed_cmb: null
+cls_cmb_path: ""
+
+generate_input_data: True #
+save_inputs: False # 
+pixel_window_in: True
+
+
+data_path: "/inputs/SO_SAT/total/total_maps_ns128"
+fgds_path: "/inputs/SO_SAT/foregrounds/d1s1/foregrounds_alms_ns128"
+cmb_path: "/inputs/SO_SAT/cmb/cmb_alms_ns128"
+noise_path: "/inputs/SO_SAT/noise/noise_alms_ns128"
+
+
+# ==== COMPONENT SEPARATION ==== #
+
+bring_to_common_resolution: True 
+pixel_window_out: True
+
+mask_observations: "utils/apodized_SAThits_SOpaper2018_nside1024.fits"
+mask_covariance: "utils/apodized_SAThits_SOpaper2018_nside1024.fits" # "mask_for_compsep" # 
+leakage_correction: null # 'mask_only', "B_purify", "B_recycling" (no iterations), "B_recycling_iterations3" (3 iterations)
+save_compsep_products: True
+
+return_compsep_products: True #
+path_outputs: "outputs/SO_SAT/d1s1" 
+
+# Component separation runs
+
+compsep:
+# ILC in needlet domain (NILC) with cosine needlets
+  - method: "ilc"
+    domain: "needlet"
+    needlet_config:
+      - needlet_windows: "cosine"
+      - ell_peaks: [0,100,200,250]
+    ilc_bias: 0.001
+#    b_squared: False
+#    adapt_nside: False
+    save_needlets: True
+    save_weights: True
+
+# Polarization ILC (PILC) in needlet domain. Variance minimization applied to QU maps.
+  - method: "pilc"
+    domain: "needlet"
+    needlet_config:
+      - needlet_windows: "cosine"
+      - ell_peaks: [0,100,200,250]
+    ilc_bias: 0.001
+#    b_squared: False
+    save_needlets: True
+    save_weights: True
+
+
+# Configuration to get estimate of the foreground residuals.
+compsep_residuals:
+  - gnilc_path: "gilc_needlet_bias0.1_m+1_nls1-2-3_deproCMB0.0_nls1-2/mexican_B1.3_j0j9_j10j13_j14j16_j17j39"
+    compsep_path: "ilc_needlet_bias0.001/mexican_B1.3_j0j13_j14j16_j17j18_j19j39"
+    field_in: "B" # If not provided, it will use field_out from this file.
+    adapt_nside: False # If True, the HEALPix resolution of needlet maps is adapted to the sampled range of multipoles. Should match that of compsep run.
+
+# Configuration to generate tracers for MC-ILC ratio construction
+real_mc_tracers:
+  - channels_tracers: [5,2]
+    path_tracers: "outputs/SO_SAT/d1s1/tracers"
+
+# Configuration to combine outputs from different component separation runs.
+combine_outputs:
+  - fields_in: ["E", "B"]
+    fields_out: "QU"
+    paths_fields_in: ["",""]
+    path_out: "nilc_EB_combined"
+    components: ["output_total"]
+
+# ==================================== Cls PARAMETERS ==================================== #
+
+delta_ell: 1
+spectra_comp: 'namaster'
+return_Dell: False
+field_cls_out: "BB"
+return_spectra: True
+save_spectra: True
+
+# Dictiionary including the component separation runs and settings to compute angular power spectra.
+compute_spectra:
+  - path_method: "ilc_needlet_bias0.001/mexican_B1.3_j0j13_j14j16_j17j33" # Path to the component separation outputs.
+    components_for_cls: ["output_total", "noise_residuals", "fgds_residuals", "output_cmb"]
+    mask_type: "config" #
+    mask_path: ""
+    field_out: "QU"
+    apodize_mask: null #"C1"
+    smooth_mask: 0.
+    smooth_tracer: 3.
+    fsky: 0.5
+    nmt_purify_B: True
+    nmt_purify_E: False
+
