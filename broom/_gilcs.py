@@ -73,7 +73,7 @@ def gilc(config: Configs, input_alms: SimpleNamespace, compsep_run: Dict[str, An
         if not hasattr(input_alms, "noise"):
             raise ValueError("The input_alms object must have 'noise'' attribute for debiasing the covariance.")
         compsep_run["noise_idx"] = 2 if hasattr(input_alms, "fgds") else 1
-    print("Using nuisance alms with indices:", compsep_run["nuis_idx"])
+#    print("Using nuisance alms with indices:", compsep_run["nuis_idx"])
 
     output_maps = _gilc(config, obj_to_array(input_alms), compsep_run, **kwargs)
     
