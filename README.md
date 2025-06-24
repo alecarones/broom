@@ -40,9 +40,9 @@ sudo apt install build-essential python3-dev libfftw3-dev libcfitsio-dev
 brew install fftw cfitsio
 ```
 
-### Dependencies
+### 📦 Dependencies
 
-The dependencies are:
+This package relies on several scientific Python libraries:
 
 - [numpy>1.18.5](https://numpy.org/)
 - [scipy>=1.8](https://scipy.org/)
