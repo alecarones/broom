@@ -23,7 +23,6 @@ setup(
         "healpy>=1.15",
         "pysm3>=3.3.2",
         "mtneedlet>=0.0.5",
-        "scikit-learn>=1.7.0",
     ],
     include_package_data=True,
     classifiers=[
