@@ -57,7 +57,7 @@ class InstrumentConfig:
     #alpha_knee: list = field(default_factory=list)
     #channels_tags: list = field(default_factory=list)
 
-    def load_from_yaml(self, yaml_data: Dict[str, Any], experiment: str, path_utils: str):
+    def load_from_yaml(self, yaml_data: Dict[str, Any], experiment: str):
         experiment_data = yaml_data.get(experiment, {})
 
         attrs = [
@@ -79,9 +79,9 @@ class InstrumentConfig:
             if 'fwhm' not in experiment_data:
                 raise ValueError(f"FWHM must be provided in the yaml file for gaussian beams.")
 
-        for attr in ['path_bandpasses', 'path_hits_maps', 'path_depth_maps', 'path_beams']:
-            if hasattr(self, attr):
-                setattr(self, attr, os.path.join(path_utils, getattr(self, attr)))
+#        for attr in ['path_bandpasses', 'path_hits_maps', 'path_depth_maps', 'path_beams']:
+#            if hasattr(self, attr):
+#                setattr(self, attr, os.path.join(path_utils, getattr(self, attr)))
 
         self.channels_tags = experiment_data.get("channels_tags", [])
         if not self.channels_tags:
@@ -134,7 +134,7 @@ class Configs:
         self.nsim_start = self.config.get("nsim_start") or 0
         self.nsims = self.config.get("nsims") or 1
         self.parallelize = self.config.get("parallelize", False)
-        self.path_utils = self.config.get("path_utils") or os.path.join(base_dir, "utils")
+#        self.path_utils = self.config.get("path_utils") or os.path.join(base_dir, "utils")
         self.compsep = self.config.get("compsep") or ""
         self.compsep_residuals = self.config.get("compsep_residuals") or ""
         self.real_mc_tracers = self.config.get("real_mc_tracers") or ""
@@ -142,7 +142,7 @@ class Configs:
         self.foreground_models = self.config.get("foreground_models") or ["d0","s0"]
         self.field_in = self.config.get("field_in") or "TQU"
         self.field_out = self.config.get("field_out") or "TQU"
-        self.experiments_file = self.config.get("experiments_file") or os.path.join(self.path_utils, "experiments.yaml") 
+        self.experiments_file = self.config.get("experiments_file") or os.path.join(base_dir, "utils", "experiments.yaml") 
         self.experiment = self.config.get("experiment") or ""
         self.pixel_window_in = self.config.get("pixel_window_in", False)
         self.pixel_window_out = self.config.get("pixel_window_out", False)
@@ -223,7 +223,7 @@ class Configs:
         if os.path.exists(experiments_yaml_path):
             with open(experiments_yaml_path, 'r') as file:
                 experiments_data = yaml.safe_load(file)
-                self.instrument.load_from_yaml(experiments_data, self.experiment, self.path_utils)
+                self.instrument.load_from_yaml(experiments_data, self.experiment)
 
     def to_dict_for_mc(self) -> Dict[str, Any]:
         """

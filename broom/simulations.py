@@ -53,7 +53,6 @@ def _get_data_foregrounds_(config: Configs, **kwargs: Any) -> SimpleNamespace:
         Configuration parameters. It should have the following attributes:
         - `generate_input_foregrounds`: Whether to generate foreground maps.
         - `foreground_models`: List of foreground models to generate.
-        - 'path_utils': Path to utility files (e.g., depth maps, hits maps, bandpasses, beams).
         - 'instrument': a dictionary containing the instrument configuration, including:
             - `frequency`: List of instrument frequencies in GHz.
             - `beams`: Type of beams to be used (e.g., "gaussian", "file_l", "file_lm").
@@ -64,20 +63,16 @@ def _get_data_foregrounds_(config: Configs, **kwargs: Any) -> SimpleNamespace:
             - 'depth_P': Depth for polarization maps in arcmin*uK_CMB (optional).
                         If not provided, it will be assumed to be the intensity depth multiplied by sqrt(2).
                         Used if path_depth_maps is not provided.
-            - `path_beams`: Path to the beam files (if using "file_l" or "file_lm" beams). 
-                        The final path will be path_beams = config.path_utils + path_beams.
+            - `path_beams`: Full path to the beams files (if using "file_l" or "file_lm" beams). 
                         The code will look for files named "{path_beams}_{channel_tag}.fits" for each frequency channel.
             - `channels_tags`: List of tags for each frequency channel, used for loading beams, bandpasses or depth maps.
             - 'bandwidths': List of relative bandwidths for each frequency channel (optional, used if bandpass_integrate is True).
                         Used if path_bandpasses is not provided.
-            - `path_depth_maps`: Path to depth maps (optional, used if generating noise). 
-                        The total path will be path_depth_maps = config.path_utils + path_depth_maps.
+            - `path_depth_maps`: Full path to depth maps (optional, used if generating noise). 
                         The code will look for files named "{path_depth_maps}_{channel_tag}.fits" for each frequency channel.
-            - `path_hits_maps`: Path to hits maps (optional, used if generating noise and 'depth_maps' is not provided).
-                        the final path will be path_hits_maps = config.path_utils + path_hits_maps.
+            - `path_hits_maps`: Full path to hits maps (optional, used if generating noise and 'depth_maps' is not provided).
                         If it does not end with .fits, the code will look for files named "{path_hits_maps}_{channel_tag}.fits" for each frequency channel.
-            - `path_bandpasses`: Path to bandpass files (optional, used if bandpass_integrate is True).
-                        The final path will be path_bandpasses = config.path_utils + path_bandpasses.
+            - `path_bandpasses`: Full path to bandpass files (optional, used if bandpass_integrate is True).
                         It will look for files named as "{path_bandpasses}_{channel_tag}.npy" for each channel tag.
                         Each file should be a 2D array which has the first column a list of frequencies in GHz and the second column the corresponding bandpass response.
             - `ell_knee`: List of knee frequencies for each channel for the noise power spectrum (optional).
@@ -183,10 +178,12 @@ def _get_data_simulations_(
             - `channels_tags`: List of tags for each frequency channel, used for loading beams, bandpasses or depth maps.
             - 'bandwidths': List of relative bandwidths for each frequency channel (optional, used if bandpass_integrate is True).
                         Used if path_bandpasses is not provided.
-            - `path_depth_maps`: Path to depth maps (optional, used if generating noise).
-            - `path_hits_maps`: Path to hits maps (optional, used if generating noise and 'path_depth_maps' is not provided).
+            - `path_depth_maps`: Full path to depth maps (optional, used if generating noise).
+                        The code will look for files named "{path_depth_maps}_{channel_tag}.fits" for each frequency channel.   
+            - `path_hits_maps`: Full path to hits maps (optional, used if generating noise and 'path_depth_maps' is not provided).
+                        If it does not end with .fits, the code will look for files named 
+                        "{path_hits_maps}_{channel_tag}.fits" for each frequency channel.
             - `path_bandpasses`: Path to bandpass files (optional, used if bandpass_integrate is True).
-                        The final path will be path_bandpasses = config.path_utils + path_bandpasses.
                         The code will look for files named as "{path_bandpasses}_{channel_tag}.npy" for each channel tag.
                         Each file should be a 2D array which has the first column a list of frequencies in GHz and the second column the corresponding bandpass response.
             - `ell_knee`: List of knee frequencies for each channel for the noise power spectrum (optional).
