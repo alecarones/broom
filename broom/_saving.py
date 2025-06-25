@@ -511,6 +511,39 @@ def save_spectra(
         Simulation number to save spectra.
     """
 
+    path_spectra = get_path_spectra(config, compute_cls)
+
+    post_filename = f"_{nsim}" if nsim is not None else ""
+
+    pre_filename = "Dls" if config.return_Dell else "Cls"
+
+    for component in compute_cls["components_for_cls"]:
+        component_name = component.split('/')[0] if '/' in component else component
+        os.makedirs(os.path.join(path_spectra, component), exist_ok=True)
+        filename = os.path.join(
+            path_spectra,
+            f"{component}/{pre_filename}_{config.field_cls_out}_{component_name}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}{post_filename}.fits"
+        )
+        hp.write_cl(filename, getattr(cls_out, component_name), overwrite=True)
+
+def get_path_spectra(config: Configs, compute_cls: Dict[str, Any]) -> str:
+    """
+    Get the path where spectra will be saved based on the compute_cls dictionary.
+
+    Parameters
+    ----------
+    config : Configs
+        Configuration object containing paths and parameters for spectra computation.
+    compute_cls : dict
+        Dictionary containing parameters for spectra computation, including mask type and fsky.
+
+    Returns
+    -------
+    str
+        Full path to the directory where spectra will be saved.
+
+    """
+
     path_spectra = os.path.join(compute_cls["path"], 'spectra')
     mask_patterns = ['GAL*+fgres', 'GAL*+fgtemp', 'GAL*+fgtemp^3','GAL*0', 'GAL97', 'GAL99', 'fgres', 'fgtemp', 
             'fgtemp^3', 'config+fgres', 'config+fgtemp', 'config+fgtemp^3', 'config']
@@ -534,18 +567,33 @@ def save_spectra(
     if compute_cls["apodize_mask"] is not None:
         mask_name += f"_apo{compute_cls['apodize_mask']}_{compute_cls['smooth_mask']}deg"
 
-    path_spectra = os.path.join(path_spectra, mask_name)
+    return os.path.join(path_spectra, mask_name)
+    
+def _save_mask(mask: np.ndarray, 
+               config: Configs, 
+               compute_cls: Dict[str, Any], 
+               nsim: Optional[str] = None) -> None:
+    """
+    Save the mask used for power spectra computation.
+
+    Parameters
+    ----------
+    mask : np.ndarray
+        The mask(s) to be saved.
+    config : Configs
+        Configuration object containing global parameters.
+    compute_cls : dict
+        Dictionary containing parameters for spectra computation.
+    nsim : str, optional
+        Simulation number to save the mask.
+    """
+    
+    path_mask = get_path_spectra(config, compute_cls)
     
     post_filename = f"_{nsim}" if nsim is not None else ""
 
-    pre_filename = "Dls" if config.return_Dell else "Cls"
-
-    for component in compute_cls["components_for_cls"]:
-        component_name = component.split('/')[0] if '/' in component else component
-        os.makedirs(os.path.join(path_spectra, component), exist_ok=True)
-        filename = os.path.join(
-            path_spectra,
-            f"{component}/{pre_filename}_{config.field_cls_out}_{component_name}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}{post_filename}.fits"
-        )
-        hp.write_cl(filename, getattr(cls_out, component_name), overwrite=True)
-        
+    os.makedirs(path_mask, exist_ok=True)
+    
+    filename = f"mask_{config.field_cls_out}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}{post_filename}.fits"
+    
+    hp.write_map(os.path.join(path_mask, filename), mask, overwrite=True)

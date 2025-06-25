@@ -37,7 +37,7 @@ def get_and_save_real_tracers_B(
         - `bandpass_integrate`: Boolean indicating whether to integrate over the bandpass of the instrument in the simulations.
         - `instrument`: Instrument configuration object containing the following attributes:
             - `channels_tags`: List of tags for the instrument channels.
-        - `mask_path`: Path to the mask to be used in the tracers generation. If None, no mask is applied.
+        - `mask_observations`: Path to the mask which sets to zero unobserved pixels. If None, no mask is applied.
         - 'coordinates': Coordinate system used for the simulations, either "G" for Galactic, "E" for Ecliptic, or "C" for Celestial.
         - `pixel_window_in`: Boolean indicating whether to apply the pixel window function to the input data.
         - `pixel_window_out`: Boolean indicating whether to apply the pixel window function to the output tracer.
@@ -89,7 +89,7 @@ def get_and_save_real_tracers_B(
 
     tracers = component_separation(config_mc, mc_data)
     
-    tracers = _combine_B_tracers(tracers.total)
+    tracers = _combine_B_tracers(np.array(tracers.total))
 
     _log(f"Saving the tracers in {config.real_mc_tracers[0]['path_tracers']} directory", verbose=config_mc.verbose)
 
@@ -332,7 +332,8 @@ def get_scalar_tracer(
 
 def _cea_partition(
     map_: np.ndarray,
-    n_patches: int
+    n_patches: int,
+    mask: Optional[np.ndarray] = None
 ) -> np.ndarray:
     """
     Partition the input map into n_patches using the CEA method.
@@ -344,26 +345,34 @@ def _cea_partition(
         The input map to be partitioned. It should be a 1D array of pixel values.
     n_patches : int
         The number of patches to be created from the input map.
+    mask : np.ndarray, optional
+        A mask to be applied to the input map. If provided, only the pixels where the mask is non-zero will be considered for partitioning.
+        If None, the entire map will be used for partitioning.
     
     Returns
     -------
     np.ndarray
         A 1D array of the same shape as the input map, where each pixel is assigned a patch number from 0 to n_patches-1.
     """
-    split = np.array_split(np.sort(map_),n_patches)
+    if mask is None:
+        mask = np.ones_like(map_)
+
+    split = np.array_split(np.sort(map_[mask > 0.]),n_patches)
     patches = np.zeros(12 * (hp.get_nside(map_))**2)
     
     for n in range(n_patches):
         if n==0:
-            patches[map_ <= max(split[n])] = float(n)
+            patches[(map_ <= max(split[n])) & (mask > 0.)] = float(n)
         elif n==(n_patches-1):
-            patches[map_ >= min(split[n])] = float(n)
+            patches[(map_ >= min(split[n])) & (mask > 0.)] = float(n)
         else:
-            patches[(min(split[n]) <= map_) & (map_ <= max(split[n]))] = float(n)
+            patches[(min(split[n]) <= map_) & (map_ <= max(split[n])) & (mask > 0.)] = float(n)
             
     return patches
 
-def _rp_partition(map_,n_patches):
+def _rp_partition(map_: np.ndarray,
+    n_patches: int,
+    mask: Optional[np.ndarray] = None) -> np.ndarray:
     """
     Partition the input map into n_patches using the RP method.
     The RP method splits the map into n_patches patches with random number of pixels based on the values of the map.
@@ -374,14 +383,18 @@ def _rp_partition(map_,n_patches):
         The input map to be partitioned. It should be a 1D array of pixel values.
     n_patches : int
         The number of patches to be created from the input map.
+    mask : np.ndarray, optional
+        A mask to be applied to the input map. If provided, only the pixels where the mask is non-zero will be considered for partitioning.
     
     Returns
     -------
     np.ndarray
         A 1D array of the same shape as the input map, where each pixel is assigned a patch number from 0 to n_patches-1.
     """
+    if mask is None:
+        mask = np.ones_like(map_)
 
-    min_fraction = 1.25 / n_patches
+    min_fraction = (1.25 * (np.sum(mask > 0.)/mask.shape[0]) )/ n_patches
 
     while True:
         partition = np.random.uniform(low=0.0, high=1.0, size=n_patches)
@@ -392,13 +405,29 @@ def _rp_partition(map_,n_patches):
     partition = np.cumsum(partition)
     
     # Define index bins for partitioning the sorted map
-    total_pixels = map_.shape[0]
-    sorted_indices = np.argsort(map_)
-    bins = [0] + [int(total_pixels * partition[i]) for i in range(n_patches - 1)] + [total_pixels]
+#    total_pixels = map_.shape[0]
+#    sorted_indices = np.argsort(map_)
+#    bins = [0] + [int(total_pixels * partition[i]) for i in range(n_patches - 1)] + [total_pixels]
+
+#    patches = np.zeros(12 * (hp.get_nside(map_))**2)
+#    for i in range(n_patches):
+#        patches[sorted_indices[bins[i]:bins[i+1]]]=i
+
+    unmasked_indices = np.where(mask > 0.)[0]
+    unmasked_map = map_[unmasked_indices]
+
+    # Sort only the unmasked values
+    sorted_unmasked_indices = unmasked_indices[np.argsort(unmasked_map)]
+
+    total_unmasked = len(unmasked_indices)
+    bins = [0] + [int(total_unmasked * partition[i]) for i in range(n_patches - 1)] + [total_unmasked]
 
     patches = np.zeros(12 * (hp.get_nside(map_))**2)
+
+    # Assign patch indices only to unmasked pixels
     for i in range(n_patches):
-        patches[sorted_indices[bins[i]:bins[i+1]]]=i
+        patch_indices = sorted_unmasked_indices[bins[i]:bins[i+1]]
+        patches[patch_indices] = i
 
     return patches
 

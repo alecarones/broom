@@ -1,6 +1,6 @@
 import numpy as np
 import healpy as hp
-from sklearn.linear_model import LinearRegression
+#from sklearn.linear_model import LinearRegression
 
 def purify_master(QU_maps,mask,lmax, return_E=True, return_B=True, purify_E=False):
     try:
@@ -76,12 +76,18 @@ def purify_recycling(QU_maps, QU_full_maps, mask,lmax, return_E=True, return_B=T
         full_alms_B_m[2]=full_alms_E_B
         full_maps_TQU_B_temp = hp.alm2map(full_alms_B_m, nside, lmax=lmax, pol=True)
 
-        reg_Q = LinearRegression(fit_intercept=False).fit(full_maps_TQU_B_temp[1,maskbin>0].reshape(-1, 1), (full_maps_TQU_B)[1,maskbin>0])
-        reg_U = LinearRegression(fit_intercept=False).fit(full_maps_TQU_B_temp[2,maskbin>0].reshape(-1, 1), (full_maps_TQU_B)[2,maskbin>0])
+        #reg_Q = LinearRegression(fit_intercept=False).fit(full_maps_TQU_B_temp[1,maskbin>0].reshape(-1, 1), (full_maps_TQU_B)[1,maskbin>0])
+        #reg_U = LinearRegression(fit_intercept=False).fit(full_maps_TQU_B_temp[2,maskbin>0].reshape(-1, 1), (full_maps_TQU_B)[2,maskbin>0])
+        reg_Q, _, _, _ = np.linalg.lstsq(full_maps_TQU_B_temp[1,maskbin>0].reshape(-1, 1), 
+                (full_maps_TQU_B)[1,maskbin>0], rcond=None)
+        reg_U, _, _, _ = np.linalg.lstsq(full_maps_TQU_B_temp[2,maskbin>0].reshape(-1, 1),
+                (full_maps_TQU_B)[2,maskbin>0], rcond=None)
 
         QU_p = np.zeros((3,12*nside**2))
-        QU_p[1] = maps_TQU_B[1]-((reg_Q.coef_)[0])*maps_TQU_B_temp[1]
-        QU_p[2] = maps_TQU_B[2]-((reg_U.coef_)[0])*maps_TQU_B_temp[2]
+#        QU_p[1] = maps_TQU_B[1]-((reg_Q.coef_)[0])*maps_TQU_B_temp[1]
+#        QU_p[2] = maps_TQU_B[2]-((reg_U.coef_)[0])*maps_TQU_B_temp[2]
+        QU_p[1] = maps_TQU_B[1]-(reg_Q[0])*maps_TQU_B_temp[1]
+        QU_p[2] = maps_TQU_B[2]-(reg_U[0])*maps_TQU_B_temp[2]
             
         if iterations > 0:
             for it in range(iterations):

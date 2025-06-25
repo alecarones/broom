@@ -82,6 +82,36 @@ def  _get_beam_from_file(beam_file: str, lmax: int, symmetric_beam: bool = True)
         bl[idx_lmax,:] = bl_file[idx_lmax_file,:]
     return bl
 
+def _get_bandwidths(config: Configs, good_channels: np.ndarray) -> Optional[Union[np.ndarray, List[str]]]:
+    """
+    Retrieves the bandwidths for the specified channels based on the configuration.
+
+    Parameters
+    ----------
+    config : Configs
+        Configuration object containing instrument settings.
+    good_channels : np.ndarray
+        Indices of the channels to retrieve bandwidths for.
+    
+    Returns
+    -------
+    Optional[np.ndarray, List[str]]
+        Bandwidths as a numpy array if `bandpass_integrate` is True, otherwise None.
+        If `path_bandpasses` is set in the instrument configuration, returns a list of file paths.
+    """
+
+    # Bandwidth setup    
+    if config.bandpass_integrate:
+        if hasattr(config.instrument, "path_bandpasses"):
+            bandwidths = [
+                config.instrument.path_bandpasses + f"_{config.instrument.channels_tags[i]}.npy"
+                for i in good_channels] 
+        else: 
+            bandwidths = np.array(config.instrument.bandwidth)[good_channels]
+        return bandwidths
+    else:
+        return None
+
 def _get_local_cov(
     input_maps: np.ndarray,
     lmax: int,

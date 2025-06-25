@@ -1,7 +1,7 @@
 import numpy as np
 import healpy as hp
 from .configurations import Configs
-from .routines import _get_local_cov, _EB_to_QU, _E_to_QU, _B_to_QU, obj_to_array, array_to_obj, _log
+from .routines import _get_local_cov, _EB_to_QU, _E_to_QU, _B_to_QU, obj_to_array, array_to_obj, _log, _get_bandwidths
 from ._saving import _save_compsep_products, _get_full_path_out
 from ._needlets import _get_nside_lmax_from_b_ell, _get_needlet_windows_, _needlet_filtering, _get_good_channels_nl
 from ._ilcs import get_ilc_cov
@@ -942,6 +942,9 @@ def _get_gilc_weights(
         GILC weights for the provided scalar field. 
         Shape will be (n_channels, n_channels) if cov is 2D, or (npix, n_channels, n_channels) if cov is 3D.
     """
+    bandwidths = _get_bandwidths(config, compsep_run["good_channels"])
+    A_cmb = _get_CMB_SED(np.array(config.instrument.frequency)[compsep_run["good_channels"]], 
+                units=config.units, bandwidths=bandwidths)
 
     if cov.ndim == 2:
         inv_cov = lg.inv(cov)
@@ -956,8 +959,8 @@ def _get_gilc_weights(
         if depro_cmb is None:
             W = F @ lg.inv(F.T @ inv_cov @ F) @ F.T @ inv_cov
         else:
-            A_cmb = _get_CMB_SED(np.array(config.instrument.frequency), units=config.units)
-            F_e = np.column_stack([F, depro_cmb * np.ones(input_shapes[0])])
+#            F_e = np.column_stack([F, depro_cmb * np.ones(input_shapes[0])])
+            F_e = np.column_stack([F, depro_cmb * A_cmb])
             F_A = np.column_stack([F, A_cmb])
             W = F_e @ lg.inv(F_A.T @ inv_cov @ F_A) @ F_A.T @ inv_cov
 
@@ -967,7 +970,7 @@ def _get_gilc_weights(
 
         covn_sqrt = lg.cholesky(cov_n)
 #        covn_sqrt_inv = lg.inv(covn_sqrt)
-        A_cmb = _get_CMB_SED(np.array(config.instrument.frequency), units=config.units)
+        
         W_=np.zeros((cov.shape[0],input_shapes[0],input_shapes[0]))
 
         for m_ in np.unique(m):
@@ -983,8 +986,9 @@ def _get_gilc_weights(
                               np.einsum("kiz,kij->kzj", F, cov_inv))
                 )
             else:
-                e_cmb = depro_cmb * np.ones((F.shape[0],F.shape[1],1)) 
-                F_e = np.concatenate((F,e_cmb),axis=2)
+                #e_cmb = depro_cmb * np.ones((F.shape[0],F.shape[1],1)) 
+                #F_e = np.concatenate((F,e_cmb),axis=2)
+                F_e = np.concatenate((F,np.tile(depro_cmb * A_cmb, (F.shape[0], 1))[:, :, np.newaxis]),axis=2)
                 F_A = np.concatenate((F,np.tile(A_cmb, (F.shape[0], 1))[:, :, np.newaxis]),axis=2)
                 W_[m==m_] = np.einsum(
                     "kil,klj->kij", F_e,
@@ -992,7 +996,7 @@ def _get_gilc_weights(
                               lg.inv(np.einsum("kiz,kij,kjl->kzl", F_A, cov_inv, F_A)),
                               np.einsum("kiz,kij->kzj", F_A, cov_inv))
                 )
-                del e_cmb, F_e, F_A
+                del F_e, F_A #e_cmb, 
 
         del covn_sqrt, cov_inv, U_s, F, m
 

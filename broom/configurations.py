@@ -72,7 +72,7 @@ class InstrumentConfig:
 
         self.beams = experiment_data.get("beams", "gaussian")
         if self.beams != "gaussian":
-            if path_beams not in experiment_data:
+            if 'path_beams' not in experiment_data:
                 raise ValueError("Missing 'path_beams' for non-gaussian beams in the experiment yaml file.")
             self.path_beams = experiment_data['path_beams']
         else:
@@ -117,7 +117,7 @@ class Configs:
             if self.generate_input_foregrounds and self.bandpass_integrate:
                     if not hasattr(self.instrument, 'bandwidth') and not hasattr(self.instrument, 'path_bandpasses'):
                         raise ValueError(f"If bandpass_integrate is True, 'bandwidth' or 'path_bandpasses' must be provided in the experiment yaml file.")
-            self.bring_to_common_resolution = self.config.get("bring_to_common_resolution") or True
+            self.bring_to_common_resolution = self.config.get("bring_to_common_resolution", True)
         
 
     def _store_passed_settings(self):
@@ -159,7 +159,7 @@ class Configs:
             if not self.save_compsep_products and not self.return_compsep_products:
                 raise ValueError("At least one of save_compsep_products and return_compsep_products must be True.")
         self.path_outputs = self.config.get("path_outputs") or os.path.join(os.getcwd(), "outputs", self.experiment, ''.join(self.foreground_models))
-        self.path_outputs = os.path.normpath(os.path.join(os.getcwd(), self.path_outputs))
+#        self.path_outputs = os.path.normpath(os.path.join(os.getcwd(), self.path_outputs))
 
         self.generate_input_foregrounds = self.config.get("generate_input_foregrounds", True)
         self.generate_input_noise = self.config.get("generate_input_noise", True)
@@ -173,27 +173,28 @@ class Configs:
         if self.generate_input_cmb:
             self.seed_cmb = self.config.get("seed_cmb", None)
             self.cls_cmb_path = self.config.get("cls_cmb_path") or os.path.join(base_dir, "utils", "Cls_Planck2018_lensed_r0.fits")
+            self.cls_cmb_new_ordered = self.config.get("cls_cmb_new_ordered", True)
 
         # Input/output paths   
         dataname = f"total_{self.data_type}_ns{self.nside}_lmax{self.lmax}"
         def_data_path = os.path.join(os.getcwd(), "inputs", self.experiment, "total", ''.join(self.foreground_models), dataname)
         self.data_path = self.config.get("data_path") or def_data_path
-        self.data_path = os.path.normpath(os.path.join(os.getcwd(), self.data_path))
+#        self.data_path = os.path.normpath(os.path.join(os.getcwd(), self.data_path))
 
         noisename = f"noise_{self.data_type}_ns{self.nside}_lmax{self.lmax}"
         def_noise_path = os.path.join(os.getcwd(), "inputs", self.experiment, "noise", noisename)
         self.noise_path = self.config.get("noise_path") or def_noise_path
-        self.noise_path = os.path.normpath(os.path.join(os.getcwd(), self.noise_path))
+#        self.noise_path = os.path.normpath(os.path.join(os.getcwd(), self.noise_path))
 
         cmbname = f"cmb_{self.data_type}_ns{self.nside}_lmax{self.lmax}"
         def_cmb_path = os.path.join(os.getcwd(), "inputs", self.experiment, "cmb", cmbname)
         self.cmb_path = self.config.get("cmb_path") or def_cmb_path
-        self.cmb_path = os.path.normpath(os.path.join(os.getcwd(), self.cmb_path))
+#        self.cmb_path = os.path.normpath(os.path.join(os.getcwd(), self.cmb_path))
 
         fgdsname = f"foregrounds_{self.data_type}_ns{self.nside}_lmax{self.lmax}"
         def_fgds_path = os.path.join(os.getcwd(), "inputs", self.experiment, "foregrounds", ''.join(self.foreground_models), fgdsname)
         self.fgds_path = self.config.get("fgds_path") or def_fgds_path
-        self.fgds_path = os.path.normpath(os.path.join(os.getcwd(), self.fgds_path))
+#        self.fgds_path = os.path.normpath(os.path.join(os.getcwd(), self.fgds_path))
 
         self.return_fgd_components = self.config.get("return_fgd_components", False)
 
@@ -207,6 +208,7 @@ class Configs:
             self.field_cls_out = self.config.get("field_cls_out") or self.field_out
             self.save_spectra = self.config.get("save_spectra", True)
             self.return_spectra = self.config.get("return_spectra", True)
+            self.save_mask = self.config.get("save_mask", True)
             
     def _validate_paths(self):
         for name, flag in zip(

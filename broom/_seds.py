@@ -11,7 +11,9 @@ T_cmb = Planck18.Tcmb(0).value
 h = constants.h
 k = constants.k
 
-def _get_CMB_SED(frequencies: List[float], units: str = "uK_CMB") -> np.ndarray:
+def _get_CMB_SED(frequencies: List[float], units: str = "uK_CMB",
+    bandwidths: Optional[Union[List[str], List[float]]] = None
+) -> np.ndarray:
     """
     Function to compute the SED of the CMB in different units.
 
@@ -22,6 +24,11 @@ def _get_CMB_SED(frequencies: List[float], units: str = "uK_CMB") -> np.ndarray:
     units : str, optional
         Units of the output SED. Options are "uK_CMB", "uK_RJ" and all their multiples (e.g., "mK_CMB", "mK_RJ") or "Jy_sr".
         Default is "uK_CMB".
+    bandwidths : list or None, optional
+        If list of str, it should contain the paths to npy files with frequency bands and response.
+        If list of floats, it should contain the relative bandwidths in GHz for each frequency channel.
+        If None, the SED is computed at the frequencies without assuming any bandwidth.
+
     
     Returns
     -------
@@ -30,11 +37,38 @@ def _get_CMB_SED(frequencies: List[float], units: str = "uK_CMB") -> np.ndarray:
     """
 
     if units[-3:] == "CMB":
-        return np.ones(len(frequencies))
-    elif units[-2:] == "RJ":
-        return u.uK_CMB.to(u.uK_RJ, equivalencies=u.cmb_equivalencies(frequencies * u.GHz))
-    elif units == "Jy_sr":
-        return u.uK_CMB.to((u.Jy / u.sr), equivalencies=u.cmb_equivalencies(frequencies * u.GHz))
+        return (u.Unit(units)).to(u.uK_CMB) * np.ones(len(frequencies))
+
+    if bandwidths is not None:
+        sed = []
+        for idx_freq, frequency in enumerate(frequencies):
+            if isinstance(bandwidths[0], str):
+                freqs_band, weights = np.load(bandwidths[idx_freq])
+            else:
+                freq_min = frequency * (1 - ( bandwidths[idx_freq] / 2 ))
+                freq_max = frequency * (1 + ( bandwidths[idx_freq] / 2 ))
+                steps = int(freq_max - freq_min + 1)
+                freqs_band = np.linspace(freq_min, freq_max, steps)
+                weights = np.ones_like(freqs_band) # The tophat is defined in intensity units (Jy/sr)
+            weights_rj = normalize_weights(freqs_band, weights)
+
+            sed_band = np.zeros(1)
+            for i, (freq, _weight) in enumerate(zip(freqs_band, weights_rj)):
+                sed_ = u.uK_CMB.to(u.uK_RJ, equivalencies=u.cmb_equivalencies(freq * u.GHz))
+                trapz_step_inplace(freqs_band, weights_rj, i, sed_, sed_band)
+
+            if units != "Jy_sr":
+                sed.append((sed_band * bandpass_unit_conversion(freqs_band * u.GHz, weights, getattr(u, units))).value[0])
+            else:
+                sed.append((sed_band * bandpass_unit_conversion(freqs_band * u.GHz, weights, u.Jy / u.sr)).value[0])
+
+        return np.array(sed)
+
+    else:
+        if units[-2:] == "RJ":
+            return u.uK_CMB.to(u.Unit(units), equivalencies=u.cmb_equivalencies(frequencies * u.GHz))
+        elif units == "Jy_sr":
+            return u.uK_CMB.to((u.Jy / u.sr), equivalencies=u.cmb_equivalencies(frequencies * u.GHz))
 
 def _get_moments_SED(
     frequencies: List[float],
@@ -84,8 +118,8 @@ def _get_moments_SED(
     units : str, optional
         Units of the output SED. Options are "uK_CMB", "uK_RJ", or "Jy_sr" and all their multiples (e.g., "mK_CMB", "mK_RJ", "mJy_sr").
     bandwidths : list or None, optional
-        If list of str, it should contain the paths to npy files with frequency bands and weights.
-        If list of floats, it should contain the bandwidths in GHz for each frequency channel.
+        If list of str, it should contain the paths to npy files with frequency bands and response.
+        If list of floats, it should contain the relative bandwidths in GHz for each frequency channel.
         If None, the SED is computed at the frequencies without assuming any bandwidth.
     
     Returns
@@ -137,7 +171,14 @@ def _get_moments_SED(
                     sed_band = moments_funcs[mom](frequency, beta_s, nu_ref = nu_ref_s)
                 freqs_band = frequency
                 weights = None
-            sed.append((sed_band * bandpass_unit_conversion(freqs_band * u.GHz, weights, getattr(u, units))).value[0])
+
+            if units != "Jy_sr":
+                if units[-3:] == "CMB":
+                    sed.append((sed_band * bandpass_unit_conversion(freqs_band * u.GHz, weights, getattr(u, units))).value[0])
+                elif units[-2:] == "RJ":
+                    sed.append((sed_band * bandpass_unit_conversion(freqs_band * u.GHz, weights, getattr(u, units))).value)
+            else:
+                sed.append((sed_band * bandpass_unit_conversion(freqs_band * u.GHz, weights, u.Jy / u.sr)).value[0])
 
         all_seds.append(sed)
     

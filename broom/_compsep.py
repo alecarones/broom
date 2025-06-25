@@ -196,8 +196,8 @@ def component_separation(config: Configs, data: SimpleNamespace, nsim: Optional[
     del mask_obs, mask_cov
 
     if config.return_compsep_products:
-        for attr in vars(outputs).keys():
-            setattr(outputs, attr, np.array(getattr(outputs, attr)))
+#        for attr in vars(outputs).keys():
+#            setattr(outputs, attr, np.array(getattr(outputs, attr)))
         return outputs
     
     return None

@@ -1,7 +1,7 @@
 import numpy as np
 import healpy as hp
 from .configurations import Configs
-from .routines import _get_local_cov, _EB_to_QU, _E_to_QU, _B_to_QU, obj_to_array, array_to_obj
+from .routines import _get_local_cov, _EB_to_QU, _E_to_QU, _B_to_QU, obj_to_array, array_to_obj, _get_bandwidths
 from ._saving import _save_compsep_products, _get_full_path_out, save_ilc_weights
 from ._needlets import _get_nside_lmax_from_b_ell, _get_needlet_windows_, _needlet_filtering, _get_good_channels_nl
 from ._ilcs import _standardize_cilc, get_inv_cov
@@ -394,17 +394,9 @@ def _pilc_maps(
     good_channels = _get_good_channels_nl(config, b_ell)
     freqs = np.array(config.instrument.frequency)[good_channels]
 
-    if config.bandpass_integrate:
-        if hasattr(config.instrument, "path_bandpasses"):
-            bandwidths = [
-                config.instrument.path_bandpasses + f"_{config.instrument.channels_tags[i]}.npy"
-                for i in good_channels] 
-        else: 
-            bandwidths = np.array(config.instrument.bandwidth)[good_channels]
-    else:
-        bandwidths = None
+    bandwidths = _get_bandwidths(config, good_channels)
 
-    A_cmb = _get_CMB_SED(freqs, units=config.units)
+    A_cmb = _get_CMB_SED(freqs, units=config.units, bandwidths=bandwidths)
 
     def _assign_moment_constraints(scale_idx=None):
         idx = scale_idx if scale_idx is not None else slice(None)

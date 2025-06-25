@@ -9,7 +9,7 @@ from .routines import obj_out_to_array, _slice_outputs, _format_nsim, _log
 from .configurations import Configs
 from types import SimpleNamespace
 from typing import Optional, Union, Dict, Any
-from ._saving import save_spectra
+from ._saving import save_spectra, _save_mask
 try:
     import pymaster as nmt
 except ImportError:
@@ -215,6 +215,15 @@ def _cls_from_config(
         )
 
     cls_out = _cls_from_maps(config, compute_cls, nsim=nsim)
+
+    if config.save_mask:
+        if compute_cls["mask_type"] is not None:
+            if 'fgres' in compute_cls["mask_type"] or 'fgtemp' in compute_cls["mask_type"]:
+                _save_mask(compute_cls["mask"], config, compute_cls, nsim=nsim)
+            else:
+                _log("Mask type does not include 'fgres' or 'fgtemp', not saving mask.", verbose=config.verbose)
+        else:
+            _log("Mask type not defined, not saving mask.", verbose=config.verbose)
 
     if config.save_spectra:
         save_spectra(config, cls_out, compute_cls, nsim=nsim)

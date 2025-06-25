@@ -2,7 +2,7 @@ import numpy as np
 import healpy as hp
 from .configurations import Configs
 from .routines import _get_local_cov, _EB_to_QU, _E_to_QU, _B_to_QU,\
-                      obj_to_array, array_to_obj
+                      obj_to_array, array_to_obj, _get_bandwidths
 from ._saving import _save_compsep_products, _get_full_path_out
 from ._needlets import  _get_nside_lmax_from_b_ell, _get_needlet_windows_, _needlet_filtering 
 from ._seds import _get_CMB_SED, _get_moments_SED, _standardize_cilc
@@ -465,18 +465,9 @@ def _ilc_maps(config: Configs, input_maps: np.ndarray, compsep_run: Dict,
     good_channels = _get_good_channels_nl(config, b_ell)
     freqs = np.array(config.instrument.frequency)[good_channels]
 
-    # Bandwidth setup    
-    if config.bandpass_integrate:
-        if hasattr(config.instrument, "path_bandpasses"):
-            bandwidths = [
-                config.instrument.path_bandpasses + f"_{config.instrument.channels_tags[i]}.npy"
-                for i in good_channels] 
-        else: 
-            bandwidths = np.array(config.instrument.bandwidth)[good_channels]
-    else:
-        bandwidths = None
+    bandwidths = _get_bandwidths(config, good_channels)
 
-    A_cmb = _get_CMB_SED(freqs, units=config.units)
+    A_cmb = _get_CMB_SED(freqs, units=config.units, bandwidths=bandwidths)
         
     if compsep_run["method"] == "cilc":
         if nl_scale is None:
@@ -557,13 +548,15 @@ def _mcilc_maps(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
         Cleaned output sky maps of shape (n_pixels, n_components).
     """
     good_channels = _get_good_channels_nl(config, b_ell)
-    A_cmb = _get_CMB_SED(np.array(config.instrument.frequency)[good_channels], units=config.units)
+    bandwidths = _get_bandwidths(config, good_channels)
+
+    # Get CMB SED for the good channels
+    A_cmb = _get_CMB_SED(np.array(config.instrument.frequency)[good_channels], units=config.units, bandwidths=bandwidths)
 
     if "cea" in compsep_run["mc_type"]:
         return _mcilc_cea_(config, input_maps, tracer, compsep_run, A_cmb, nl_scale=nl_scale)
     elif "rp" in compsep_run["mc_type"]:
         return _mcilc_rp_(config, input_maps, tracer, compsep_run, A_cmb, nl_scale=nl_scale)
-
 
 def _mcilc_cea_(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
                 compsep_run: Dict, A_cmb: np.ndarray,
@@ -598,7 +591,9 @@ def _mcilc_cea_(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
     np.ndarray
         Output sky map cleaned via region-specific ILC weights, shape (n_pixels, n_components).
     """
-    patches = _cea_partition(tracer, compsep_run["n_patches"])
+    mask_mcilc = compsep_run.get("mask", np.ones(input_maps.shape[-2]))
+
+    patches = _cea_partition(tracer, compsep_run["n_patches"], mask=mask_mcilc)
 
     w_mcilc = get_mcilc_weights(input_maps[...,0], patches, A_cmb, compsep_run)
 
@@ -650,9 +645,10 @@ def _mcilc_rp_(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
         shape (n_pixels, n_components).
     """
     output_maps = np.zeros((input_maps.shape[1], input_maps.shape[-1]))
+    mask_mcilc = compsep_run.get("mask", np.ones(input_maps.shape[-2]))
 
     for it in range(iterations):    
-        patches = _rp_partition(tracer, compsep_run["n_patches"])
+        patches = _rp_partition(tracer, compsep_run["n_patches"], mask=mask_mcilc)
         w_mcilc = get_mcilc_weights(input_maps[...,0], patches, A_cmb, compsep_run)
         if compsep_run["save_weights"]:
             if it == 0:
@@ -888,7 +884,8 @@ def get_mcilc_cov(
         for patch in np.unique(patches):
             patch_mask = (patches == patch) & (mask_mcilc > 0.)
             patch_cov = np.mean(np.einsum('ik,jk->ijk', (inputs * mask_mcilc)[:,patch_mask], (inputs * mask_mcilc)[:,patch_mask]),axis=2)
-            cov[...,(patches==patch)] = np.repeat(patch_cov[:, :, np.newaxis], np.sum(patches==patch), axis=2)
+            #cov[...,(patches==patch)] = np.repeat(patch_cov[:, :, np.newaxis], np.sum(patches==patch), axis=2)
+            cov[...,patch_mask] = np.repeat(patch_cov[:, :, np.newaxis], np.sum(patch_mask), axis=2)
 
     return cov[...,mask_mcilc > 0.]
 

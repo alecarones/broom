@@ -1,7 +1,7 @@
 import numpy as np
 import healpy as hp
 from .configurations import Configs
-from .routines import _get_local_cov, _EB_to_QU, _E_to_QU, _B_to_QU, obj_to_array, array_to_obj, _log
+from .routines import _get_local_cov, _EB_to_QU, _E_to_QU, _B_to_QU, obj_to_array, array_to_obj, _log, _get_bandwidths
 from ._saving import _save_compsep_products, _get_full_path_out
 from ._needlets import _get_nside_lmax_from_b_ell, _get_needlet_windows_, _needlet_filtering, _get_good_channels_nl
 from ._pilcs import get_pilc_cov, get_prilc_cov
@@ -265,23 +265,23 @@ def _gpilc_pixel(config: Configs, input_alms: np.ndarray, compsep_run: Dict[str,
     compsep_run["good_channels"] = _get_good_channels_nl(config, np.ones(config.lmax+1))
 #    compsep_run["good_channels"] = np.arange(input_alms.shape[0])
 
-    input_maps = np.zeros((input_alms.shape[0], 2, 12 * config.nside**2, input_alms.shape[-1]))
+    input_maps = np.zeros((compsep_run["good_channels"].shape[0], 2, 12 * config.nside**2, input_alms.shape[-1]))
 
     def alm_to_polmap(E=None, B=None):
         T = np.zeros_like(E if E is not None else B)
         return hp.alm2map([T, E if E is not None else T, B if B is not None else T],
                           config.nside, lmax=config.lmax, pol=True)[1:]
 
-    for n in range(input_alms.shape[0]):
+    for n, channel in enumerate(compsep_run["good_channels"]):
         for c in range(input_alms.shape[-1]):
             if input_alms.ndim == 4:
-                input_maps[n, ..., c] = alm_to_polmap(E=input_alms[n, 0, :, c],
-                                                      B=input_alms[n, 1, :, c])
+                input_maps[n, ..., c] = alm_to_polmap(E=input_alms[channel, 0, :, c],
+                                                      B=input_alms[channel, 1, :, c])
             elif input_alms.ndim == 3:
                 if config.field_out in ["QU_E", "E"]:
-                    input_maps[n, ..., c] = alm_to_polmap(E=input_alms[n, :, c])
+                    input_maps[n, ..., c] = alm_to_polmap(E=input_alms[channel, :, c])
                 elif config.field_out in ["QU_B", "B"]:
-                    input_maps[n, ..., c] = alm_to_polmap(B=input_alms[n, :, c])
+                    input_maps[n, ..., c] = alm_to_polmap(B=input_alms[channel, :, c])
 
     # Perform GPILC separation
     output_maps = _gpilc_maps(
@@ -364,24 +364,25 @@ def _fgd_P_diagnostic_pixel(
         Foreground diagnostic maps in pixel space. Shape will depend on the input alms and compsep_run settings.
 
     """
-
-    input_maps = np.zeros((input_alms.shape[0], 2, 12 * config.nside**2, input_alms.shape[-1]))
+    compsep_run["good_channels"] = _get_good_channels_nl(config, np.ones(config.lmax+1))
+    
+    input_maps = np.zeros((compsep_run["good_channels"].shape[0], 2, 12 * config.nside**2, input_alms.shape[-1]))
     
     def alm_to_polmap(E=None, B=None):
         T = np.zeros_like(E if E is not None else B)
         return hp.alm2map([T, E if E is not None else T, B if B is not None else T],
                           config.nside, lmax=lmax, pol=True)[1:]
 
-    for n in range(input_alms.shape[0]):
+    for n, channel in enumerate(compsep_run["good_channels"]):
         for c in range(input_alms.shape[-1]):
             if input_alms.ndim == 4:
-                input_maps[n, ..., c] = alm_to_polmap(E=input_alms[n, 0, :, c],
-                                                      B=input_alms[n, 1, :, c])
+                input_maps[n, ..., c] = alm_to_polmap(E=input_alms[channel, 0, :, c],
+                                                      B=input_alms[channel, 1, :, c])
             elif input_alms.ndim == 3:
                 if config.field_out in ["QU_E", "E"]:
-                    input_maps[n, ..., c] = alm_to_polmap(E=input_alms[n, :, c])
+                    input_maps[n, ..., c] = alm_to_polmap(E=input_alms[channel, :, c])
                 elif config.field_out in ["QU_B", "B"]:
-                    input_maps[n, ..., c] = alm_to_polmap(B=input_alms[n, :, c])
+                    input_maps[n, ..., c] = alm_to_polmap(B=input_alms[channel, :, c])
 
     output_maps = _fgd_P_diagnostic_maps(config, input_maps, compsep_run, np.ones(config.lmax+1), noise_debias=compsep_run["cov_noise_debias"])
 
@@ -644,8 +645,8 @@ def _fgd_P_diagnostic_needlet_j(
     else:
         nside_, lmax_ = _get_nside_lmax_from_b_ell(b_ell,config.nside,config.lmax)
         
-#    compsep_run["good_channels"] = _get_good_channels_nl(config, b_ell)
-    compsep_run["good_channels"] = np.arange(input_alms.shape[0])
+    compsep_run["good_channels"] = _get_good_channels_nl(config, b_ell)
+#    compsep_run["good_channels"] = np.arange(input_alms.shape[0])
 
     input_maps_nl = np.zeros((compsep_run["good_channels"].shape[0], 2, 12 * nside_**2, input_alms.shape[-1]))
 
@@ -869,7 +870,11 @@ def _get_gpilc_weights(
     -------
     np.ndarray
         Weights for GPILC. Shape is (n_pixels, n_channels, n_channels) for 3D covariance or (n_channels, n_channels) for 2D covariance.
-    """
+    """  
+
+    bandwidths = _get_bandwidths(config, compsep_run["good_channels"])
+    A_cmb = _get_CMB_SED(np.array(config.instrument.frequency)[compsep_run["good_channels"]], 
+                units=config.units, bandwidths=bandwidths) 
 
     if cov.ndim == 2:
         inv_cov = lg.inv(cov)
@@ -884,8 +889,8 @@ def _get_gpilc_weights(
         if depro_cmb is None:
             W = F @ lg.inv(F.T @ inv_cov @ F) @ F.T @ inv_cov
         else:
-            A_cmb = _get_CMB_SED(np.array(config.instrument.frequency), units=config.units)
-            F_e = np.column_stack([F, depro_cmb * np.ones(input_shapes[0])])
+#            F_e = np.column_stack([F, depro_cmb * np.ones(input_shapes[0])])
+            F_e = np.column_stack([F, depro_cmb * A_cmb])
             F_A = np.column_stack([F, A_cmb])
             W =  F_e @ lg.inv(F_A.T @ inv_cov @ F_A) @ F_A.T @ inv_cov
 
@@ -895,7 +900,6 @@ def _get_gpilc_weights(
 
         covn_sqrt = lg.cholesky(cov_n)
         covn_sqrt_inv = lg.inv(covn_sqrt)
-        A_cmb = _get_CMB_SED(np.array(config.instrument.frequency), units=config.units)
 
         W_=np.zeros((cov.shape[0],input_shapes[0],input_shapes[0]))
 
@@ -907,8 +911,9 @@ def _get_gpilc_weights(
             if depro_cmb is None: 
                 W_[m==m_] = np.einsum("kil,klj->kij",F,np.einsum("kzl,klj->kzj",lg.inv(np.einsum("kiz,kij,kjl->kzl",F,cov_inv,F)),np.einsum("kiz,kij->kzj",F,cov_inv)))
             else:
-                e_cmb = depro_cmb * np.ones((F.shape[0],F.shape[1],1)) 
-                F_e = np.concatenate((F,e_cmb),axis=2)
+#                e_cmb = depro_cmb * np.ones((F.shape[0],F.shape[1],1)) 
+#                F_e = np.concatenate((F,e_cmb),axis=2)
+                F_e = np.concatenate((F,np.tile(depro_cmb * A_cmb, (F.shape[0], 1))[:, :, np.newaxis]),axis=2)
                 F_A = np.concatenate((F,np.tile(A_cmb, (F.shape[0], 1))[:, :, np.newaxis]),axis=2)
                 W_[m==m_] = np.einsum("kil,klj->kij",F_e,np.einsum("kzl,klj->kzj",lg.inv(np.einsum("kiz,kij,kjl->kzl",F_A,cov_inv,F_A)),np.einsum("kiz,kij->kzj",F_A,cov_inv)))
 

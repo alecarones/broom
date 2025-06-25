@@ -10,10 +10,11 @@ import warnings
 from threadpoolctl import threadpool_limits
 
 from .configurations import Configs
+from ._seds import _get_CMB_SED
 from .routines import (
     _get_ell_filter,
     _get_beam_from_file,
-    _map2alm_kwargs, _log
+    _map2alm_kwargs, _log, _get_bandwidths,
 )
 
 prefix_to_attr = {
@@ -153,8 +154,12 @@ def _get_data_simulations_(
         Configuration parameters. It should have the following attributes:
         - `generate_input_cmb`: Whether to generate CMB maps. If False, it will load from `cmb_path`.
         - `cmb_path`: Path where saving or loading CMB maps.
+        - 'cls_cmb_path': Path to the CMB power spectrum FITS file. Used if 'generate_input_cmb' is True.
+        - 'seed_cmb': Seed for CMB generation (optional).
+        - 'cls_cmb_new_ordered': Whether the new ordering of Cls is used in the CMB power spectrum FITS file.
         - `generate_input_noise`: Whether to generate noise maps. If False, it will load from `noise_path`.
         - `noise_path`: Path where saving or loading noise maps.
+        - `seed_noise`: Seed for noise generation (optional).
         - `generate_input_data`: Whether to generate total data maps. If False, it will load from `data_path`.
         - `data_path`: Path where saving or loading total data maps.
         - `save_inputs`: Whether to save generated inputs to disk.
@@ -368,10 +373,14 @@ def _get_noise_simulation(config: Configs, nsim: Optional[Union[int, str]] = Non
         depth_p = [1.] * len(config.instrument.frequency)
         
     # Convert depths to requested units with CMB equivalencies
-    depth_i *= u.arcmin * u.uK_CMB
-    depth_i = depth_i.to(getattr(u, config.units) * u.arcmin, equivalencies=u.cmb_equivalencies(config.instrument.frequency * u.GHz))
-    depth_p *= u.arcmin * u.uK_CMB
-    depth_p = depth_p.to(getattr(u, config.units) * u.arcmin, equivalencies=u.cmb_equivalencies(config.instrument.frequency * u.GHz))
+    #depth_i *= u.arcmin * u.uK_CMB
+    #depth_i = depth_i.to(getattr(u, config.units) * u.arcmin, equivalencies=u.cmb_equivalencies(config.instrument.frequency * u.GHz))
+    #depth_p *= u.arcmin * u.uK_CMB
+    #depth_p = depth_p.to(getattr(u, config.units) * u.arcmin, equivalencies=u.cmb_equivalencies(config.instrument.frequency * u.GHz))
+    bandwidths = _get_bandwidths(config, np.arange(len(config.instrument.frequency)))
+    A_cmb = _get_CMB_SED(config.instrument.frequency, units=config.units, bandwidths=bandwidths)
+    depth_i = depth_i * A_cmb
+    depth_p = depth_p * A_cmb
 
     # Precompute conversion factor from arcmin to radians
     acm_to_rad = (np.pi / (180 * 60)) 
@@ -407,8 +416,10 @@ def _get_noise_simulation(config: Configs, nsim: Optional[Union[int, str]] = Non
         if seed is not None:
             np.random.seed(seed + (nf * 3))
         # Generate noise power spectra
-        N_ell_T = (depth_i.value[nf] * acm_to_rad) ** 2 * np.ones(config.lmax + 1)
-        N_ell_P = (depth_p.value[nf] * acm_to_rad) ** 2 * np.ones(config.lmax + 1)
+#        N_ell_T = (depth_i.value[nf] * acm_to_rad) ** 2 * np.ones(config.lmax + 1)
+#        N_ell_P = (depth_p.value[nf] * acm_to_rad) ** 2 * np.ones(config.lmax + 1)
+        N_ell_T = (depth_i[nf] * acm_to_rad) ** 2 * np.ones(config.lmax + 1)
+        N_ell_P = (depth_p[nf] * acm_to_rad) ** 2 * np.ones(config.lmax + 1)
         N_ell = np.array([N_ell_T, N_ell_P, N_ell_P, 0.*N_ell_P])
 
         # Add knee frequency noise if provided
@@ -457,7 +468,7 @@ def _get_noise_simulation(config: Configs, nsim: Optional[Union[int, str]] = Non
 
     return np.array(noise)
 
-def _get_cmb_simulation(config: Configs, nsim: Optional[Union[int, str]] = None, new: bool = True) -> np.ndarray:
+def _get_cmb_simulation(config: Configs, nsim: Optional[Union[int, str]] = None) -> np.ndarray:
     """
     Generate simulated CMB maps or alms for a given instrument configuration.
 
@@ -468,14 +479,12 @@ def _get_cmb_simulation(config: Configs, nsim: Optional[Union[int, str]] = None,
         - `lmax`: Maximum multipole for the simulation.
         - `nside`: HEALPix resolution.
         - `data_type`: Type of data to return, either "maps" or "alms".
-        - `cls_cmb_path`: Path to the CMB power spectrum FITS file (optional).
+        - `cls_cmb_path`: Path to the CMB power spectrum FITS file.
         - `seed_cmb`: Seed for CMB generation (optional).
+        - 'cls_cmb_new_ordered': Whether the new ordering of Cls is used in the CMB power spectrum FITS file.
     nsim: int or str, optional
         Simulation index to save the maps and vary the random seed (optional). Default: None.
-    new: bool, optional
-        healpy sinalm keyword which sets the assumed ordering of the Cls. Default: True.
-                If True, use the new ordering of cl’s, ie by diagonal (e.g. TT, EE, BB, TE, EB, TB or TT, EE, BB, TE if 4 cl as input). 
-                If False, use the old ordering, ie by row (e.g. TT, TE, TB, EE, EB, BB or TT, TE, EE, BB if 4 cl as input).
+
     Returns
     -------
     np.ndarray: 
@@ -495,21 +504,24 @@ def _get_cmb_simulation(config: Configs, nsim: Optional[Union[int, str]] = None,
             "No CMB power spectrum path provided. Please set 'cls_cmb_path' in the configuration."
         )
         
-
-    # Load the CMB power spectrum FITS file
+    # Load the CMB power spectrum FITS file (assumed to be in muK_CMB^2 units)
     cls_cmb = hp.read_cl(config.cls_cmb_path)
 
     # Initializing the seed if required
     seed = None if not config.seed_cmb else (config.seed_cmb + int(nsim) if nsim is not None else config.seed_cmb)
     
     # Generating a realization of CMB alms with the loaded Cls
-    alm_cmb = _get_cmb_alms_realization(cls_cmb, config.lmax, seed = seed, new = new)
+    alm_cmb = _get_cmb_alms_realization(cls_cmb, config.lmax, seed = seed, new = config.cls_cmb_new_ordered)
     
     # Computing the high-pass filter if lmin > 2
     fell = _get_ell_filter(config.lmin, config.lmax) if config.lmin > 2 else None
 
     # Smoothing the CMB alms with the beams of each frequency channel
     cmb = []
+
+    bandwidths = _get_bandwidths(config, np.arange(len(config.instrument.frequency)))
+    A_cmb = _get_CMB_SED(config.instrument.frequency, units=config.units, bandwidths=bandwidths)
+     
     for idx, _ in enumerate(config.instrument.frequency):
         if config.instrument.beams == "gaussian":
             alm_cmb_i = _smooth_input_alms_(
@@ -522,7 +534,7 @@ def _get_cmb_simulation(config: Configs, nsim: Optional[Union[int, str]] = None,
             alm_cmb_i = _smooth_input_alms_(
                 alm_cmb,
                 beam_path=beamfile,
-                symmetric_beam=(config.instrument.input_beams == "file_l"),
+                symmetric_beam=(config.instrument.beams == "file_l"),
                 nside_out=config.nside if config.pixel_window_in else None
             )
 
@@ -530,7 +542,7 @@ def _get_cmb_simulation(config: Configs, nsim: Optional[Union[int, str]] = None,
             for f in range(3):
                 alm_cmb_i[f] = hp.almxfl(alm_cmb_i[f], fell)
 
-        cmb.append(alm_cmb_i if config.data_type == "alms" else hp.alm2map(
+        cmb.append(A_cmb[idx] * alm_cmb_i if config.data_type == "alms" else A_cmb[idx] * hp.alm2map(
             alm_cmb_i, config.nside, lmax=config.lmax, pol=True
         ))
     
@@ -744,7 +756,7 @@ def _get_foreground_component(
             alm_emission = _smooth_input_alms_(
                 alm_emission,
                 beam_path=beamfile,
-                symmetric_beam=(instrument.input_beams == "file_l"),
+                symmetric_beam=(instrument.beams == "file_l"),
                 nside_out=nside_out if pixel_window else None
             )
 
