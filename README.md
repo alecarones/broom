@@ -49,6 +49,5 @@ This package relies on several scientific Python libraries:
 - [healpy>=1.15](https://healpy.readthedocs.io/)
 - [pysm3>=3.3.2](https://pysm3.readthedocs.io/en/latest/#)
 - [mtneedlet>=0.0.5](https://javicarron.github.io/mtneedlet/)
-- [sciki-learn>=1.7.0](https://scikit-learn.org/stable/)
 
 
