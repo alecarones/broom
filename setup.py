@@ -23,6 +23,7 @@ setup(
         "healpy>=1.15",
         "pysm3>=3.3.2",
         "mtneedlet>=0.0.5",
+        "threadpoolctl>=3.6.0",   
     ],
     include_package_data=True,
     classifiers=[

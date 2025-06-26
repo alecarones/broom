@@ -15,7 +15,8 @@ dependencies = [
     "scipy>=1.8",
     "healpy>=1.15",
     "pysm3>=3.3.2",
-    "mtneedlet>=0.0.5"]
+    "mtneedlet>=0.0.5",
+    "threadpoolctl>=3.6.0"]
 
 [project.optional-dependencies]
 pymaster = ["pymaster>=2.4"]
