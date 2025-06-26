@@ -14,7 +14,8 @@ try:
     import pymaster as nmt
 except ImportError:
     print("NaMaster python package not found. Spectra computation, if requested with 'namaster', will not be available.")
-
+    nmt = None
+    
 def _compute_spectra(config: Configs) -> Optional[SimpleNamespace]:
 
     """

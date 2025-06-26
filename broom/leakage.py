@@ -3,11 +3,11 @@ import healpy as hp
 #from sklearn.linear_model import LinearRegression
 
 def purify_master(QU_maps,mask,lmax, return_E=True, return_B=True, purify_E=False):
-    try:
-        import pymaster as nmt
-    except ImportError:
-        raise ImportError("pymaster is required for NaMaster purification. Please install it.")
-
+#    try:
+#        import pymaster as nmt
+#    except ImportError:
+#        raise ImportError("pymaster is required for NaMaster purification. Please install it.")
+    from .spectra import nmt
 #    print('Performing NaMaster purification.')
 
     maskbin = np.zeros_like(mask)

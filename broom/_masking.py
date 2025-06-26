@@ -2,7 +2,7 @@ import numpy as np
 import healpy as hp
 import fnmatch
 from types import SimpleNamespace
-import pymaster as nmt
+from .spectra import nmt
 import os
 
 from .routines import _slice_outputs, obj_out_to_array, _slice_data
