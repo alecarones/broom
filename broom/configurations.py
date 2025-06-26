@@ -244,6 +244,7 @@ class Configs:
             'bandpass_integrate': self.bandpass_integrate,
 #            'mask_path': self.mask_path,
             'mask_observations': self.mask_observations,
+            'mask_covariance': self.mask_covariance,
             'verbose': self.verbose,
             'cls_cmb_path': self.cls_cmb_path,
             'cls_cmb_new_ordered': self.cls_cmb_new_ordered,
