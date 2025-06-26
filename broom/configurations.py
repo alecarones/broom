@@ -172,8 +172,8 @@ class Configs:
             self.seed_noise = self.config.get("seed_noise", None)
         if self.generate_input_cmb:
             self.seed_cmb = self.config.get("seed_cmb", None)
-            self.cls_cmb_path = self.config.get("cls_cmb_path") or os.path.join(base_dir, "utils", "Cls_Planck2018_lensed_r0.fits")
-            self.cls_cmb_new_ordered = self.config.get("cls_cmb_new_ordered", True)
+        self.cls_cmb_path = self.config.get("cls_cmb_path") or os.path.join(base_dir, "utils", "Cls_Planck2018_lensed_r0.fits")
+        self.cls_cmb_new_ordered = self.config.get("cls_cmb_new_ordered", True)
 
         # Input/output paths   
         dataname = f"total_{self.data_type}_ns{self.nside}_lmax{self.lmax}"
@@ -245,7 +245,9 @@ class Configs:
 #            'mask_path': self.mask_path,
             'mask_observations': self.mask_observations,
             'verbose': self.verbose,
-            'cls_cmb_path': self.cls_cmb_path,}
+            'cls_cmb_path': self.cls_cmb_path,
+            'cls_cmb_new_ordered': self.cls_cmb_new_ordered,
+        }
 
   
     

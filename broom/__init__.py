@@ -5,3 +5,5 @@ from .simulations import _get_data_foregrounds_, _get_data_simulations_, _get_no
 from .configurations import Configs, get_params
 from .spectra import _compute_spectra, _compute_spectra_, _load_cls
 from .clusters import get_and_save_real_tracers_B
+
+__version__ = "0.1.0"

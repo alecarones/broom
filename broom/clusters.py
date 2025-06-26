@@ -65,8 +65,11 @@ def get_and_save_real_tracers_B(
 
     """
     from broom import component_separation
+    print('new_version')
+    if "tracers_inputs_path" not in config.real_mc_tracers[0]:
+        config.real_mc_tracers[0]["tracers_inputs_path"] = f"inputs_mc_tracers/{config.experiment}"
 
-    config_mc = get_mc_config(config)
+    config_mc = get_mc_config(config, config.real_mc_tracers[0]["tracers_inputs_path"])
     kwargs = _map2alm_kwargs(**kwargs)
 
     _log("Generating input simulations for MC-ILC tracers", verbose=config_mc.verbose)
@@ -527,14 +530,17 @@ def get_tracers_compsep(
     }]
     return tracers_compsep
 
-def get_mc_config(config: Configs) -> Configs:
+def get_mc_config(config: Configs, tracers_inputs_path: str) -> Configs:
     """
     Generate a configuration object for the MC-ILC tracers generation based on the provided configuration.
 
     Parameters
     ----------
     config : Configs
-        Configuration object containing the instrumental and parameters configuration. See 'generate_and_save_real_tracers_B' for details.
+        Configuration object containing the instrumental and parameters configuration. 
+        See 'generate_and_save_real_tracers_B' for details.
+    tracers_inputs_path : str
+        Path where the MC-ILC tracers inputs are stored. It should be a directory path.
 
     Returns
     -------
@@ -545,38 +551,45 @@ def get_mc_config(config: Configs) -> Configs:
     config_mc = Configs(config=config.to_dict_for_mc())
     config_mc.return_fgd_components = False
 
+#    if config_mc.bandpass_integrate:
+#        config_mc.data_path = f"inputs_mc_tracers/{config_mc.experiment}/total/{''.join(config_mc.foreground_models)}/total_bp_{config_mc.data_type}_ns{config_mc.nside}_lmax{config_mc.lmax}"
+#        config_mc.fgds_path = f"inputs_mc_tracers/{config_mc.experiment}/foregrounds/{''.join(config_mc.foreground_models)}/foregrounds_bp_{config_mc.data_type}_ns{config_mc.nside}_lmax{config_mc.lmax}"
+#    else:
+#        config_mc.data_path = f"inputs_mc_tracers/{config_mc.experiment}/total/{''.join(config_mc.foreground_models)}/total_{config_mc.data_type}_ns{config_mc.nside}_lmax{config_mc.lmax}"
+#        config_mc.fgds_path = f"inputs_mc_tracers/{config_mc.experiment}/foregrounds/{''.join(config_mc.foreground_models)}/foregrounds_{config_mc.data_type}_ns{config_mc.nside}_lmax{config_mc.lmax}"
+#    config_mc.noise_path = f"inputs_mc_tracers/{config_mc.experiment}/noise/noise_{config_mc.data_type}_ns{config_mc.nside}_lmax{config_mc.lmax}"
+#    config_mc.cmb_path = f"inputs_mc_tracers/{config_mc.experiment}/cmb/cmb_{config_mc.data_type}_ns{config_mc.nside}_lmax{config_mc.lmax}"
     if config_mc.bandpass_integrate:
-        config_mc.data_path = f"inputs_mc_tracers/{config_mc.experiment}/total/total_bp_{config_mc.data_type}_ns{config_mc.nside}_lmax{config_mc.lmax}"
-        config_mc.fgds_path = f"inputs_mc_tracers/{config_mc.experiment}/foregrounds/{''.join(config_mc.foreground_models)}/foregrounds_bp_{config_mc.data_type}_ns{config_mc.nside}_lmax{config_mc.lmax}"
+        config_mc.data_path = f"{tracers_inputs_path}/total_{''.join(config_mc.foreground_models)}_bp_{config_mc.data_type}_ns{config_mc.nside}_lmax{config_mc.lmax}"
+        config_mc.fgds_path = f"{tracers_inputs_path}/foregrounds_{''.join(config_mc.foreground_models)}_bp_{config_mc.data_type}_ns{config_mc.nside}_lmax{config_mc.lmax}"
     else:
-        config_mc.data_path = f"inputs_mc_tracers/{config_mc.experiment}/total/total_{config_mc.data_type}_ns{config_mc.nside}_lmax{config_mc.lmax}"
-        config_mc.fgds_path = f"inputs_mc_tracers/{config_mc.experiment}/foregrounds/{''.join(config_mc.foreground_models)}/foregrounds_{config_mc.data_type}_ns{config_mc.nside}_lmax{config_mc.lmax}"
+        config_mc.data_path = f"{tracers_inputs_path}/total_{''.join(config_mc.foreground_models)}_{config_mc.data_type}_ns{config_mc.nside}_lmax{config_mc.lmax}"
+        config_mc.fgds_path = f"{tracers_inputs_path}/foregrounds_{''.join(config_mc.foreground_models)}_{config_mc.data_type}_ns{config_mc.nside}_lmax{config_mc.lmax}"
+    config_mc.noise_path = f"{tracers_inputs_path}/noise_{config_mc.data_type}_ns{config_mc.nside}_lmax{config_mc.lmax}"
+    config_mc.cmb_path = f"{tracers_inputs_path}/cmb_{config_mc.data_type}_ns{config_mc.nside}_lmax{config_mc.lmax}"
     
-    config_mc.noise_path = f"inputs_mc_tracers/{config_mc.experiment}/noise/noise_{config_mc.data_type}_ns{config_mc.nside}_lmax{config_mc.lmax}"
-    config_mc.cmb_path = f"inputs_mc_tracers/{config_mc.experiment}/cmb/cmb_{config_mc.data_type}_ns{config_mc.nside}_lmax{config_mc.lmax}"
-    
-    if not all(os.path.exists(p + ".npy") for p in [config_mc.data_path, config_mc.noise_path, config_mc.cmb_path]):
-        if not os.path.exists(config_mc.fgds_path + f"_{''.join(config_mc.foreground_models)}.npy"):
-            config_mc.generate_input_foregrounds = True #
-        else:
-            config_mc.generate_input_foregrounds = False
-        config_mc.generate_input_noise = True #
-        config_mc.generate_input_cmb = True #
-        config_mc.generate_input_data = True #
-        config_mc.save_inputs = True # 
-        config_mc.seed_cmb = None
-        config_mc.seed_noise = None
-    else:
-        if not os.path.exists(config_mc.fgds_path + f"_{''.join(config_mc.foreground_models)}.npy"):
-            config_mc.generate_input_foregrounds = True
-            config_mc.generate_input_data = True #
-            config_mc.save_inputs = True
-        else:
-            config_mc.generate_input_foregrounds = False
-            config_mc.generate_input_data = False
-            config_mc.save_inputs = False #
-        config_mc.generate_input_noise = False #
-        config_mc.generate_input_cmb = False #
+#    if not all(os.path.exists(p + ".npy") for p in [config_mc.data_path, config_mc.noise_path, config_mc.cmb_path]):
+#        if not os.path.exists(config_mc.fgds_path + f"_{''.join(config_mc.foreground_models)}.npy"):
+    config_mc.generate_input_foregrounds = True #
+#        else:
+#            config_mc.generate_input_foregrounds = False
+    config_mc.generate_input_noise = True #
+    config_mc.generate_input_cmb = True #
+    config_mc.generate_input_data = True #
+    config_mc.save_inputs = True # 
+    config_mc.seed_cmb = None
+    config_mc.seed_noise = None
+#    else:
+#        if not os.path.exists(config_mc.fgds_path + f"_{''.join(config_mc.foreground_models)}.npy"):
+#            config_mc.generate_input_foregrounds = True
+#            config_mc.generate_input_data = True #
+#            config_mc.save_inputs = True
+#        else:
+#            config_mc.generate_input_foregrounds = False
+#            config_mc.generate_input_data = False
+#            config_mc.save_inputs = False #
+#       config_mc.generate_input_noise = False #
+#       config_mc.generate_input_cmb = False #
 
     config_mc.save_compsep_products = False #
     config_mc.return_compsep_products = True

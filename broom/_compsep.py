@@ -15,7 +15,7 @@ from ._ilcs import ilc
 from ._pilcs import pilc
 from ._gpilcs import gpilc, fgd_P_diagnostic
 from ._templates import get_residuals_template
-from ._masking import _preprocess_mask, get_masks_for_compsep
+from ._masking import get_masks_for_compsep
 from ._saving import get_gnilc_maps
 from ._needlets import _get_needlet_windows_
 from typing import Dict, Any, Union
