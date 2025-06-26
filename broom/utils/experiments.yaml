@@ -1,0 +1,35 @@
+LiteBIRD_PTEP:
+  frequency:  [40.0,    50.0,   60.0,   68.0,   68.0,   78.0,   78.0,   89.0,   89.0,   100.0,   100.0,  119.0,  119.0,  140.0,  140.0,  166.0,  195.0,  195.0,  235.0,  280.0,  337.0,  402.0]
+  depth_I:    [37.42,    33.46,     21.31,   19.91,   31.77,   15.55,   19.13,    12.28,    28.77,    10.34,    8.48,    7.69,    5.70,   7.25,   6.38, 5.57, 7.05, 10.50, 10.79, 13.80, 21.95, 47.45]  
+  depth_P:    [37.42,    33.46,     21.31,   19.91,   31.77,   15.55,   19.13,    12.28,    28.77,    10.34,    8.48,    7.69,    5.70,   7.25,   6.38, 5.57, 7.05, 10.50, 10.79, 13.80, 21.95, 47.45]
+  fwhm:       [70.5,    58.5,   51.1,   41.6,   47.1,   36.9,   43.8,   33.0,   41.5,   30.2,   37.8,   26.3,   33.6,   23.7,   30.8, 28.9, 28.0, 28.6, 24.7, 22.5, 20.9, 17.9]
+  bandwidth:  [0.3,     0.3,    0.23,   0.23,   0.23,   0.23,   0.23,   0.23,   0.23,   0.23,   0.23,   0.3,   0.3,    0.3,   0.3,    0.3,    0.3,   0.3,    0.3,    0.3,    0.3,    0.23]
+# Nature of input beams. Used to generate simulations and to bring maps to a common resolution before compsep.
+# If "file_l" or "file_lm" is chosen, the beams are loaded from 'beams_TEB_{frequency}GHz.fits' file in inputs_path/beams/{experiment} directory.
+# Default: "gaussian".
+  beams: "gaussian" # "gaussian", "file_l" (symmetric but not gaussian beams), "file_lm" (asymmetric beams)
+# Path to read the beams if input_beams is not "guassian."
+  path_beams: ""
+
+SO_SAT:
+  frequency:  [27.0,    39.0,   93.0,   145.0,  225.0,  280.0]
+  depth_I:    [35.0,    21.0,   2.6,    3.3,    6.3,    16.0]  # See note
+  depth_P:    [46.,    28.,   3.5,    4.4,    8.4,    21.]  # Baseline
+  fwhm:       [91.0,    63.0,   30.0,   17.0,   11.0,   9.0]
+  ell_knee:   [15, 15, 25, 25, 35, 40]
+  alpha_knee: [-2.4, -2.4, -2.5, -3.,-3.,-3.]
+  path_hits_maps: "norm_nHits_SA_35FOV_ns512.fits" #"apodized_SAThits_SOpaper2018_nside1024.fits"
+  meta:
+
+Planck:
+  frequency:  [28.4,  44.1,  70.4,  100,  143,  217,  353,  545,  857]
+  depth_I:    [150.,  162.,  210.,  77.4, 33.,  46.8, 154,  42.,  5016.]
+  depth_P:    [210.,  240.,  300.,  118,  70.2, 105., 439,  .NAN, .NAN]
+  fwhm:       [32.29, 27.94, 13.08, 9.66, 7.22, 4.90, 4.92, 4.67, 4.22]
+
+Planck_pol:
+  frequency:  [28.4,  44.1,  70.4,  100,  143,  217,  353]
+  depth_I:    [150.,  162.,  210.,  77.4, 33.,  46.8, 154]
+  depth_P:    [210.,  240.,  300.,  118,  70.2, 105., 439]
+  fwhm:       [32.29, 27.94, 13.08, 9.66, 7.22, 4.90, 4.92]
+  channels_tags: ['30', '44', '70', '100', '143', '217', '353']
