@@ -15,8 +15,13 @@ setup(
     long_description=open("README.md", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
     license="GPL-3.0-or-later",
-    python_requires=">=3.8",
+    python_requires=">=3.9",
     packages=find_packages(where=".",include=["broom", "broom.*"]),
+    package_data={
+        # Include all files in configs and utils directories
+        "configs": ["*.yaml", "*.fits"],
+        "utils": ["*.yaml", "*.fits"],
+    },
     install_requires=[
         "numpy>=1.18.5",
         "scipy>=1.8",
