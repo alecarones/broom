@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "A Python package for blind component separation of microwave sky maps."
 authors = [{name = "Alessandro Carones", email = "acarones@sissa.it"}]
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 license = {text = "GPL-3.0-or-later"}
 dependencies = [
     "numpy>=1.18.5",
@@ -16,7 +16,8 @@ dependencies = [
     "healpy>=1.15",
     "pysm3>=3.3.2",
     "mtneedlet>=0.0.5",
-    "threadpoolctl>=3.6.0"]
+    "threadpoolctl>=3.6.0",
+    ]
 
 [project.optional-dependencies]
 pymaster = ["pymaster>=2.4"]
@@ -30,3 +31,18 @@ Issues = "https://github.com/alecarones/broom/issues"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["broom", "broom.*"]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.package-data]
+"configs" = ["*.yaml", "*.fits"]
+"utils" = ["*.yaml", "*.fits"]
+
+[tool.setuptools.sdist]
+include = [
+    "configs/*.yaml",
+    "configs/*.fits",
+    "utils/*.yaml",
+    "utils/*.fits",
+]
