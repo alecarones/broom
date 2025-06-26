@@ -1,0 +1,4 @@
+include configs/*.yaml
+include configs/*.fits
+include utils/*.yaml
+include utils/*.fits
