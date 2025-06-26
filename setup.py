@@ -17,10 +17,10 @@ setup(
     license="GPL-3.0-or-later",
     python_requires=">=3.9",
     packages=find_packages(where=".",include=["broom", "broom.*"]),
+    include_package_data=True,
     package_data={
-        # Include all files in configs and utils directories
-        "configs": ["*.yaml", "*.fits"],
-        "utils": ["*.yaml", "*.fits"],
+        "broom.configs": ["*.yaml", "*.fits"],
+        "broom.utils": ["*.yaml", "*.fits"],
     },
     install_requires=[
         "numpy>=1.18.5",
@@ -30,7 +30,6 @@ setup(
         "mtneedlet>=0.0.5",
         "threadpoolctl>=3.6.0",   
     ],
-    include_package_data=True,
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",

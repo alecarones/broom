@@ -1,4 +1,4 @@
-include configs/*.yaml
-include configs/*.fits
-include utils/*.yaml
-include utils/*.fits
+recursive-include broom/configs *.yaml *.fits
+recursive-include broom/utils *.yaml *.fits
+
+(
