@@ -3,8 +3,6 @@ import numpy as np
 import os 
 import fnmatch
 
-from ._compsep import _load_outputs_
-from ._masking import _preprocess_mask, _get_mask, _smooth_masks, get_masks_for_compsep
 from .routines import obj_out_to_array, _slice_outputs, _format_nsim, _log
 from .configurations import Configs
 from types import SimpleNamespace
@@ -13,9 +11,9 @@ from ._saving import save_spectra, _save_mask
 try:
     import pymaster as nmt
 except ImportError:
-    print("NaMaster python package not found. Spectra computation, if requested with 'namaster', will not be available.")
+    print("Warning: NaMaster python package not found. Spectra computation, if requested with 'namaster', will not be available.")
     nmt = None
-    
+
 def _compute_spectra(config: Configs) -> Optional[SimpleNamespace]:
 
     """
@@ -186,7 +184,7 @@ def _cls_from_config(
         Object containing computed spectra with attributes for each component.
         Each attribute is a numpy array with dimensions (nfields, nbins), 
     """
-
+    from ._compsep import _load_outputs_
 
     compute_cls["outputs"] = SimpleNamespace()
 
@@ -261,6 +259,7 @@ def _cls_from_maps(
         Object containing computed spectra with attributes for each component.
         Each attribute is a numpy array with dimensions (nfields, nbins),
     """
+    from ._masking import _get_mask, _smooth_masks
 
     compute_cls["mask"] = _get_mask(config, compute_cls, nsim=nsim)
 
@@ -294,6 +293,8 @@ def _get_cls(config: Configs, compute_cls, nsim=None):
         Object containing computed spectra with attributes for each component.
         Each attribute is a numpy array with dimensions (nfields, nbins),
     """
+    from ._masking import get_masks_for_compsep
+
     b_bin = nmt.NmtBin.from_lmax_linear(config.lmax, nlb=config.delta_ell,is_Dell=config.return_Dell)
 
     bls_beam = get_bls(config.nside, config.fwhm_out, config.lmax, config.field_cls_out, pixel_window_out=config.pixel_window_out)
