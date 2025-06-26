@@ -411,6 +411,7 @@ def _standardize_compsep_config(compsep_run: Dict[str, Any], lmax: int, save_pro
 
         compsep_run.setdefault("reduce_mcilc_bias", True)
         compsep_run.setdefault("n_patches", 50)
+        compsep_run.setdefault("save_patches", False)
                                     
     compsep_run.setdefault("save_weights", save_products)
         

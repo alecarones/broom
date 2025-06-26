@@ -594,7 +594,6 @@ def get_mc_config(config: Configs, tracers_inputs_path: str) -> Configs:
     config_mc.save_compsep_products = False #
     config_mc.return_compsep_products = True
 #    config_mc.mask_type = "mask_for_compsep"
-    config_mc.mask_covariance = None
 
     if config_mc.data_type == "maps":
         config_mc.field_in = "QU"

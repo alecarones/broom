@@ -490,6 +490,34 @@ def save_ilc_weights(
         filename += f"_{compsep_run['nsim']}"
     np.save(filename, w)
 
+def save_patches(
+    config: Configs,
+    patches: np.ndarray,
+    compsep_run: Dict,
+    nl_scale: Optional[Union[int, None]] = None
+) -> None:
+    """
+    Save MC-ILC patches to disk with appropriate metadata in filename.
+
+    Parameters
+    ----------
+    config : Configs
+        Configuration object.
+    patches : np.ndarray
+        MC-ILC patches to be saved.
+    compsep_run : dict
+        Dictionary with component separation parameters.
+    nl_scale : int, optional
+        Needlet scale index for the corresponding ILC run.
+    """
+    path_ = os.path.join(compsep_run["path_out"], "patches")
+    os.makedirs(path_, exist_ok=True)
+    filename = os.path.join(path_, 
+            f"patches_{compsep_run['field']}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}")
+    if nl_scale is not None:
+        filename += f"_nl{nl_scale}"
+    np.save(filename, patches)
+
 def save_spectra(
     config: Configs,
     cls_out: SimpleNamespace,

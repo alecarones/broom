@@ -3,7 +3,7 @@ import healpy as hp
 from .configurations import Configs
 from .routines import _get_local_cov, _EB_to_QU, _E_to_QU, _B_to_QU,\
                       obj_to_array, array_to_obj, _get_bandwidths
-from ._saving import _save_compsep_products, _get_full_path_out
+from ._saving import _save_compsep_products, _get_full_path_out, save_patches, save_ilc_weights
 from ._needlets import  _get_nside_lmax_from_b_ell, _get_needlet_windows_, _needlet_filtering 
 from ._seds import _get_CMB_SED, _get_moments_SED, _standardize_cilc
 from .clusters import _adapt_tracers_path, _cea_partition, _rp_partition, \
@@ -12,7 +12,6 @@ from .clusters import _adapt_tracers_path, _cea_partition, _rp_partition, \
 from types import SimpleNamespace
 import os
 from typing import Any, Optional, Union, Dict, List, Tuple
-from ._saving import save_ilc_weights
 from ._needlets import _get_good_channels_nl
 
 def ilc(config: Configs, input_alms: SimpleNamespace, compsep_run: Dict, **kwargs: Any) -> Optional[SimpleNamespace]:
@@ -591,9 +590,14 @@ def _mcilc_cea_(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
     np.ndarray
         Output sky map cleaned via region-specific ILC weights, shape (n_pixels, n_components).
     """
+
     mask_mcilc = compsep_run.get("mask", np.ones(input_maps.shape[-2]))
 
     patches = _cea_partition(tracer, compsep_run["n_patches"], mask=mask_mcilc)
+    if compsep_run["save_patches"] and (compsep_run['nsim'] is None or int(compsep_run['nsim']) == config.nsim_start):
+        if 'path_out' not in compsep_run:
+            compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
+        save_patches(config, patches, compsep_run, nl_scale=nl_scale)
 
     w_mcilc = get_mcilc_weights(input_maps[...,0], patches, A_cmb, compsep_run)
 
@@ -647,8 +651,16 @@ def _mcilc_rp_(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
     output_maps = np.zeros((input_maps.shape[1], input_maps.shape[-1]))
     mask_mcilc = compsep_run.get("mask", np.ones(input_maps.shape[-2]))
 
+    save_patches = compsep_run["save_patches"] and (compsep_run['nsim'] is None or int(compsep_run['nsim']) == config.nsim_start)
+
+    if save_patches:
+        patches_set = []
+
     for it in range(iterations):    
         patches = _rp_partition(tracer, compsep_run["n_patches"], mask=mask_mcilc)
+        if save_patches:
+            patches_set.append(patches)
+
         w_mcilc = get_mcilc_weights(input_maps[...,0], patches, A_cmb, compsep_run)
         if compsep_run["save_weights"]:
             if it == 0:
@@ -656,6 +668,11 @@ def _mcilc_rp_(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
             else:
                 w_mcilc_save += w_mcilc / iterations
         output_maps += (np.einsum('ij,ijk->jk', w_mcilc, input_maps) / iterations)
+        
+    if save_patches:
+        if 'path_out' not in compsep_run:
+            compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
+        save_patches(config, np.array(patches_set), compsep_run, nl_scale=nl_scale)
 
     if compsep_run["save_weights"]:
         if 'path_out' not in compsep_run:

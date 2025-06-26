@@ -175,6 +175,7 @@ def _get_data_simulations_(
                         If not provided, it will be assumed to be the intensity depth multiplied by sqrt(2).
                         Used if path_depth_maps is not provided.
             - `path_beams`: Path to the beam files (if using "file_l" or "file_lm" beams).
+                        The code will look for files named "{path_beams}_{channel_tag}.fits" for each frequency channel.
             - `channels_tags`: List of tags for each frequency channel, used for loading beams, bandpasses or depth maps.
             - 'bandwidths': List of relative bandwidths for each frequency channel (optional, used if bandpass_integrate is True).
                         Used if path_bandpasses is not provided.
