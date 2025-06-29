@@ -651,14 +651,14 @@ def _mcilc_rp_(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
     output_maps = np.zeros((input_maps.shape[1], input_maps.shape[-1]))
     mask_mcilc = compsep_run.get("mask", np.ones(input_maps.shape[-2]))
 
-    save_patches = compsep_run["save_patches"] and (compsep_run['nsim'] is None or int(compsep_run['nsim']) == config.nsim_start)
+    do_save_patches = compsep_run["save_patches"] and (compsep_run['nsim'] is None or int(compsep_run['nsim']) == config.nsim_start)
 
-    if save_patches:
+    if do_save_patches:
         patches_set = []
 
-    for it in range(iterations):    
+    for it in range(iterations):  
         patches = _rp_partition(tracer, compsep_run["n_patches"], mask=mask_mcilc)
-        if save_patches:
+        if do_save_patches:
             patches_set.append(patches)
 
         w_mcilc = get_mcilc_weights(input_maps[...,0], patches, A_cmb, compsep_run)
@@ -669,7 +669,7 @@ def _mcilc_rp_(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
                 w_mcilc_save += w_mcilc / iterations
         output_maps += (np.einsum('ij,ijk->jk', w_mcilc, input_maps) / iterations)
         
-    if save_patches:
+    if do_save_patches:
         if 'path_out' not in compsep_run:
             compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
         save_patches(config, np.array(patches_set), compsep_run, nl_scale=nl_scale)

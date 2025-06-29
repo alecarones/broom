@@ -10,7 +10,7 @@ from typing import Optional, Union, List, Dict, Any, Tuple
 
 def get_and_save_real_tracers_B(
     config: Configs,
-    foregrounds: Optional[SimpleNamespace] = None,
+    foregrounds: Optional[np.ndarray] = None,
     systematics: Optional[np.ndarray] = None,
     **kwargs: Any
 ) -> None:
@@ -397,8 +397,7 @@ def _rp_partition(map_: np.ndarray,
     if mask is None:
         mask = np.ones_like(map_)
 
-    min_fraction = (1.25 * (np.sum(mask > 0.)/mask.shape[0]) )/ n_patches
-
+    min_fraction = (0.05 * (np.sum(mask > 0.)/mask.shape[0]) )/ n_patches
     while True:
         partition = np.random.uniform(low=0.0, high=1.0, size=n_patches)
         partition = partition / np.sum(partition)
