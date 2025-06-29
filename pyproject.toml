@@ -11,6 +11,7 @@ readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "GPL-3.0-or-later"}
 dependencies = [
+    "astropy>=7.1.0",
     "numpy>=1.18.5",
     "scipy>=1.8",
     "healpy>=1.15",

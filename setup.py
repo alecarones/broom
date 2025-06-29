@@ -23,6 +23,7 @@ setup(
         "broom.utils": ["*.yaml", "*.fits"],
     },
     install_requires=[
+        "astropy>=7.1.0",    
         "numpy>=1.18.5",
         "scipy>=1.8",
         "healpy>=1.15",
