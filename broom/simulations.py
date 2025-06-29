@@ -722,6 +722,7 @@ def _get_foreground_component(
                 # Reading bandpass from file
                 bandpass_file = instrument.path_bandpasses + f"_{instrument.channels_tags[idx]}.npy"
                 frequencies, bandpass_weights = np.load(bandpass_file)
+                frequencies = frequencies * u.GHz
             else:
                 # Create a top-hat bandpass
                 freq_min = freq * (1 - ( instrument.bandwidth[idx] / 2 ))

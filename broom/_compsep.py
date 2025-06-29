@@ -8,7 +8,8 @@ import os
 from types import SimpleNamespace
 
 from .configurations import Configs
-from .routines import merge_dicts, _map2alm_kwargs, _slice_data, _format_nsim, _log, _EB_to_QU
+from .routines import (merge_dicts, _map2alm_kwargs, _slice_data, _format_nsim, _log,   
+            _EB_to_QU, _QU_to_EB, _B_to_QU, _E_to_QU)
 from ._inputs import _alms_from_data
 from ._gilcs import gilc, fgd_diagnostic
 from ._ilcs import ilc
@@ -745,6 +746,9 @@ def _combine_products(config: Configs, nsim=None):
                     outputs = np.concatenate([outputs,outputs_], axis=0)
                     del outputs_
 
+            if outputs.ndim == 2 and outputs.shape[0] == 1:
+                outputs = outputs[0]
+
             if combine_run["fields_out"] != "".join(combine_run["fields_in"]):
                 if combine_run["fields_in"] in [["T", "E", "B"], ["T", "EB"]]:
                     if combine_run["fields_out"] == "TQU":
@@ -765,14 +769,19 @@ def _combine_products(config: Configs, nsim=None):
                     if combine_run["fields_out"][:2] != "QU":
                         raise ValueError(f"Invalid 'fields_out' for provided 'field_in'")                        
                     if outputs.ndim == 2:
-                        combine_run["fields_out"] == "QU"
+                        combine_run["fields_out"] = "QU"
                         outputs = _EB_to_QU(outputs, config.lmax)
                     elif outputs.ndim==1:
-                        combine_run["fields_out"] == f"QU_{combine_run['fields_in'][0]}"
+                        combine_run["fields_out"] = f"QU_{combine_run['fields_in'][0]}"
                         if combine_run['fields_in'][0] == "E":
                             outputs = _E_to_QU(outputs, config.lmax)
                         elif combine_run['fields_in'][0] == "B":
                             outputs = _B_to_QU(outputs, config.lmax)
+                elif combine_run["fields_in"] in [["T", "QU"], ["QU"]]:
+                    if (combine_run["fields_in"]==["T", "QU"] and combine_run["fields_out"]=="TEB") or (combine_run["fields_in"]==["QU"] and combine_run["fields_out"]=="EB"):
+                        outputs = _QU_to_EB(outputs, config.lmax)
+                    else:
+                        raise ValueError(f"Wrong 'field_out' for provided 'field_in'")
                 else:
                     raise ValueError(f"Invalid 'field_in' or 'field_out'")
             

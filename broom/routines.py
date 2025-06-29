@@ -36,6 +36,15 @@ def _B_to_QU(B_map: np.ndarray, lmax: int, **kwargs) -> np.ndarray:
     alms_ = hp.map2alm(B_map, lmax=lmax, pol=False, **kwargs)
     return hp.alm2map(np.array([0.*alms_,0.*alms_,alms_]),hp.get_nside(B_map),lmax=lmax,pol=True)[1:]
 
+def _QU_to_EB(QU_maps: np.ndarray, lmax: int, **kwargs) -> np.ndarray:
+    """Convert (T)QU maps to (T)EB maps."""
+    if QU_maps.shape[0] == 3:
+        alms_ = hp.map2alm(QU_maps, lmax=lmax, pol=True, **kwargs)
+        return hp.alm2map(alms_,hp.get_nside(QU_maps[0]),lmax=lmax,pol=False)
+    elif QU_maps.shape[0] == 2:
+        alms_ = hp.map2alm(np.array([0. * QU_maps[0], QU_maps[0], QU_maps[1]]), lmax=lmax, pol=True, **kwargs)
+        return hp.alm2map(np.array([0.*alms_[0],alms_[1],alms_[2]]),hp.get_nside(QU_maps[0]),lmax=lmax,pol=True)[1:]
+
 def _bl_from_fwhms(fwhm_out: float, fwhm_in: float, lmax: int) -> np.ndarray:
     """Compute beam transfer function to correct for input gaussian beam and convolve for output beam."""
     bl_in = hp.gauss_beam(np.radians(fwhm_in/60.), lmax=lmax,pol=True)

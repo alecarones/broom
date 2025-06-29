@@ -124,7 +124,8 @@ class Configs:
         self.nside = self.config["nside"]
         self.data_type = self.config["data_type"]
 
-        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+#        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        base_dir = os.path.abspath(os.path.dirname(__file__))
 
         self.lmin = self.config.get("lmin") or 2    
         self.lmax = self.config.get("lmax") or 2 * self.nside
