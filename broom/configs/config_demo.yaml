@@ -9,6 +9,7 @@ lmin: 2
 nside: 64
 # If simulations for compsep are not generated with broom package, it specifies the nside of the input data.
 # If not provided, it will be set to nside.
+# When running component separation and maps are provided, it will be directly inferred from them.
 nside_in: null
 
 #Maximum multipole used to generate simulations (if requested) and to run component separation. Default: 2 * nside.
@@ -22,14 +23,19 @@ data_type: "alms" # "maps" or "alms"
 # Default is 2.5 * pixel_size, where pixel_size is the pixel size corresponding to the nside parameter.
 fwhm_out: 30. 
 
-# Number identifying the initial simulation. 
-# Used to generate (and/or save) simulations and to save compsep outputs. Default: 0.
+# Number identifying the initial simulation of the set you may want to run.
+# In general, the simulation number is used to generate (and/or save) simulations and to save compsep outputs. 
+# Default: 0.
 nsim_start: 0 
 
-# Number of simulations to run. Used to generate multiple simulations and to run compsep and/or save its outputs. Default: 1.
+# Number of simulations to run. 
+# It can be used to generate multiple simulations and to run compsep and/or save its outputs. 
+# At the moment broom routines are not written to run multiple simulations.
+# You can use this parameter to run broom routines on multiple simulations in your own python script.
+# Default: 1.
 nsims: 1
 
-# If True, compsep runs are parallelized (either among simulations or across needlet bands). Not implemented yet.
+# If True, routines are parallelized (either among simulations or across needlet bands). Not implemented yet.
 parallelize: False # 
 
 # Verbosity
@@ -43,45 +49,58 @@ verbose: False
 foreground_models: ["d1","s1"] 
 
 # Path (including filename) of the yaml file where the instrument configuration is stored.
-# By defaul it will be the utils/instrument_config.yaml in broom package.
+# It should contain an attribute with the same name as the experiment specified below.
+# By defaul it will be the 'utils/instrument_config.yaml' in broom package.
 experiments_file: ""
 
 # Considered experiment. 
-# Used to generate simulations, MC-ILC tracers and to correct properly for beams in compsep if bring_to_common_resolution is True.
-# A dictionary with the same name must be present in the experiments_file.
+# Used to generate simulations, MC-ILC tracers and 
+# to properly account for beams and bandpasses in compsep.
+# A dictionary with the same name must be present in the experiments_file. 
+# See examples in the utils/experiments.yaml file in broom package.
 # It should include the following keys:
-# - frequency: list of frequencies in GHz
+# - frequency: list of central observed frequencies in GHz
 # - depth_I: list of noise depths in muK-arcmin for intensity maps (if not provided, they will be depth_P/sqrt(2)).
-#        Used if generate_input_noise is True and path_depth_maps is not provided.
+#        Used if 'generate_input_noise' is True and 'path_depth_maps' is not provided.
 # - depth_P: list of noise depths in muK-arcmin for polarization maps (if not provided, they will be depth_I * sqrt(2))
-#        Used if generate_input_noise is True and path_depth_maps is not provided.
-# - path_depth_maps: Full path to the depth maps, used if generate_input_noise is True.
-#        Maps are loaded from {path_depth_maps} + '_{frequency_tag}.fits' files.
-#        They could be either 2 (I and P) fields per file or a single field (assumed to refer to P).
-#        If provided, depth_I and depth_P will be ignored.
-# - channel_tags: list of tags for the frequency channels. Used to name the files if the beams, depth_maps, 
-#        bandpasses and hits maps and to save component separation products with multifrequency outcomes. 
+#        Used if 'generate_input_noise' is True and 'path_depth_maps' is not provided.
+#        If 'path_depth_maps' is not provided, at least one of 'depth_I' or 'depth_P' must be provided.
+# - fwhm: list of FWHMs of Gaussian beams for the different frequency channels (in arcmin)
+# - channel_tags: list of tags for the frequency channels. Used to look for files of beams, depth_maps, 
+#        bandpasses and hits maps (see below) and to save component separation products with multifrequency outcomes. 
 #        If not provided, it will be generated from the frequency list (e.g. "40.0GHz" for 40 GHz channel).
-# - path_hits_maps: Full path to the hits maps, used if generate_input_noise is True and path_depth_maps is not provided.
+# - path_depth_maps: Full path to the depth maps, used if generate_input_noise is True.
+#        Maps are loaded from {path_depth_maps} + '_{frequency_tag}.fits' files. 
+#        There should be one file for each frequency channel.
+#        They could be either 2 (I and P) fields per file or a single field (assumed to refer to P and I is scaled accordingly).
+#        If provided, depth_I and depth_P will be ignored.
+# - path_hits_maps: Full path to hits maps, used if generate_input_noise is True and path_depth_maps is not provided.
 #       It will load the hits maps (assumed to be a .fits file) and weight the noise maps by the relative hits counts.
+#       Generated noise maps will be divided by the square root of the normalized hits map. 
 #       it can either:
 #        - include the filename itself (ending with '.fits') and a single hits map will be assumed for all frequencies
 #        - it will look for different {path_hits_maps} + '_{frequency_tag}.fits' files.
-# - fwhm: list of FWHMs of Gaussian beams for the different frequencies (in arcmin)
 # - bandwidth: list of relative bandwidths for top-hat bandpasses (e.g. 0.3 for 30% bandwidth) in intensity units.
-#         Used if path_bandpasses is not provided and bandpass_integrate is True.
-# - path_bandpasses: path to the bandpasses if different shapes from top-hat are needed, used if bandpass_integrate is True.
+#         Used if path_bandpasses is not provided and bandpass_integrate is True (see below).
+# - path_bandpasses: path to the bandpasses if different shapes from top-hat are needed.
+#        Used if bandpass_integrate is True.
 #        Bandpasses will be loaded from {path_bandpasses} + '_{frequency_tag}.npy' files.
 #        Provided bandpasses are assumed to be in intensity units.
 #        Each file should include a 2D array with frequency (GHz) and frequency response.
 # - beams: type of beams used to smooth simulations and to bring maps to a common resolution before compsep (if needed).
 #          It can be "gaussian", "file_l" (symmetric but not gaussian beams) or "file_lm" (asymmetric beams).
 # - path_beams: path to the beams if input_beams is not "gaussian". 
-#          It should include fits files named {path_beams} + '_{frequency_tag}.fits' file for each frequency channel.
-# - ell_knee: list of multipoles where the knee of the noise power spectrum for the 1/f noise component.
-#          One value for each frequency channel. 
+#          The code will load a .fits file named {path_beams} + '_{frequency_tag}.fits' for each frequency channel.
+# - ell_knee: lists of knee multipoles of the noise power spectrum for the 1/f noise component. One value for each frequency channel. 
+#          It can be:
+#            - a single list of multipoles, in which case 1/f noise is injected only in temperature
+#            - a list of 2 lists, in which case the first list is for temperature and the second one for polarization.
 #          If not provided, white noise is assumed.
 # - alpha_knee: list of slopes of the noise power spectrum in multipole space for the 1/f noise component. 
+#          It can be:
+#            - a single list of slopes, in which case 1/f noise is injected only in temperature (if ell_knee is a single list) or
+#                  in temperature and polarization (if ell_knee is a list of 2 lists) with same values.
+#            - a list of 2 lists, in which case the first list is for temperature and the second one for polarization.
 #             If not provided, white noise is assumed.
 experiment: "LiteBIRD_PTEP" 
 
@@ -98,7 +117,7 @@ coordinates: "G"
 
 # ==== INPUT SIMULATIONS ==== #
 
-# Keywords for input simulations. These parameters are not needed for the compsep runs.
+# Keywords for input simulations. Most of these parameters are not needed for the compsep runs.
 
 # If True, the input foregrounds are generated. 
 # If False, the input foregrounds are loaded from the paths specified below, if needed.
@@ -106,11 +125,11 @@ coordinates: "G"
 generate_input_foregrounds: False #True #
 
 # If True, when generating/loading input foregrounds, 
-# it will keep/load the single components (e.g. dust, synchrotron) of the foregrounds. Default: False.
+# it will store/load the single components (e.g. dust, synchrotron) of the foregrounds. Default: False.
 return_fgd_components: True
 
 # If True, input foreground and CMB maps are obtained after bandpass integration. Default: False.
-# Bandpasses shapes depend on the instrument dictionary in experiment_file.
+# Bandpasses shapes depend on the instrument dictionary in experiments_file.
 # You can either provide 'path_bandpasses' or 'bandwidth' in the experiment dictionary.
 # Both of them are assumed to be in intensity units. 
 bandpass_integrate: False
@@ -118,7 +137,8 @@ bandpass_integrate: False
 # If True, the input noise maps are generated. 
 # If False, the input noise maps are loaded from the paths specified below. Default: True.
 generate_input_noise: False #True #
-# If not null, input noise maps will be generated starting from the provided seed. It must be integer. Default: null.
+# If not null, input noise maps will be generated starting from the provided seed. It must be integer. 
+# Default: null.
 # For multiple simulations, the seed will be incremented by the simulation number.
 seed_noise: null
 
@@ -129,7 +149,7 @@ generate_input_cmb: False #True #
 # For multiple simulations, the seed will be incremented by the simulation number.
 seed_cmb: null
 # Path to the theoretical CMB power spectra. Used to generate CMB simulations. 
-# If not provided, the default Planck 2018 best-fit is used (stored in broom package utils folder).
+# If not provided, the default Planck 2018 best-fit is used (stored in broom package 'utils' folder).
 # It must be in muK_CMB^2 units.
 cls_cmb_path: ""
 # If True (default), it assumes that theoretical CMB power spectra in cls_cmb_path are ordered as [TT, EE, BB, TE, EB, TB].
@@ -141,9 +161,8 @@ cls_cmb_new_ordered: True
 # Default: True.
 generate_input_data: False #True #
 
-# If True, the input simulations, if generated, are saved in the paths specified below. Default: False.
+# If True, the input components, if generated, are saved in the paths specified below. Default: False.
 save_inputs: True #False # 
-
 
 # Input pixel window function. Default: False.
 # If True, the input maps/alms are convolved for the pixel window function
@@ -152,7 +171,7 @@ pixel_window_in: False
 
 
 # Paths to input total data, foregrounds, CMB and noise simulations.
-# Used tosave/load simulations.
+# Used to save/load simulations.
 # They have to include the filename. 
 # If nsim is provided it will add the number of the simulation 
 #    to the filename at the end when saving/loading total, CMB and noise maps.
@@ -179,7 +198,7 @@ field_in: "TQU"
 
 # Output fields to be returned (and/or saved) by compsep run. 
 # It can be in ["T","E","B","QU","QU_E","QU_B","TQU","EB","TEB"], 
-# where "QU_E" and "QU_B" are Sokes maps made of only E-modes and B-modes, respectively.
+# where "QU_E" and "QU_B" are Stokes maps made of only E-modes and B-modes, respectively.
 # If null, the output fields will be 'field_in'
 field_out: "TEB" 
 
@@ -201,7 +220,8 @@ mask_observations: null #"data/norm_nHits_SA_35FOV_ns512.fits"
 
 # Full path to HEALPix .fits file for a mask to be used in component separation.
 # Pixels with zero values are not considered in component separation and will be masked in the outputs.
-# A non-binary mask is used to weigh differently pixels in covariance computation.
+# A non-binary mask can be used to weigh differently pixels in covariance computation.
+# Pixels which are 0 in mask_observations will be set to 0 in mask_covariance.
 mask_covariance: None # 
 
 # If provided, polarization maps will be corrected for EB-leakage before running component separation on E-modes and/or B-modes. 
@@ -220,7 +240,7 @@ save_compsep_products: True
 # If True, the output maps are returned by compsep functions. Default: True.
 return_compsep_products: False # True #
 
-# Full path where outputs from compsep are saved (change with your path)
+# Full root path where outputs from compsep are saved (change with your path)
 path_outputs: "outputs/LiteBIRD_PTEP/d1s1" 
 
 # Component separation runs
@@ -228,7 +248,8 @@ path_outputs: "outputs/LiteBIRD_PTEP/d1s1"
 # - method: method to be used for component separation. 
 #     It can be "ilc", "mcilc", "mc_ilc", "gilc", "cilc", "c_ilc", "pilc", "cpilc", "c_pilc", "gpilc".
 #       - "ilc": standard ILC method to be applied on scalar fields (T, E, B). It comprises: ILC, NILC (if needlet domain is used).
-#       - "mcilc": Multi-clustering ILC method to be applied on scalar fields (T, E, B). It comprises: MC-ILC, MC-NILC (if needlet domain is used).
+#       - "mcilc": Multi-clustering ILC method to be applied on scalar fields (T, E, B). 
+#           It comprises: MC-ILC, MC-NILC (if needlet domain is used).
 #       - "mc_ilc": It applies Multi-clustering only on selected needlet bands (specified in special_nls).
 #       - "gilc": Generalized ILC method to be applied on scalar fields (T, E, B). 
 #           It comprises: GILC, GNILC (if needlet domain is used). 
@@ -259,46 +280,24 @@ path_outputs: "outputs/LiteBIRD_PTEP/d1s1"
 
 # - ilc_bias: amount of residual ILC bias. It is used to set the size of domain where covariance is computed. 
 #       If 0., covariance is computed as the average over the full sky/patch. Default: 0.0
+#       The final ILC_bias will be such that std_bias = ilc_bias * std_cmb, where std_cmb is the standard deviation of the input CMB signal.
 # - reduce_ilc_bias: if True, the ILC bias is reduced by computing the covariance in each pixel avoiding a region around it.
 # - b_squared: if True, needlet bands are squared. Therefore needlet transformation is performed just once before component separation.
 # - adapt_nside: if True, the HEALPix resolution of needlet maps is adapted to the sampled range of multipoles.
-# - save_needlets: if True, needlet bands are saved in the path specified in path_outputs.
-# - save_weights: if True, the weights used to reconstruct the maps are saved in the path specified in path_outputs.
-# - special_nls: list of needlet bands where either multiclustering or moment deprojections
+# - save_needlets: if True, needlet bands are saved in the method specific path.
+# - save_weights: if True, the weights used to reconstruct the maps are saved in the method specific path.
+# - special_nls: list of needlet bands indexes where either multiclustering or moment deprojections
 #       has to be applied. Used only if method is "mc_ilc", "c_ilc", "c_pilc".
 # - cov_noise_debias: (float, list) Noise covariance debiasing factor. It can be used for all methods except MC-ILC. 
 #       If different from 0. it will debias the covariance matrix by a factor cov_noise_debias * noise_covariance.
 #       It should be a list with the same length as the number of needlet scales if domain is "needlet", otherwise a single float.
-# - mc_type: type of MC-ILC to be applied. It can be "cea_ideal", "rp_ideal", "cea_real", "rp_real". Used only if method is "mcilc" or "mc_ilc".
-#       'cea' stands for (Clusters with Equal Area) and runs faster than 'rp' (Random Partition) but with similar results.
-#        'ideal' will construct clusters internally while 'real' will use the clusters constructed with "get_and_save_real_tracers_B" from broom.clusters.
-# - path_tracers: full path where the MC-ILC tracers are stored. Used only if mc_type is "cea_real" or "rp_real".
-# - channels_tracers: list of indexes of the frequency channels to be used to construct the clusters. Needed only for "mc_ilc" and "mcilc" methods.
-# - reduce_mcilc_bias: if True, the MC-ILC bias is reduced by computing the covariance in each pixel avoiding a region around it. 
-#       Used only if method is "mcilc" or "mc_ilc".
-# - constraints: list of dictionaries specifying the moments to be deprojected. 
-#       Used only if method is "cilc", "c_ilc", "cpilc", "c_pilc".
-#       It must include the following keys:
-#         - moments: list of moments to be deprojected. 
-#             They can be in ["0d", "0s", "1bd", "1bs", "1Td", 2bd', '2bs', '2Td', '2bdTd', '2Tdbd'].
-#             The list includes all zero, first and second order moments for dust and synchrotron
-#             It can be a list of lists if you want to deproject different moments in different needlet bands.
-# - channels_out: list of indexes of the frequency channels to be reconstructed with GILC and GPILC. Used only if method is "gilc" or "gpilc".
-# - cmb_nuisance: if False, the CMB is excluded from the computation of the nuisance covariance in GILC and GPILC. Default: True.
-# - depro_cmb: list. If an element of the list (depro_cmb[j]) is not null, in the corresponding j-th needlet band CMB will be deprojected such that 
-#       its residual in the output maps will be equal to depro_cmb[j] * CMB.
-#       If depro_cmb is null, no CMB deprojection is performed.
-#       Used only if method is "gilc" or "gpilc".
-# - m_bias: list of floats. If an element of the list (m_bias[j]) is not null, in the corresponding j-th needlet band
-#      m_bias[j] more/less foreground modes will be reconstructed in GILC maps.
-#      If m_bias is null, no additional foreground modes are reconstructed.
-#      Used only if method is "gilc" or "gpilc".
 
 compsep:
 # ILC in pixel domain
   - method: "ilc"
     domain: "pixel"
     ilc_bias: 0.001
+    cov_noise_debias: 0.0 # 0.0, 0.1, 0.2, ...
 
 # ILC in needlet domain (NILC) with mexican needlets (similar dictionary for standard needlets)
   - method: "ilc"
@@ -313,6 +312,7 @@ compsep:
     adapt_nside: True
     save_needlets: True
     save_weights: True
+    cov_noise_debias: [0., 0., 0., 0.]
 
 # ILC in needlet domain (NILC) with cosine needlets
   - method: "ilc"
@@ -325,6 +325,16 @@ compsep:
     adapt_nside: False
     save_needlets: True
     save_weights: True
+
+# Keywords for MC-ILC
+# - mc_type: type of MC-ILC to be applied. It can be "cea_ideal", "rp_ideal", "cea_real", "rp_real". Used only if method is "mcilc" or "mc_ilc".
+#       'cea' stands for (Clusters with Equal Area) and runs faster than 'rp' (Random Partition) but with similar results.
+#        'ideal' will construct clusters internally from foreground maps while 'real' will use the clusters constructed with "get_and_save_real_tracers_B" from broom.clusters.
+# - path_tracers: full path where the MC-ILC tracers are stored. Used only if mc_type is "cea_real" or "rp_real".
+# - channels_tracers: list of indexes of the frequency channels to be used to construct the clusters. Needed only for "mc_ilc" and "mcilc" methods.
+# - reduce_mcilc_bias: if True, the MC-ILC bias is reduced by computing the covariance in each pixel avoiding a region around it. 
+#       Used only if method is "mcilc" or "mc_ilc".
+# - save_patches: if True, it will save the patches in the output_folder. Patches will be saved just if nsim is None or config.nsim_start.
 
 # Configuration fro MC-NILC with ideal tracer. 
 # If you want to use real tracer change 'ideal' to 'real' in mc_type. 
@@ -357,6 +367,22 @@ compsep:
     path_tracers: "outputs/LiteBIRD_PTEP/d1s1/tracers" # if mc_type is "cea_ideal" or "rp_ideal", this path is not needed
     channels_tracers: [20,12] # indexes of the frequency channels to be used to construct the clusters
     special_nls: [0]
+    save_patches: False 
+
+# Parameters for running GILC, GPILC and fgd diagnostic
+
+# - channels_out: list of indexes of the frequency channels to be reconstructed with GILC and GPILC. Used only if method is "gilc" or "gpilc".
+# - cmb_nuisance: if False, the CMB is excluded from the computation of the nuisance covariance in GILC, GPILC and fgd_diagnostic.
+#     Default: True.
+# - depro_cmb: list. If an element of the list (depro_cmb[j]) is not null, in the corresponding j-th needlet band CMB will be deprojected such that 
+#       its residual in the output maps will be equal to depro_cmb[j] * CMB.
+#       If depro_cmb is null, no CMB deprojection is performed.
+#       Used only if method is "gilc" or "gpilc".
+# - m_bias: list of floats. If an element of the list (m_bias[j]) is not null, in the corresponding j-th needlet band
+#      m_bias[j] more/less foreground modes will be reconstructed in GILC maps.
+#      If m_bias is null, no additional foreground modes are reconstructed.
+#      If e.g. m_bias > 0, foreground signal will be better reconstructed at the price of higher noise and CMB residues.      
+#      Used only if method is "gilc" or "gpilc".
 
 # Configuration for running GILC.
   - method: "gilc"
@@ -375,15 +401,25 @@ compsep:
 #    channels_out: [0,1,2,3,4,5]  indices of channels you want to be reconstructed with GNILC. If not provided, all channels are reconstructed.
     save_needlets: True
 
+# Parameters for moments deprojection in 'cilc', 'c_ilc', 'cpilc', 'c_pilc' methods.
+# - constraints: list of dictionaries specifying the moments to be deprojected. 
+#       Used only if method is "cilc", "c_ilc", "cpilc", "c_pilc".
+#       It must include the following keys:
+#         - moments: list of moments to be deprojected. 
+#             They can be in ["0d", "0s", "1bd", "1bs", "1Td", 2bd', '2bs', '2Td', '2bdTd', '2Tdbd'].
+#             The list can include any zero, first and second order moments for dust and synchrotron
+#             It can be a list of lists if you want to deproject different moments in different needlet bands.
+# In constraints you can also specify the beta_d, T_d, beta_s indices used for dust and synchrotron moments computation. 
+#   If floats are provided, they will be used for all needlet bands. 
+#   If lists are provided, each value will be used for the corresponding needlet band.
+#   Defaults are beta_d = 1.54, T_d = 20., beta_s = -3..
+# In constraints, you can also specify 'deprojection'. It set the residue level in a needlet band to deprojection * input_moment.
+#   It can be a single list or a list of lists and 
+#   specifies the deprojection to be applied in each needlet band to each moment. Default is 0. for all moments in all needlet bands,
+#   which means full deprojection.
+
 # Constrained moment ILC. The moments to deproject are specified in constraints attribute. 
 # You can deproject different moments in different needlets, providing a list of lists of moments.
-# In constraints you can also specify the beta_d, T_d, beta_s indices used for moments computation. 
-# If floats are provided, they will be used for all needlet bands. 
-# If lists are provided, each value will be used for the corresponding needlet band.
-# Defaults are beta_d = 1.54, T_d = 20., beta_s = -3..
-# In constraints, you can also specify 'deprojection'. It can be a single list or a list of lists and 
-# specifies the deprojection to be applied in each needlet band to each moment. Default is 0. for all moments in all needlet bands,
-# which means full deprojection.
   - method: "cilc"
     domain: "needlet"
     needlet_config:
@@ -496,12 +532,12 @@ compsep:
 # In gnilc_path the code will look for the multifrequency cleaned foreground maps generated with a GILC run.
 # It will load the files with fields corresponding to 'field_out' if 'field_in' is not specified in compsep_residuals.
 # In compsep_path it will search for the component separation weights.
-# Both to gnilc_path and compsep_path, path_outputs will be added. 
-# The paths will therefore be {path_outputs}/{gnilc_path} and {path_outputs}/{compsep_path}.
+# Both to gilc_path and compsep_path, path_outputs will be added as root path. 
+# The paths will therefore be {path_outputs}/{gilc_path} and {path_outputs}/{compsep_path}.
 compsep_residuals:
   - gnilc_path: "outputs/LiteBIRD_PTEP/d1s1/gilc_needlet_bias0.001/cosine_0_50_100"
     compsep_path: "outputs/LiteBIRD_PTEP/d1s1/ilc_needlet_bias0.001/cosine_0_50_100"
-    field_in: "TEB" # If not provided, it will use field_out from this file.
+    field_in: "TEB" # If not provided, it will use field_out from the config file.
     adapt_nside: False # If True, the HEALPix resolution of needlet maps is adapted to the sampled range of multipoles. Should match that of compsep run.
 
 # Configuration to generate tracers for MC-ILC ratio construction
@@ -510,6 +546,10 @@ compsep_residuals:
 real_mc_tracers:
   - channels_tracers: [20,12]
     path_tracers: "outputs/LiteBIRD_PTEP/d1s1/tracers"
+# Full path where inputs used to generate the tracers are saved.
+# Every time a new realization of CMB and noise is generated and saved in the folder specified below.
+# Default: inputs_mc_tracers/{config.experiment}
+    tracers_inputs_path: "mc_tracers_inputs/LiteBIRD_PTEP"
 
 # Configuration to combine outputs from different component separation runs.
 combine_outputs:
@@ -521,14 +561,14 @@ combine_outputs:
 # They will be added to the root path path_outputs
     paths_fields_in: ["",""]
 # Path where combined products will be stored if config.save_compsep_products is True.
-# It will be added to root path path_outputs for the full path
+# It will be added to root path 'path_outputs' for the full path
     path_out: "outputs/LiteBIRD_PTEP/d1s1/ilc_combined/"
 # Components saved by both component separation runs which will be combined
     components: ["output_total"]
 
 # ==================================== Cls PARAMETERS ==================================== #
 
-# Binning to be applied on computed power spectra
+# Binning to be applied on computed power spectra.
 delta_ell: 1
 # Method used to compute angular power spectra: either 'anafast' or 'nanamaster'.
 spectra_comp: 'anafast'
@@ -541,12 +581,16 @@ return_Dell: False
 field_cls_out: "TTEEBBTEEBTB"
 # If True, the code will return the computed angular power spectra
 return_spectra: True
-# If True, the code will save the computed angular power spectra in the path specified in path_method of each case.
+# If True, the code will save the computed angular power spectra in the method specific path for each case.
 save_spectra: True
+# If True, masks for some specific masking approaches will be saved. Default: False
+save_mask: True
 
 # Dictionary including the component separation runs and settings to compute angular power spectra.
 compute_spectra:
-  - path_method: "ilc_needlet_bias0.001/mexican_B1.3_j0j13_j14j16_j17j33" # Path to the component separation outputs.
+   # Path to the component separation outputs. 
+  # The total path will be given by {config.path_outputs} + 'path_method'.
+  - path_method: "ilc_needlet_bias0.001/mexican_B1.3_j0j13_j14j16_j17j33" 
   # Components returned by the component separation run for which angular power spectra have to be computed.
   # It can include also components of the foreground residuals estimates provided as specified below.
     components_for_cls: ["output_total", "noise_residuals", "fgds_residuals", "output_cmb", 
@@ -554,20 +598,23 @@ compute_spectra:
     "fgres_templates_ideal/gilc_needlet_bias0.01_mexican_B1.3_j0j9_j10j13_j14j16_j17j33", 
     "fgres_templates_noise/gilc_needlet_bias0.01_mexican_B1.3_j0j9_j10j13_j14j16_j17j33"]
     # Type of mask to be used. It can be:
-    # - "GAL*": Planck Galactic mask with the specified fraction of sky (e.g. "GAL40" for 40% of sky).
-    # - "from_fits": it will load the mask from the path specified in mask_path.
+    # - "GAL*": Planck Galactic mask with specific fraction of sky (e.g. "GAL40" for 40% of sky).
+    # - "from_fits": it will load the mask from the path specified in 'mask_path' keyword (see below).
     # - "GAL*+fgres": it will load the Planck Galactic mask with the specified fraction of sky and 
-    #      mask further regions based on foreground residuals map upon the fsky specified.
+    #      further regions will be masked based on foreground residuals map upon the fsky specified with 'fsky' keyword (see below).
     # - "GAl*+fgtemp": it will load the Planck Galactic mask with the specified fraction of sky and
-    #      mask further regions based on foreground residuals template map upon the fsky specified.
-    # - "fgres" or "fgtemp": it will threshold the foreground residuals map or template map, respectively, to genereate the mask
-    # - "config": the mask specified in mask_covariance will be used.
-    # - "config+fgres": the mask specified in mask_covariance will be used and 
-    #      further regions will be masked based on foreground residuals map.
-    # - "config+fgtemp": the mask specified in mask_covariance will be used and 
-    #      further regions will be masked based on foreground residuals template map.
+    #      mask further regions based on foreground residuals template map upon the fsky specified with 'fsky' keyword.
+    #      The path to foreground residual template must be specified in ''fgres_temp_for_masking''.
+    # - "fgres" or "fgtemp": it will threshold the foreground residuals map or template map, respectively, 
+    #      to genereate the mask with final sky fraction set by 'fsky' keyword.
+    # - "config": the mask specified in config.mask_covariance will be used. 
+    #      If config.mask_covariance is None, but mask_observations is not None, that will be used.
+    # - "config+fgres": the mask specified in config will be used and 
+    #      further regions will be masked based on foreground residuals map upon the fsky specified with 'fsky' keyword.
+    # - "config+fgtemp": the mask specified in config will be used and 
+    #      further regions will be masked based on foreground residuals template map upon the fsky specified with 'fsky' keyword.
     mask_type: "GAL40" #"from_fits" #
-    # Full path to the mask to be used. It can be a binary mask or a hits/apodized mask. Used if mask_type is "from_fits".
+    # Full path to the mask to be used. It can be a binary mask or an apodized mask. Used if mask_type is "from_fits".
     mask_path: ""
     # Fields of the outputs returned by the component separation run. 
     field_out: "B"

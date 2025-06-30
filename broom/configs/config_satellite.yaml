@@ -16,7 +16,6 @@ verbose: True
 # ==== DATA AND INSTRUMENT ==== #
 
 foreground_models: ["d1","s1"] 
-path_utils: ""
 experiments_file: ""
 
 experiment: "LiteBIRD_PTEP" 
@@ -37,6 +36,7 @@ seed_noise: null
 generate_input_cmb: True #
 seed_cmb: null
 cls_cmb_path: ""
+cls_cmb_new_ordered: True
 
 generate_input_data: True #
 save_inputs: False # 
@@ -69,6 +69,7 @@ compsep:
   - method: "ilc"
     domain: "pixel"
     ilc_bias: 0.001
+    cov_noise_debias: 0.0 # 0.0, 0.1, 0.2, ...
 
 # ILC in needlet domain (NILC) with mexican needlets (similar dictionary for standard needlets)
   - method: "ilc"
@@ -83,6 +84,7 @@ compsep:
     adapt_nside: True
     save_needlets: True
     save_weights: True
+    cov_noise_debias: [0., 0., 0., 0.]
 
 # ILC in needlet domain (NILC) with cosine needlets
   - method: "ilc"
@@ -107,6 +109,7 @@ compsep:
     adapt_nside: False
     mc_type: "cea_ideal" # "cea_ideal", "rp_ideal", "cea_real", "rp_real"
     channels_tracers: [20,12] # indexes of the frequency channels to be used to construct the frequency ratio and build clusters
+    save_patches: True
 
 # With this configuration MC-ILC is applied only in the needlet bands specified by 'special_nls'.
 # In the remaining needlet bands standard NILC is applied.
@@ -258,6 +261,7 @@ compsep_residuals:
 real_mc_tracers:
   - channels_tracers: [20,12]
     path_tracers: "outputs/LiteBIRD_PTEP/d1s1/tracers"
+    tracers_inputs_path: "mc_tracers_inputs/LiteBIRD_PTEP"
 
 # Configuration to combine outputs from different component separation runs.
 combine_outputs:
@@ -275,6 +279,7 @@ return_Dell: False
 field_cls_out: "BB"
 return_spectra: True
 save_spectra: True
+save_mask: True
 
 # Dictiionary including the component separation runs and settings to compute angular power spectra.
 compute_spectra:
