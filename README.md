@@ -44,7 +44,7 @@ brew install fftw cfitsio
 A detailed introduction to the parameters and simulation pipeline is available in:
 
 - [**tutorials/tutorial_satellite.ipynb**](tutorials/tutorial_satellite.ipynb)   
-- [**configs/config_demo.yaml**](configs/config_demo.yaml) — Example configuration file
+- [**configs/config_demo.yaml**](broom/configs/config_demo.yaml) — Example configuration file
 
 Component separation methods are covered in:
 
