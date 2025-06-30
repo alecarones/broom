@@ -16,7 +16,7 @@ verbose: True
 # ==== DATA AND INSTRUMENT ==== #
 
 foreground_models: ["d1","s1"] 
-experiments_file: "utils/experiments.yaml"
+experiments_file: ""
 
 experiment: "SO_SAT" 
 field_in: "TQU"  
@@ -35,7 +35,7 @@ generate_input_noise: True #
 seed_noise: null
 generate_input_cmb: True #
 seed_cmb: null
-cls_cmb_path: "utils/Cls_Planck2018_lensed_r0.fits"
+cls_cmb_path: ""
 cls_cmb_new_ordered: True
 
 generate_input_data: True #
