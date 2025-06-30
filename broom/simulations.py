@@ -75,7 +75,9 @@ def _get_data_foregrounds_(config: Configs, **kwargs: Any) -> SimpleNamespace:
             - `path_bandpasses`: Full path to bandpass files (optional, used if bandpass_integrate is True).
                         It will look for files named as "{path_bandpasses}_{channel_tag}.npy" for each channel tag.
                         Each file should be a 2D array which has the first column a list of frequencies in GHz and the second column the corresponding bandpass response.
-            - `ell_knee`: List of knee frequencies for each channel for the noise power spectrum (optional).
+            - `ell_knee`: Lists of knee frequencies for each channel for the noise power spectrum (optional).
+                        If it is a single list it will be applied to temperature only.
+                        If it is a list of two lists it will be applied to temperature (first list) and polarization (second list).
                         If not provided, white noise is assumed.
             - `alpha_knee`: List of spectral indices of the noise power spectrum for each channel (optional).
                         If not provided, white noise is assumed.
@@ -187,7 +189,9 @@ def _get_data_simulations_(
             - `path_bandpasses`: Path to bandpass files (optional, used if bandpass_integrate is True).
                         The code will look for files named as "{path_bandpasses}_{channel_tag}.npy" for each channel tag.
                         Each file should be a 2D array which has the first column a list of frequencies in GHz and the second column the corresponding bandpass response.
-            - `ell_knee`: List of knee frequencies for each channel for the noise power spectrum (optional).
+            - `ell_knee`: Lists of knee frequencies for each channel for the noise power spectrum (optional).
+                        If it is a single list it will be applied to temperature only.
+                        If it is a list of two lists it will be applied to temperature (first list) and polarization (second list).
                         If not provided, white noise is assumed.
             - `alpha_knee`: List of spectral indices of the noise power spectrum for each channel (optional).
                         If not provided, white noise is assumed.
@@ -424,13 +428,26 @@ def _get_noise_simulation(config: Configs, nsim: Optional[Union[int, str]] = Non
         if hasattr(config.instrument, 'ell_knee') and hasattr(config.instrument, 'alpha_knee'):
             ell = np.arange(config.lmax + 1)
             if isinstance(config.instrument.alpha_knee, list) and isinstance(config.instrument.ell_knee, list):
-                if len(config.instrument.alpha_knee) != len(config.instrument.ell_knee):
-                    raise ValueError('alpha_knee and ell_knee must have the same length.')
-                if (len(config.instrument.alpha_knee) != len(config.instrument.frequency)) or (len(config.instrument.ell_knee) != len(config.instrument.frequency)):
-                    raise ValueError('alpha_knee and ell_knee must have the same length as the number of frequencies.')
-                N_ell *= (1 + (ell / config.instrument.ell_knee[nf]) ** config.instrument.alpha_knee[nf])
+                if np.array(config.instrument.alpha_knee).ndim == 2 and np.array(config.instrument.ell_knee).ndim == 2:
+                    if len(config.instrument.alpha_knee[0]) != len(config.instrument.ell_knee[0]) or len(config.instrument.alpha_knee[1]) != len(config.instrument.ell_knee[1]):
+                        raise ValueError('alpha_knee and ell_knee must have the same length.')
+                    if (len(config.instrument.ell_knee[0]) != len(config.instrument.frequency)) or (len(config.instrument.ell_knee[1]) != len(config.instrument.frequency)):
+                        raise ValueError('alpha_knee and ell_knee must have the same length as the number of frequencies.')
+                    N_ell[0] *= (1 + (ell / config.instrument.ell_knee[0][nf]) ** config.instrument.alpha_knee[0][nf])
+                    N_ell[1:] *= (1 + (ell / config.instrument.ell_knee[1][nf]) ** config.instrument.alpha_knee[1][nf])
+                elif np.array(config.instrument.alpha_knee).ndim == 1 and np.array(config.instrument.ell_knee).ndim == 1:
+                    if len(config.instrument.alpha_knee) != len(config.instrument.frequency) or len(config.instrument.ell_knee) != len(config.instrument.frequency):
+                        raise ValueError('alpha_knee and ell_knee must have the same length as the number of frequencies.')
+                    N_ell[0] *= (1 + (ell / config.instrument.ell_knee[nf]) ** config.instrument.alpha_knee[nf])
+                elif np.array(config.instrument.alpha_knee).ndim == 1 and np.array(config.instrument.ell_knee).ndim == 2:
+                    if len(config.instrument.alpha_knee) != len(config.instrument.frequency):
+                        raise ValueError('alpha_knee must have the same length as the number of frequencies.')
+                    if len(config.instrument.ell_knee[0]) != len(config.instrument.frequency) or len(config.instrument.ell_knee[1]) != len(config.instrument.frequency):
+                        raise ValueError('ell_knee lists must have the same length as the number of frequencies.')
+                    N_ell[0] *= (1 + (ell / config.instrument.ell_knee[0][nf]) ** config.instrument.alpha_knee[nf])
+                    N_ell[1:] *= (1 + (ell / config.instrument.ell_knee[1][nf]) ** config.instrument.alpha_knee[nf])
             else:
-                raise ValueError('alpha_knee and ell_knee must be both lists')
+                raise ValueError('alpha_knee and ell_knee must be both lists or lists of 2 lists')
 
         # Generate noise alm
         alm_noise = hp.synalm(N_ell, lmax=config.lmax, new=True)

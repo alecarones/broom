@@ -142,7 +142,7 @@ def fgd_P_diagnostic(config: Configs, input_alms: SimpleNamespace, compsep_run: 
     """
 
     valid_fields = ["E", "B", "QU", "EB", "QU_E", "QU_B"]
-    if config.field_in not in valid_fields:
+    if config.field_out not in valid_fields:
         raise ValueError(f"Invalid field_in for foreground diagnostic. Must be one of: {', '.join(valid_fields)}")
 
     compsep_run.setdefault("cmb_nuisance", True)
