@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="cmbroom",
-    version="0.1.0",
+    version="0.1.1",
     description="A Python package for blind component separation of microwave sky maps.",
     author="Alessandro Carones",
     author_email="acarones@sissa.it",
@@ -23,7 +23,7 @@ setup(
         "broom.utils": ["*.yaml", "*.fits"],
     },
     install_requires=[
-        "astropy>=7.1.0",    
+        "astropy>=6.0.1",    
         "numpy>=1.18.5",
         "scipy>=1.8",
         "healpy>=1.15",
