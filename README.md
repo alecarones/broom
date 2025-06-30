@@ -44,6 +44,7 @@ brew install fftw cfitsio
 
 This package relies on several scientific Python libraries:
 
+- [astropy>=6.0.1](https://www.astropy.org/)
 - [numpy>1.18.5](https://numpy.org/)
 - [scipy>=1.8](https://scipy.org/)
 - [healpy>=1.15](https://healpy.readthedocs.io/)
