@@ -39,6 +39,28 @@ sudo apt install build-essential python3-dev libfftw3-dev libcfitsio-dev
 ```
 brew install fftw cfitsio
 ```
+## Documentation
+
+A detailed introduction to the parameters and simulation pipeline is available in:
+
+- [**tutorials/tutorial_satellite.ipynb**](tutorials/tutorial_satellite.ipynb)   
+- [**configs/config_demo.yaml**](configs/config_demo.yaml) — Example configuration file
+
+Component separation methods are covered in:
+
+- [**tutorials/tutorial_satellite.ipynb**](tutorials/tutorial_satellite.ipynb) 
+- [**tutorials/tutorial_satellite_part2.ipynb**](tutorials/tutorial_satellite_part2.ipynb) 
+
+Power spectrum estimation is demonstrated in:
+
+- [**tutorials/tutorial_spectra.ipynb**](tutorials/tutorial_spectra.ipynb)
+
+For partial-sky, ground-based experiment analysis, see:
+
+- [**tutorials/tutorial_groundbased.ipynb**](tutorials/tutorial_groundbased.ipynb) 
+
+🔗 **Full online documentation:**  
+👉 [https://alecarones.github.io/broom/](https://alecarones.github.io/broom/)
 
 ### 📦 Dependencies
 
