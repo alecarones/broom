@@ -62,7 +62,8 @@ For partial-sky, ground-based experiment analysis, see:
 🔗 **Full online documentation:**  
 👉 [https://alecarones.github.io/broom/](https://alecarones.github.io/broom/)
 
-### 📦 Dependencies
+
+## 📦 Dependencies
 
 This package relies on several scientific Python libraries:
 
