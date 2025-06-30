@@ -5,7 +5,7 @@ from typing import Dict, Any, Optional
 import string
 import numpy as np
 import healpy as hp
-
+import sys
 import argparse
 import yaml
 
@@ -13,6 +13,18 @@ import yaml
 def join(loader: yaml.Loader, node: yaml.Node) -> str:
     """
     Custom YAML tag to join sequences into a single string.
+
+    Parameters
+    ----------
+        loader : yaml.Loader
+            The YAML loader instance.
+        node : yaml.Node
+            The YAML node to process.
+
+    Returns
+    -------
+        str
+            A string formed by joining the sequence elements.
     """
     seq = loader.construct_sequence(node)
     return "".join([str(i) for i in seq])
@@ -22,8 +34,14 @@ def parse_args() -> argparse.Namespace:
     """
     Parse command-line arguments, especially the configuration file path.
 
-    Returns:
-    - argparse.Namespace: The parsed arguments.
+    Parameters
+    ----------
+        None
+
+    Returns
+    -------
+        argparse.Namespace
+            The parsed arguments.
     """
     parser = argparse.ArgumentParser(
         description="Parse arguments and return parser object"
@@ -40,6 +58,20 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 def get_params(config_path: Optional[str] = None) -> "Configs":
+    """
+    Get parameters from a YAML configuration file.
+
+    Parameters
+    ----------
+        config_path : str, optional
+            Path to the configuration file. If not provided, uses the default path.
+
+    Returns
+    -------
+        Configs
+            An instance of the Configs class containing the configuration parameters.
+    """
+    
     yaml.add_constructor("!join", join)
     if config_path is None:
         parsed_args = parse_args()
@@ -251,5 +283,9 @@ class Configs:
             'cls_cmb_new_ordered': self.cls_cmb_new_ordered,
         }
 
-  
-    
+
+__all__ = [
+    name
+    for name, obj in globals().items()
+    if callable(obj) and getattr(obj, "__module__", None) == __name__
+] 

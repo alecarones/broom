@@ -2,12 +2,12 @@ import healpy as hp
 import numpy as np
 import os 
 import fnmatch
-
+import sys
 from .routines import obj_out_to_array, _slice_outputs, _format_nsim, _log
 from .configurations import Configs
 from types import SimpleNamespace
 from typing import Optional, Union, Dict, Any
-from ._saving import save_spectra, _save_mask
+from .saving import save_spectra, _save_mask
 try:
     import pymaster as nmt
 except ImportError:
@@ -21,34 +21,34 @@ def _compute_spectra(config: Configs) -> Optional[SimpleNamespace]:
     
     Parameters
     ----------
-    config : Configs
-        Configuration object containing parameters for spectra computation. It should include:
-        - nsim_start: Starting simulation number.
-        - nsims: Number of simulations to compute spectra for.
-        - compute_spectra: List of dictionaries containing parameters for spectra computation, including:
-            - path_method: Path to the component separation outputs.
-            - field_out: Fields of the ouputs to be loaded for spectra computation.
-            - components_for_cls: List of components to compute spectra for.
-            - mask_type: Type of mask to apply (e.g., 'GAL*+fgres', 'GAL*0', 'GAL97', 'GAL99', 'fgres', 'config+fgres', 'config').
-            - apodize_mask: Type of apodization to apply to the mask (e.g., 'gaussian', 'C1'). If None, no apodization is applied.
-            - smooth_mask: Apodization scale for the mask in degrees. Default is 5 degrees.
-            - nmt_purify_B: Whether to purify B modes when using NaMaster. Default is True.
-            - nmt_purify_E: Whether to purify E modes when using NaMaster. Default is False.
-            - smooth_tracer: Smoothing scale for the tracer in degrees, used when mask_type contains 'fgres'. Default is 3 degrees.
-            - fsky: Fraction of the sky to consider when computing the spectra, used when mask_type contains 'fgres'. Default is 1.0.
-        - spectra_comp: Method to compute the spectra, either 'anafast' or 'namaster'.
-        - return_Dell: Whether to return the spectra as D_ell or C_ell. Default is False (returns C_ell).
-        - field_cls_out: Fields of the spectra to compute. 
-        - save_spectra: Whether to save the computed spectra to files. Default is True.
-        - path_outputs: Path where computed spectra will be saved.
-        - return_spectra: Whether to return the computed spectra as a SimpleNamespace object. Default is True.
+        config : Configs
+            Configuration object containing parameters for spectra computation. It should include:
+            - nsim_start: Starting simulation number.
+            - nsims: Number of simulations to compute spectra for.
+            - compute_spectra: List of dictionaries containing parameters for spectra computation, including:
+                - path_method: Path to the component separation outputs.
+                - field_out: Fields of the ouputs to be loaded for spectra computation.
+                - components_for_cls: List of components to compute spectra for.
+                - mask_type: Type of mask to apply (e.g., 'GAL*+fgres', 'GAL*0', 'GAL97', 'GAL99', 'fgres', 'config+fgres', 'config').
+                - apodize_mask: Type of apodization to apply to the mask (e.g., 'gaussian', 'C1'). If None, no apodization is applied.
+                - smooth_mask: Apodization scale for the mask in degrees. Default is 5 degrees.
+                - nmt_purify_B: Whether to purify B modes when using NaMaster. Default is True.
+                - nmt_purify_E: Whether to purify E modes when using NaMaster. Default is False.
+                - smooth_tracer: Smoothing scale for the tracer in degrees, used when mask_type contains 'fgres'. Default is 3 degrees.
+                - fsky: Fraction of the sky to consider when computing the spectra, used when mask_type contains 'fgres'. Default is 1.0.
+            - spectra_comp: Method to compute the spectra, either 'anafast' or 'namaster'.
+            - return_Dell: Whether to return the spectra as D_ell or C_ell. Default is False (returns C_ell).
+            - field_cls_out: Fields of the spectra to compute. 
+            - save_spectra: Whether to save the computed spectra to files. Default is True.
+            - path_outputs: Path where computed spectra will be saved.
+            - return_spectra: Whether to return the computed spectra as a SimpleNamespace object. Default is True.
     
-    Returns (if return_spectra is True)
+    Returns
     -------
-    cls_ : SimpleNamespace
-        Object containing computed spectra with attributes for each component.
-        Each attribute is a numpy array with dimensions (nsim, ncases, nfields, nbins), 
-        where ncases is the number of different component separation outputs provided in compute_spectra dictionary.
+        cls_ : SimpleNamespace
+            Object containing computed spectra with attributes for each component.
+            Each attribute is a numpy array with dimensions (nsim, ncases, nfields, nbins), 
+            where ncases is the number of different component separation outputs provided in compute_spectra dictionary.
     """
     
     if not isinstance(config, Configs):
@@ -81,19 +81,19 @@ def _compute_spectra_(
 
     Parameters
     ----------
-    config : Configs
-        Configuration object containing parameters for spectra computation. See `_compute_spectra` for details.
+        config : Configs
+            Configuration object containing parameters for spectra computation. See `_compute_spectra` for details.
 
-    nsim : int or str, optional
-        Simulation number to compute spectra for. If an integer, it will be zero-padded to 5 digits.
-        Default is None, which means it will look for outputs with no label regarding simulation number.
+        nsim : int or str, optional
+            Simulation number to compute spectra for. If an integer, it will be zero-padded to 5 digits.
+            Default is None, which means it will look for outputs with no label regarding simulation number.
 
-    Returns (if return_spectra is True)
+    Returns
     -------
-    cls_out_ : SimpleNamespace
-        Object containing computed spectra with attributes for each component.
-        Each attribute is a numpy array with dimensions (ncases, nfields, nbins), 
-        where ncases is the number of different component separation outputs provided in compute_spectra dictionary.
+        cls_out_ : SimpleNamespace
+            Object containing computed spectra with attributes for each component.
+            Each attribute is a numpy array with dimensions (ncases, nfields, nbins), 
+            where ncases is the number of different component separation outputs provided in compute_spectra dictionary.
     """
 
     nsim = _format_nsim(nsim)
@@ -125,15 +125,15 @@ def _standardize_compute_cls(config: Configs, compute_cls: Dict[str, Any]) -> Di
 
     Parameters
     ----------
-    config : Configs
-        Configuration object containing parameters for spectra computation. See `_compute_spectra` for details.
-    compute_cls : dict
-        Dictionary containing parameters for spectra computation. See `_compute_spectra` for details.
+        config : Configs
+            Configuration object containing parameters for spectra computation. See `_compute_spectra` for details.
+        compute_cls : dict
+            Dictionary containing parameters for spectra computation. See `_compute_spectra` for details.
     
     Returns
     -------
-    compute_cls : dict
-        Standardized dictionary containing parameters for spectra computation.
+        compute_cls : dict
+            Standardized dictionary containing parameters for spectra computation.
     """
 
     if 'path_method' not in compute_cls:
@@ -171,20 +171,20 @@ def _cls_from_config(
     
     Parameters
     ----------
-    config : Configs
-        Configuration object containing parameters for spectra computation. See `_compute_spectra` for details.
-    compute_cls : dict
-        Dictionary containing parameters for spectra computation. See `_compute_spectra` for details.
-    nsim : str, optional
-        Simulation number. Used to load the correct outputs. If None, it will look for outputs with no label regarding simulation number.
+        config : Configs
+            Configuration object containing parameters for spectra computation. See `_compute_spectra` for details.
+        compute_cls : dict
+            Dictionary containing parameters for spectra computation. See `_compute_spectra` for details.
+        nsim : str, optional
+            Simulation number. Used to load the correct outputs. If None, it will look for outputs with no label regarding simulation number.
     
     Returns
     -------
-    cls_out : SimpleNamespace
-        Object containing computed spectra with attributes for each component.
-        Each attribute is a numpy array with dimensions (nfields, nbins), 
+        cls_out : SimpleNamespace
+            Object containing computed spectra with attributes for each component.
+            Each attribute is a numpy array with dimensions (nfields, nbins), 
     """
-    from ._compsep import _load_outputs_
+    from .compsep import _load_outputs_
 
     compute_cls["outputs"] = SimpleNamespace()
 
@@ -245,21 +245,21 @@ def _cls_from_maps(
 
     Parameters
     ----------
-    config : Configs
-        Configuration object containing global settings for spectra computation. See `_compute_spectra` for details.
-    compute_cls : dict
-        Dictionary containing parameters for spectra computation. See `_compute_spectra` for details.
-        It must include the attribute `outputs`, which is a SimpleNamespace containing the maps for each component.
-    nsim : str, optional
-        Simulation number associated to the provided output maps.
+        config : Configs
+            Configuration object containing global settings for spectra computation. See `_compute_spectra` for details.
+        compute_cls : dict
+            Dictionary containing parameters for spectra computation. See `_compute_spectra` for details.
+            It must include the attribute `outputs`, which is a SimpleNamespace containing the maps for each component.
+        nsim : str, optional
+            Simulation number associated to the provided output maps.
     
     Returns
     -------
-    cls_out : SimpleNamespace
-        Object containing computed spectra with attributes for each component.
-        Each attribute is a numpy array with dimensions (nfields, nbins),
+        cls_out : SimpleNamespace
+            Object containing computed spectra with attributes for each component.
+            Each attribute is a numpy array with dimensions (nfields, nbins),
     """
-    from ._masking import _get_mask, _smooth_masks
+    from .masking import _get_mask, _smooth_masks
 
     compute_cls["mask"] = _get_mask(config, compute_cls, nsim=nsim)
 
@@ -280,20 +280,20 @@ def _get_cls(config: Configs, compute_cls, nsim=None):
 
     Parameters
     ----------
-    config : Configs
-        Configuration object containing parameters for spectra computation. See `_compute_spectra` for details.
-    compute_cls : dict
-        Dictionary containing parameters for spectra computation. See `_compute_spectra` for details.
-    nsim : str, optional
-        Simulation number associated to the provided output maps. If None, it will look for outputs with no label regarding simulation number.
+        config : Configs
+            Configuration object containing parameters for spectra computation. See `_compute_spectra` for details.
+        compute_cls : dict
+            Dictionary containing parameters for spectra computation. See `_compute_spectra` for details.
+        nsim : str, optional
+            Simulation number associated to the provided output maps. If None, it will look for outputs with no label regarding simulation number.
     
     Returns
     -------
-    cls_out : SimpleNamespace
-        Object containing computed spectra with attributes for each component.
-        Each attribute is a numpy array with dimensions (nfields, nbins),
+        cls_out : SimpleNamespace
+            Object containing computed spectra with attributes for each component.
+            Each attribute is a numpy array with dimensions (nfields, nbins),
     """
-    from ._masking import get_masks_for_compsep
+    from .masking import get_masks_for_compsep
 
     b_bin = nmt.NmtBin.from_lmax_linear(config.lmax, nlb=config.delta_ell,is_Dell=config.return_Dell)
 
@@ -508,21 +508,21 @@ def get_bls(nside: int, fwhm: float, lmax: int, field_cls_out: str, pixel_window
 
     Parameters
     ----------
-    nside : int
-        HEALPix nside parameter.
-    fwhm : float
-        Full width at half maximum of the beam in arcminutes.
-    lmax : int
-        Maximum multipole to consider.
-    field_cls_out : str
-        Fields for which to compute the beam transfer functions.
-    pixel_window_out : bool, optional
-        Whether to consider the pixel window function in the beam transfer functions. Default is True.
+        nside : int
+            HEALPix nside parameter.
+        fwhm : float
+            Full width at half maximum of the beam in arcminutes.
+        lmax : int
+            Maximum multipole to consider.
+        field_cls_out : str
+            Fields for which to compute the beam transfer functions.
+        pixel_window_out : bool, optional
+            Whether to consider the pixel window function in the beam transfer functions. Default is True.
     
     Returns
     -------
-    bls_beam : np.ndarray
-        Beam transfer functions for the specified fields and lmax.
+        bls_beam : np.ndarray
+            Beam transfer functions for the specified fields and lmax.
     """
 
     bls_beam = []
@@ -553,19 +553,19 @@ def _get_fields_in_for_cls(field_out,field_cls_out):
 
     Parameters
     ----------
-    field_out : str
-        Fields loaded from the component separation outputs. It can be one of the following:
-        - 'T', 'E', 'B': Single fields for temperature, E-mode polarization, and B-mode polarization.
-        - 'QU', 'QU_E', 'QU_B': Combined fields for Q and U polarization.
-        - 'TQU': Combined fields for temperature, Q, and U polarization.
-        - 'TEB': Combined fields for temperature, E-mode, and B-mode polarization.
-    field_cls_out : str
-        Fields for which to compute the angular power spectra. 
+        field_out : str
+            Fields loaded from the component separation outputs. It can be one of the following:
+            - 'T', 'E', 'B': Single fields for temperature, E-mode polarization, and B-mode polarization.
+            - 'QU', 'QU_E', 'QU_B': Combined fields for Q and U polarization.
+            - 'TQU': Combined fields for temperature, Q, and U polarization.
+            - 'TEB': Combined fields for temperature, E-mode, and B-mode polarization.
+        field_cls_out : str
+            Fields for which to compute the angular power spectra. 
     
     Returns
     -------
-    str
-        Fields to be used for computing the angular power spectra based on the loaded compsep outputs and the desired angular power spectra.
+        str
+            Fields to be used for computing the angular power spectra based on the loaded compsep outputs and the desired angular power spectra.
     """
 
     if field_out == "TQU":
@@ -593,17 +593,17 @@ def _check_fields_for_cls(field_out: str, field_cls_out: str) -> None:
 
     Parameters
     ----------
-    field_out : str
-        Fields loaded from the component separation outputs. It can be one of the following:
-        - 'T', 'E', 'B', 'QU', 'QU_E', 'QU_B', 'TQU', 'TEB'
-    field_cls_out : str
-        Fields for which to compute the angular power spectra. It can be one of the following:
-        - 'TT', 'EE', 'BB', 'TTEE', 'TTEETE', 'TTBB', 'TTBBTB', 'EEBB', 'EEBBEB', 'TTEEBB', 'TTEEBBTEEBTB'
+        field_out : str
+            Fields loaded from the component separation outputs. It can be one of the following:
+            - 'T', 'E', 'B', 'QU', 'QU_E', 'QU_B', 'TQU', 'TEB'
+        field_cls_out : str
+            Fields for which to compute the angular power spectra. It can be one of the following:
+            - 'TT', 'EE', 'BB', 'TTEE', 'TTEETE', 'TTBB', 'TTBBTB', 'EEBB', 'EEBBEB', 'TTEEBB', 'TTEEBBTEEBTB'
     
     Raises
     ------
-    ValueError
-        If the fields are not compatible.
+        ValueError
+            If the fields are not compatible.
     """
     valid_fields = ['T', 'E', 'B', 'QU', 'QU_E', 'QU_B', 'EB', 'TQU', 'TEB']
     valid_cls_out = [
@@ -640,29 +640,29 @@ def _load_cls(path: str, components:list, field_cls_out: str, mask_folder: str,
 
     Parameters
     ----------
-    path : str
-        Path to the directory containing the power spectra
-    components : list or str
-        List of component names or a single component name for which spectra have to be loaded.
-    field_cls_out : str
-        The field(s) stored in the files to load.
-    mask_folder: str
-        Folder containing information about the masking approach used to compute angular power spectra.
-    nside : int
-        HEALPix resolution associated to the component separation outputs on which power spectrum has been computed.
-    lmax : int
-        Maximum multipole used to compute angular power spectra.
-    fwhm_out : float
-        Full width at half maximum of the output maps in arcminutes on which power spectrum has been computed.
-    nsim : int or str, optional
-        Simulation index of the compsep outputs. If None, it will look for files without nsim label. Default: None.
-    return_Dell: bool
-        If True, it will look for 'Dls' instead of 'Cls'. Default: False.
+        path : str
+            Path to the directory containing the power spectra
+        components : list or str
+            List of component names or a single component name for which spectra have to be loaded.
+        field_cls_out : str
+            The field(s) stored in the files to load.
+        mask_folder: str
+            Folder containing information about the masking approach used to compute angular power spectra.
+        nside : int
+            HEALPix resolution associated to the component separation outputs on which power spectrum has been computed.
+        lmax : int
+            Maximum multipole used to compute angular power spectra.
+        fwhm_out : float
+            Full width at half maximum of the output maps in arcminutes on which power spectrum has been computed.
+        nsim : int or str, optional
+            Simulation index of the compsep outputs. If None, it will look for files without nsim label. Default: None.
+        return_Dell: bool
+            If True, it will look for 'Dls' instead of 'Cls'. Default: False.
 
     Returns
     -------
-    np.ndarray
-        Loaded computed angular power spectra for the requested component separation run and output components.
+        np.ndarray
+            Loaded computed angular power spectra for the requested component separation run and output components.
     
     """
     nsim = _format_nsim(nsim)
@@ -687,4 +687,10 @@ def _load_cls(path: str, components:list, field_cls_out: str, mask_folder: str,
         loaded_cls.append(hp.read_cl(filename))
 
     return np.array(loaded_cls)
+
+__all__ = [
+    name
+    for name, obj in globals().items()
+    if callable(obj) and getattr(obj, "__module__", None) == __name__
+]
 

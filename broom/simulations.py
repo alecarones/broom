@@ -8,9 +8,9 @@ from types import SimpleNamespace
 from typing import Optional, Union, List, Dict, Any
 import warnings
 from threadpoolctl import threadpool_limits
-
+import sys
 from .configurations import Configs
-from ._seds import _get_CMB_SED
+from .seds import _get_CMB_SED
 from .routines import (
     _get_ell_filter,
     _get_beam_from_file,
@@ -29,15 +29,15 @@ def _get_full_simulations(config: Configs, nsim: Optional[Union[int, str]] = Non
 
     Parameters
     ----------
-    config: Configs
-        Configuration parameters.
-    nsim: Optional[Union[int, str]]
-        Simulation number.
+        config: Configs
+            Configuration parameters.
+        nsim: Optional[Union[int, str]]
+            Simulation number.
 
     Returns
     -------
-    SimpleNamespace
-        Simulated data container with foregrounds and total data.
+        SimpleNamespace
+            Simulated data container with foregrounds and total data.
     """
     foregrounds = _get_data_foregrounds_(config)
     data = _get_data_simulations_(config, foregrounds, nsim=nsim)
@@ -49,55 +49,56 @@ def _get_data_foregrounds_(config: Configs, **kwargs: Any) -> SimpleNamespace:
 
     Parameters
     ----------
-    config: Configs
-        Configuration parameters. It should have the following attributes:
-        - `generate_input_foregrounds`: Whether to generate foreground maps.
-        - `foreground_models`: List of foreground models to generate.
-        - 'instrument': a dictionary containing the instrument configuration, including:
-            - `frequency`: List of instrument frequencies in GHz.
-            - `beams`: Type of beams to be used (e.g., "gaussian", "file_l", "file_lm").
-            - `fwhm`: List of full width at half maximum (FWHM) for each frequency channel in arcmin. Used if beams are "gaussian".
-            - 'depth_I': Depth for intensity maps in arcmin*uK_CMB (optional). 
-                        If not provided, it will be assumed to be the polarization depth divided by sqrt(2).
-                        Used if path_depth_maps is not provided.
-            - 'depth_P': Depth for polarization maps in arcmin*uK_CMB (optional).
-                        If not provided, it will be assumed to be the intensity depth multiplied by sqrt(2).
-                        Used if path_depth_maps is not provided.
-            - `path_beams`: Full path to the beams files (if using "file_l" or "file_lm" beams). 
-                        The code will look for files named "{path_beams}_{channel_tag}.fits" for each frequency channel.
-            - `channels_tags`: List of tags for each frequency channel, used for loading beams, bandpasses or depth maps.
-            - 'bandwidths': List of relative bandwidths for each frequency channel (optional, used if bandpass_integrate is True).
-                        Used if path_bandpasses is not provided.
-            - `path_depth_maps`: Full path to depth maps (optional, used if generating noise). 
-                        The code will look for files named "{path_depth_maps}_{channel_tag}.fits" for each frequency channel.
-            - `path_hits_maps`: Full path to hits maps (optional, used if generating noise and 'depth_maps' is not provided).
-                        If it does not end with .fits, the code will look for files named "{path_hits_maps}_{channel_tag}.fits" for each frequency channel.
-            - `path_bandpasses`: Full path to bandpass files (optional, used if bandpass_integrate is True).
-                        It will look for files named as "{path_bandpasses}_{channel_tag}.npy" for each channel tag.
-                        Each file should be a 2D array which has the first column a list of frequencies in GHz and the second column the corresponding bandpass response.
-            - `ell_knee`: Lists of knee frequencies for each channel for the noise power spectrum (optional).
-                        If it is a single list it will be applied to temperature only.
-                        If it is a list of two lists it will be applied to temperature (first list) and polarization (second list).
-                        If not provided, white noise is assumed.
-            - `alpha_knee`: List of spectral indices of the noise power spectrum for each channel (optional).
-                        If not provided, white noise is assumed.
-        - `nside`: HEALPix resolution.
-        - `lmax`: Maximum multipole for the simulation.
-        - `return_fgd_components`: Whether to return individual foreground components.
-        - `fgds_path`: Path where saving or loading foreground maps.
-        - `save_inputs`: Whether to save generated foreground maps to disk.        
-        - `pixel_window_in`: Whether to apply pixel window smoothing.
-        - `units`: Units for the foreground maps (e.g., 'uK_CMB').
-        - `data_type`: Type of data to return, either "maps" or "alms".
-        - `bandpass_integrate`: Whether to integrate foreground components across bandpasses.
-        - `lmin`: Minimum multipole to keep in the simulation.
-        - `coordinates`: Coordinate system for the maps (e.g., "G" for Galactic).
-    kwargs: Additional keyword arguments forwarded to alm computation.
+        config: Configs
+            Configuration parameters. It should have the following attributes:
+            - `generate_input_foregrounds`: Whether to generate foreground maps.
+            - `foreground_models`: List of foreground models to generate.
+            - 'instrument': a dictionary containing the instrument configuration, including:
+                - `frequency`: List of instrument frequencies in GHz.
+                - `beams`: Type of beams to be used (e.g., "gaussian", "file_l", "file_lm").
+                - `fwhm`: List of full width at half maximum (FWHM) for each frequency channel in arcmin. Used if beams are "gaussian".
+                - 'depth_I': Depth for intensity maps in arcmin*uK_CMB (optional). 
+                            If not provided, it will be assumed to be the polarization depth divided by sqrt(2).
+                            Used if path_depth_maps is not provided.
+                - 'depth_P': Depth for polarization maps in arcmin*uK_CMB (optional).
+                            If not provided, it will be assumed to be the intensity depth multiplied by sqrt(2).
+                            Used if path_depth_maps is not provided.
+                - `path_beams`: Full path to the beams files (if using "file_l" or "file_lm" beams). 
+                            The code will look for files named "{path_beams}_{channel_tag}.fits" for each frequency channel.
+                - `channels_tags`: List of tags for each frequency channel, used for loading beams, bandpasses or depth maps.
+                - 'bandwidths': List of relative bandwidths for each frequency channel (optional, used if bandpass_integrate is True).
+                            Used if path_bandpasses is not provided.
+                - `path_depth_maps`: Full path to depth maps (optional, used if generating noise). 
+                            The code will look for files named "{path_depth_maps}_{channel_tag}.fits" for each frequency channel.
+                - `path_hits_maps`: Full path to hits maps (optional, used if generating noise and 'depth_maps' is not provided).
+                            If it does not end with .fits, the code will look for files named "{path_hits_maps}_{channel_tag}.fits" for each frequency channel.
+                - `path_bandpasses`: Full path to bandpass files (optional, used if bandpass_integrate is True).
+                            It will look for files named as "{path_bandpasses}_{channel_tag}.npy" for each channel tag.
+                            Each file should be a 2D array which has the first column a list of frequencies in GHz and the second column the corresponding bandpass response.
+                - `ell_knee`: Lists of knee frequencies for each channel for the noise power spectrum (optional).
+                            If it is a single list it will be applied to temperature only.
+                            If it is a list of two lists it will be applied to temperature (first list) and polarization (second list).
+                            If not provided, white noise is assumed.
+                - `alpha_knee`: List of spectral indices of the noise power spectrum for each channel (optional).
+                            If not provided, white noise is assumed.
+            - `nside`: HEALPix resolution.
+            - `lmax`: Maximum multipole for the simulation.
+            - `return_fgd_components`: Whether to return individual foreground components.
+            - `fgds_path`: Path where saving or loading foreground maps.
+            - `save_inputs`: Whether to save generated foreground maps to disk.        
+            - `pixel_window_in`: Whether to apply pixel window smoothing.
+            - `units`: Units for the foreground maps (e.g., 'uK_CMB').
+            - `data_type`: Type of data to return, either "maps" or "alms".
+            - `bandpass_integrate`: Whether to integrate foreground components across bandpasses.
+            - `lmin`: Minimum multipole to keep in the simulation.
+            - `coordinates`: Coordinate system for the maps (e.g., "G" for Galactic).
+        kwargs: dict, optional
+            Additional keyword arguments forwarded to alm computation.
 
     Returns
     -------
-    SimpleNamespace
-        Foregrounds object containing single components (optionally) and total map.
+        SimpleNamespace
+            Foregrounds object containing single components (optionally) and total map.
     """
     kwargs = _map2alm_kwargs(**kwargs)
 
@@ -147,64 +148,65 @@ def _get_data_simulations_(
 
     Parameters
     ----------
-    config: Configs
-        Configuration parameters. It should have the following attributes:
-        - `generate_input_cmb`: Whether to generate CMB maps. If False, it will load from `cmb_path`.
-        - `cmb_path`: Path where saving or loading CMB maps.
-        - 'cls_cmb_path': Path to the CMB power spectrum FITS file. Used if 'generate_input_cmb' is True.
-        - 'seed_cmb': Seed for CMB generation (optional).
-        - 'cls_cmb_new_ordered': Whether the new ordering of Cls is used in the CMB power spectrum FITS file.
-        - `generate_input_noise`: Whether to generate noise maps. If False, it will load from `noise_path`.
-        - `noise_path`: Path where saving or loading noise maps.
-        - `seed_noise`: Seed for noise generation (optional).
-        - `generate_input_data`: Whether to generate total data maps. If False, it will load from `data_path`.
-        - `data_path`: Path where saving or loading total data maps.
-        - `save_inputs`: Whether to save generated inputs to disk.
-        - `lmax`: Maximum multipole for the simulation.
-        - `nside`: Desired HEALPix resolution.
-        - `data_type`: Type of data to return, either "maps" or "alms". It must be compatible with provided foregrounds, if any.
-        - `units`: Units for the maps (e.g., 'uK_CMB').
-        - `lmin`: Minimum multipole to keep in the simulation. Default is 2.
-        - `pixel_window_in`: Whether to apply pixel window smoothing to the input maps.
-        - 'instrument': a dictionary containing the instrument configuration, including:
-            - `frequency`: List of instrument frequencies in GHz.
-            - `beams`: Type of beams to be used (e.g., "gaussian", "file_l", "file_lm").
-            - `fwhm`: List of full width at half maximum (FWHM) for each frequency channel in arcmin. Used if beams are "gaussian".
-            - 'depth_I': Depth for intensity maps in arcmin*uK_CMB (optional). 
-                        If not provided, it will be assumed to be the polarization depth divided by sqrt(2).
-                        Used if path_depth_maps is not provided.
-            - 'depth_P': Depth for polarization maps in arcmin*uK_CMB (optional).
-                        If not provided, it will be assumed to be the intensity depth multiplied by sqrt(2).
-                        Used if path_depth_maps is not provided.
-            - `path_beams`: Path to the beam files (if using "file_l" or "file_lm" beams).
-                        The code will look for files named "{path_beams}_{channel_tag}.fits" for each frequency channel.
-            - `channels_tags`: List of tags for each frequency channel, used for loading beams, bandpasses or depth maps.
-            - 'bandwidths': List of relative bandwidths for each frequency channel (optional, used if bandpass_integrate is True).
-                        Used if path_bandpasses is not provided.
-            - `path_depth_maps`: Full path to depth maps (optional, used if generating noise).
-                        The code will look for files named "{path_depth_maps}_{channel_tag}.fits" for each frequency channel.   
-            - `path_hits_maps`: Full path to hits maps (optional, used if generating noise and 'path_depth_maps' is not provided).
-                        If it does not end with .fits, the code will look for files named 
-                        "{path_hits_maps}_{channel_tag}.fits" for each frequency channel.
-            - `path_bandpasses`: Path to bandpass files (optional, used if bandpass_integrate is True).
-                        The code will look for files named as "{path_bandpasses}_{channel_tag}.npy" for each channel tag.
-                        Each file should be a 2D array which has the first column a list of frequencies in GHz and the second column the corresponding bandpass response.
-            - `ell_knee`: Lists of knee frequencies for each channel for the noise power spectrum (optional).
-                        If it is a single list it will be applied to temperature only.
-                        If it is a list of two lists it will be applied to temperature (first list) and polarization (second list).
-                        If not provided, white noise is assumed.
-            - `alpha_knee`: List of spectral indices of the noise power spectrum for each channel (optional).
-                        If not provided, white noise is assumed.
-    foregrounds: Optional[SimpleNamespace]
-        Foreground components.
-    nsim: Optional[Union[int, str]]
-        Simulation number.
-    kwargs: Additional keyword arguments forwarded to alm computation.
+        config: Configs
+            Configuration parameters. It should have the following attributes:
+            - `generate_input_cmb`: Whether to generate CMB maps. If False, it will load from `cmb_path`.
+            - `cmb_path`: Path where saving or loading CMB maps.
+            - 'cls_cmb_path': Path to the CMB power spectrum FITS file. Used if 'generate_input_cmb' is True.
+            - 'seed_cmb': Seed for CMB generation (optional).
+            - 'cls_cmb_new_ordered': Whether the new ordering of Cls is used in the CMB power spectrum FITS file.
+            - `generate_input_noise`: Whether to generate noise maps. If False, it will load from `noise_path`.
+            - `noise_path`: Path where saving or loading noise maps.
+            - `seed_noise`: Seed for noise generation (optional).
+            - `generate_input_data`: Whether to generate total data maps. If False, it will load from `data_path`.
+            - `data_path`: Path where saving or loading total data maps.
+            - `save_inputs`: Whether to save generated inputs to disk.
+            - `lmax`: Maximum multipole for the simulation.
+            - `nside`: Desired HEALPix resolution.
+            - `data_type`: Type of data to return, either "maps" or "alms". It must be compatible with provided foregrounds, if any.
+            - `units`: Units for the maps (e.g., 'uK_CMB').
+            - `lmin`: Minimum multipole to keep in the simulation. Default is 2.
+            - `pixel_window_in`: Whether to apply pixel window smoothing to the input maps.
+            - 'instrument': a dictionary containing the instrument configuration, including:
+                - `frequency`: List of instrument frequencies in GHz.
+                - `beams`: Type of beams to be used (e.g., "gaussian", "file_l", "file_lm").
+                - `fwhm`: List of full width at half maximum (FWHM) for each frequency channel in arcmin. Used if beams are "gaussian".
+                - 'depth_I': Depth for intensity maps in arcmin*uK_CMB (optional). 
+                            If not provided, it will be assumed to be the polarization depth divided by sqrt(2).
+                            Used if path_depth_maps is not provided.
+                - 'depth_P': Depth for polarization maps in arcmin*uK_CMB (optional).
+                            If not provided, it will be assumed to be the intensity depth multiplied by sqrt(2).
+                            Used if path_depth_maps is not provided.
+                - `path_beams`: Path to the beam files (if using "file_l" or "file_lm" beams).
+                            The code will look for files named "{path_beams}_{channel_tag}.fits" for each frequency channel.
+                - `channels_tags`: List of tags for each frequency channel, used for loading beams, bandpasses or depth maps.
+                - 'bandwidths': List of relative bandwidths for each frequency channel (optional, used if bandpass_integrate is True).
+                            Used if path_bandpasses is not provided.
+                - `path_depth_maps`: Full path to depth maps (optional, used if generating noise).
+                            The code will look for files named "{path_depth_maps}_{channel_tag}.fits" for each frequency channel.   
+                - `path_hits_maps`: Full path to hits maps (optional, used if generating noise and 'path_depth_maps' is not provided).
+                            If it does not end with .fits, the code will look for files named 
+                            "{path_hits_maps}_{channel_tag}.fits" for each frequency channel.
+                - `path_bandpasses`: Path to bandpass files (optional, used if bandpass_integrate is True).
+                            The code will look for files named as "{path_bandpasses}_{channel_tag}.npy" for each channel tag.
+                            Each file should be a 2D array which has the first column a list of frequencies in GHz and the second column the corresponding bandpass response.
+                - `ell_knee`: Lists of knee frequencies for each channel for the noise power spectrum (optional).
+                            If it is a single list it will be applied to temperature only.
+                            If it is a list of two lists it will be applied to temperature (first list) and polarization (second list).
+                            If not provided, white noise is assumed.
+                - `alpha_knee`: List of spectral indices of the noise power spectrum for each channel (optional).
+                            If not provided, white noise is assumed.
+        foregrounds: Optional[SimpleNamespace]
+            Foreground components.
+        nsim: Optional[Union[int, str]]
+            Simulation number.
+        kwargs: dict, optional
+            Additional keyword arguments forwarded to alm computation.
 
     Returns
     -------
-    SimpleNamespace
-        Data container with cmb, noise, total and foregrounds.
+        SimpleNamespace
+            Data container with cmb, noise, total and foregrounds.
     """
     if nsim is not None:
         if not isinstance(nsim, (int, str)):
@@ -254,14 +256,44 @@ def _get_data_simulations_(
     return data
 
 def _save_inputs(filename: str, maps: np.ndarray, nsim: Union[str, None] = None) -> None:
-    """Save simulation maps to disk, creating directories if needed."""
+    """Save simulation maps to disk, creating directories if needed.
+    
+    Parameters
+    ----------
+        filename: str
+            Path to save the simulation maps, without extension.
+        maps: np.ndarray
+            Simulation maps to save. Shape is (n_freq, 3, n_pix) for maps or (n_freq, 3, n_alm) for alms.
+        nsim: Union[str, None], optional
+            Simulation index to append to the filename (optional). Default is None.
+        
+    Returns
+    -------
+        None
+    
+    """
     os.makedirs(os.path.dirname(filename), exist_ok=True)
     if nsim is not None:
         filename += f"_{nsim}"
     np.save(filename, maps)
 
 def _load_inputs(path: str, nsim: Union[str, None] = None) -> np.ndarray:
-    """Load simulation maps from disk, handling nsim suffix."""
+    """
+    Load simulation maps from disk, handling nsim suffix.
+    
+    Parameters
+    ----------
+        path: str
+            Path to the simulation maps file, without extension.
+        nsim: Union[str, None], optional
+            Simulation index to append to the filename (optional). Default is None.
+    
+    Returns
+    -------
+        np.ndarray
+            Loaded simulation maps. Shape is (n_freq, 3, n_pix) for maps or (n_freq, 3, n_alm) for alms.
+    """
+
     filepath = path + f"_{nsim}.npy" if nsim is not None else path + '.npy'
     if not os.path.isfile(filepath):
         raise FileNotFoundError(f"File not found: {filepath}")
@@ -271,6 +303,19 @@ def _save_input_foregrounds(fgds_path: str, foregrounds: SimpleNamespace, foregr
     """
     Save foreground maps for all models and the total.
     Assumes 'foregrounds' is a SimpleNamespace or similar with components as attributes.
+
+    Parameters
+    ----------
+        fgds_path: str
+            Path where saving foreground maps, without extension.
+        foregrounds: SimpleNamespace
+            Foreground components, should have attributes for each model and a 'total' attribute.
+        foreground_models: List[str]
+            List of foreground model names to save. Each name should match an attribute in 'foregrounds'.
+
+    Returns
+    -------
+        None    
     """
     os.makedirs(os.path.dirname(fgds_path), exist_ok=True)
     # Save total foreground map
@@ -299,7 +344,20 @@ def _save_input_foregrounds(fgds_path: str, foregrounds: SimpleNamespace, foregr
             np.save(fgds_path + f"_{fmodel}", fg_attrs[attr])
 
 def _load_input_foregrounds(fgd_path: str, fgd_model: str) -> np.ndarray:
-    """Load foreground map for a given model."""
+    """
+    Load foreground map for a given model.
+    
+    Parameters
+    ----------
+        fgd_path: str
+            Path to the foreground maps, without extension.
+        fgd_model: str
+            Foreground model name to load. It should match the saved file name suffix.
+
+    Returns
+        np.ndarray
+            Loaded foreground map. Shape is (n_freq, 3, n_pix) for maps or (n_freq, 3, n_alm) for alms.
+    """
     filepath = f'{fgd_path}_{fgd_model}.npy'
     if not os.path.isfile(filepath):
         raise FileNotFoundError(f"Foreground file not found: {filepath}")
@@ -311,28 +369,28 @@ def _get_noise_simulation(config: Configs, nsim: Optional[Union[int, str]] = Non
 
     Parameters
     ----------
-    config: Configs
-        Configuration parameters including instrument settings. It should have the following attributes:
-        - `instrument.frequency`: List of instrument frequencies.
-        - `instrument.depth_I`: Depth for intensity maps.
-        - `instrument.depth_P`: Depth for polarization maps.
-        - `instrument.path_depth_maps`: Path to depth maps (optional).
-        - `instrument.path_hits_maps`: Path to hits maps (optional).
-        - `nside`: HEALPix resolution.
-        - `lmax`: Maximum multipole for the simulation.
-        - `data_type`: Type of data to return, either "maps" or "alms".
-        - `units`: Units for the noise maps (e.g., 'uK_CMB').
-        - `lmin`: Minimum multipole to keep in the simulation.
-        - `seed_noise`: Seed for noise generation (optional).    
-    nsim: int or str, optional
-        Simulation index to save the maps and vary the random seed (optional). Default: None.
-    kwargs: dict, optional
-        Additional keyword arguments for `hp.map2alm`.
-
+        config: Configs
+            Configuration parameters including instrument settings. It should have the following attributes:
+            - `instrument.frequency`: List of instrument frequencies.
+            - `instrument.depth_I`: Depth for intensity maps.
+            - `instrument.depth_P`: Depth for polarization maps.
+            - `instrument.path_depth_maps`: Path to depth maps (optional).
+            - `instrument.path_hits_maps`: Path to hits maps (optional).
+            - `nside`: HEALPix resolution.
+            - `lmax`: Maximum multipole for the simulation.
+            - `data_type`: Type of data to return, either "maps" or "alms".
+            - `units`: Units for the noise maps (e.g., 'uK_CMB').
+            - `lmin`: Minimum multipole to keep in the simulation.
+            - `seed_noise`: Seed for noise generation (optional).    
+        nsim: int or str, optional
+            Simulation index to save the maps and vary the random seed (optional). Default: None.
+        kwargs: dict, optional
+            Additional keyword arguments for `hp.map2alm`.
 
     Returns
     -------
-        noise: numpy array of noise maps or alms. Shape is (n_freq, 3, n_pix) for maps or (n_freq, 3, n_alm) for alms.
+        noise: np.ndarray
+            array of noise maps or alms. Shape is (n_freq, 3, n_pix) for maps or (n_freq, 3, n_alm) for alms.
     """
 
     if nsim is not None:
@@ -489,21 +547,21 @@ def _get_cmb_simulation(config: Configs, nsim: Optional[Union[int, str]] = None)
 
     Parameters
     ----------
-    config: Configs
-        Simulation and instrument configuration. It should have the following attributes:
-        - `lmax`: Maximum multipole for the simulation.
-        - `nside`: HEALPix resolution.
-        - `data_type`: Type of data to return, either "maps" or "alms".
-        - `cls_cmb_path`: Path to the CMB power spectrum FITS file.
-        - `seed_cmb`: Seed for CMB generation (optional).
-        - 'cls_cmb_new_ordered': Whether the new ordering of Cls is used in the CMB power spectrum FITS file.
-    nsim: int or str, optional
-        Simulation index to save the maps and vary the random seed (optional). Default: None.
+        config: Configs
+            Simulation and instrument configuration. It should have the following attributes:
+            - `lmax`: Maximum multipole for the simulation.
+            - `nside`: HEALPix resolution.
+            - `data_type`: Type of data to return, either "maps" or "alms".
+            - `cls_cmb_path`: Path to the CMB power spectrum FITS file.
+            - `seed_cmb`: Seed for CMB generation (optional).
+            - 'cls_cmb_new_ordered': Whether the new ordering of Cls is used in the CMB power spectrum FITS file.
+        nsim: int or str, optional
+            Simulation index to save the maps and vary the random seed (optional). Default: None.
 
     Returns
     -------
-    np.ndarray: 
-        Simulated CMB maps or harmonic coefficients (alms). Shape is (n_freq, 3, n_pix) for maps or (n_freq, 3, n_alm) for alms.
+        np.ndarray: 
+            Simulated CMB maps or harmonic coefficients (alms). Shape is (n_freq, 3, n_pix) for maps or (n_freq, 3, n_alm) for alms.
     """
     # Converting nsim to a string if provided
     if nsim is not None:
@@ -579,21 +637,21 @@ def _get_cmb_alms_realization(
 
     Parameters
     ----------
-    cls_cmb: np.ndarray
-        Theoretical CMB angular power spectra.
-    lmax: int
-        Maximum multipole for the realization.
-    seed: Optional[int]
-        Random seed for reproducibility.
-    new: bool
-        healpy sinalm keyword which sets the assumed ordering of the Cls. Default: True.
-                If True, use the new ordering of cl’s, ie by diagonal (e.g. TT, EE, BB, TE, EB, TB or TT, EE, BB, TE if 4 cl as input). 
-                If False, use the old ordering, ie by row (e.g. TT, TE, TB, EE, EB, BB or TT, TE, EE, BB if 4 cl as input).
+        cls_cmb: np.ndarray
+            Theoretical CMB angular power spectra.
+        lmax: int
+            Maximum multipole for the realization.
+        seed: Optional[int]
+            Random seed for reproducibility.
+        new: bool
+            healpy sinalm keyword which sets the assumed ordering of the Cls. Default: True.
+                    If True, use the new ordering of cl’s, ie by diagonal (e.g. TT, EE, BB, TE, EB, TB or TT, EE, BB, TE if 4 cl as input). 
+                    If False, use the old ordering, ie by row (e.g. TT, TE, TB, EE, EB, BB or TT, TE, EE, BB if 4 cl as input).
 
     Returns
     -------
-    np.ndarray
-        Realization of CMB alms for T, E, and B modes. Shape is (3, n_alms)
+        np.ndarray
+            Realization of CMB alms for T, E, and B modes. Shape is (3, n_alms)
     """
     if seed is not None:
         np.random.seed(seed)
@@ -617,36 +675,36 @@ def _get_foregrounds(
 
     Parameters
     ----------
-    foreground_models: (List[str])
-        List of PySM3 model presets (e.g., ["d1", "s1"]).
-    instrument: dict
-        Instrument configuration object with frequency, beams, and optional bandpasses.
-    nside: int
-        Output HEALPix resolution.
-    lmax: int
-        Maximum multipole to compute alms.
-    return_components: bool, optional
-        If True, return individual components instead of just the sum. Default: False.
-    pixel_window: bool, optional
-        Whether to apply pixel window smoothing. Default: False.
-    units: str, optional
-        Output units. Default: 'uK_CMB'.
-    return_alms: bool, optional
-        Whether to return alms instead of maps. Default: False.
-    bandpass_integrate: bool, optional
-        Whether to integrate foreground components across bandpasses. 
-        Default: False (i.e. delta functions are assumed).
-    lmin: int, optional
-        Minimum multipole to keep (applies filtering).
-    coordinates, str, optional
-        Target coordinate system for output maps/alms ("G" (Galactic), "E" (Ecliptic), or "C" (Equatorial)). 
-        Default: "G"
-    **kwargs: Additional keyword arguments for `hp.map2alm`.
+        foreground_models: (List[str])
+            List of PySM3 model presets (e.g., ["d1", "s1"]).
+        instrument: dict
+            Instrument configuration object with frequency, beams, and optional bandpasses.
+        nside: int
+            Output HEALPix resolution.
+        lmax: int
+            Maximum multipole to compute alms.
+        return_components: bool, optional
+            If True, return individual components instead of just the sum. Default: False.
+        pixel_window: bool, optional
+            Whether to apply pixel window smoothing. Default: False.
+        units: str, optional
+            Output units. Default: 'uK_CMB'.
+        return_alms: bool, optional
+            Whether to return alms instead of maps. Default: False.
+        bandpass_integrate: bool, optional
+            Whether to integrate foreground components across bandpasses. 
+            Default: False (i.e. delta functions are assumed).
+        lmin: int, optional
+            Minimum multipole to keep (applies filtering).
+        coordinates, str, optional
+            Target coordinate system for output maps/alms ("G" (Galactic), "E" (Ecliptic), or "C" (Equatorial)). 
+            Default: "G"
+        **kwargs: Additional keyword arguments for `hp.map2alm`.
 
     Returns
     -------
-    SimpleNamespace: 
-        Foregrounds object with `.total` field and optionally individual components.
+        SimpleNamespace: 
+            Foregrounds object with `.total` field and optionally individual components.
     """
 
     nside_ = max(nside, 512)
@@ -699,31 +757,31 @@ def _get_foreground_component(
 
     Parameters
     ----------
-    instrument: dict
-        Instrument configuration with frequencies, fwhms (or beam paths), bandpasses or bandwidths.
-    sky: pysm3.Sky
-        PySM3 sky model for the foreground.
-    nside_out: int
-        HEALPix resolution for the output.
-    lmax: int
-        Maximum multipole to compute alms.
-    pixel_window: bool, optional
-        Apply pixel window smoothing if True. Default: False.
-    bandpass_integrate: bool, optional
-        Integrate over bandpass if True. Default: False.
-    return_alms: bool, optional
-        Return alms if True, else return maps. Default: False.
-    lmin: int, optional
-        Minimum multipole to keep (applies filtering).
-    coordinates: str, optional
-        Coordinate system for output ("G" (Galactic), "E" (Ecliptic), or "C" (Equatorial)). 
-        Default: "G"
-    **kwargs: Additional arguments passed to `hp.map2alm`.
+        instrument: dict
+            Instrument configuration with frequencies, fwhms (or beam paths), bandpasses or bandwidths.
+        sky: pysm3.Sky
+            PySM3 sky model for the foreground.
+        nside_out: int
+            HEALPix resolution for the output.
+        lmax: int
+            Maximum multipole to compute alms.
+        pixel_window: bool, optional
+            Apply pixel window smoothing if True. Default: False.
+        bandpass_integrate: bool, optional
+            Integrate over bandpass if True. Default: False.
+        return_alms: bool, optional
+            Return alms if True, else return maps. Default: False.
+        lmin: int, optional
+            Minimum multipole to keep (applies filtering).
+        coordinates: str, optional
+            Coordinate system for output ("G" (Galactic), "E" (Ecliptic), or "C" (Equatorial)). 
+            Default: "G"
+        **kwargs: Additional arguments passed to `hp.map2alm`.
 
     Returns
     -------
-    np.ndarray: 
-        Array of foreground maps or alms with shape (n_channels, 3, npix) for maps or (n_channels, 3, nalms) for alms.
+        np.ndarray: 
+            Array of foreground maps or alms with shape (n_channels, 3, npix) for maps or (n_channels, 3, nalms) for alms.
     """
 
     fg_component = []
@@ -795,21 +853,21 @@ def _smooth_input_alms_(
 
     Parameters
     ----------
-    alms: np.ndarray
-        Array of spherical harmonic coefficients [T, E, B].
-    fwhm: float, optional
-        FWHM of Gaussian beam in arcmin. Required if `beam_path` is None.
-    nside_out: int, optional
-        HEALPix Nside for pixel window function. Used if not None.
-    beam_path: str, optional
-        Path to FITS file containing beam transfer functions.
-    symmetric_beam: bool, optional
-        Whether the beam from FITS file is symmetric (True) or not (False).
+        alms: np.ndarray
+            Array of spherical harmonic coefficients [T, E, B].
+        fwhm: float, optional
+            FWHM of Gaussian beam in arcmin. Required if `beam_path` is None.
+        nside_out: int, optional
+            HEALPix Nside for pixel window function. Used if not None.
+        beam_path: str, optional
+            Path to FITS file containing beam transfer functions.
+        symmetric_beam: bool, optional
+            Whether the beam from FITS file is symmetric (True) or not (False).
 
     Returns
     -------
-    np.ndarray: 
-        Smoothed alms.
+        np.ndarray: 
+            Smoothed alms.
     """
     lmax = hp.Alm.getlmax(alms.shape[1])
 
@@ -840,4 +898,11 @@ def _smooth_input_alms_(
         alms_smoothed[i] = hp.almxfl(alms[i], bl_i[:,i]) if symmetric_beam else alms[i] * bl_i[:,i]
 
     return alms_smoothed
+
+__all__ = [
+    name
+    for name, obj in globals().items()
+    if callable(obj) and getattr(obj, "__module__", None) == __name__
+]
+
 

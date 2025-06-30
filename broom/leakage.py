@@ -1,8 +1,33 @@
 import numpy as np
 import healpy as hp
+import sys
 #from sklearn.linear_model import LinearRegression
 
 def purify_master(QU_maps,mask,lmax, return_E=True, return_B=True, purify_E=False):
+    """
+    Purify the E and B modes of the input QU maps using purification in NaMaster package.
+
+    Parameters
+    ----------
+        QU_maps : array of Healpix maps
+            The input maps containing Q and U components.
+        mask : array
+            The mask to apply to the maps.
+        lmax : int
+            The maximum multipole to consider for purification.
+        return_E : bool, optional
+            If True, return the E-mode alms. Default is True.
+        return_B : bool, optional
+            If True, return the B-mode alms. Default is True.
+        purify_E : bool, optional
+            If True, perform purification of E modes. Default is False.
+    
+    Returns
+    -------
+        alms_p : array
+            The purified alms for E and/or B modes based on the input flags.
+    """
+        
 #    try:
 #        import pymaster as nmt
 #    except ImportError:
@@ -26,6 +51,33 @@ def purify_master(QU_maps,mask,lmax, return_E=True, return_B=True, purify_E=Fals
         raise ValueError("At least one of 'return_E' and 'return_B' must be True.")
 
 def purify_recycling(QU_maps, QU_full_maps, mask,lmax, return_E=True, return_B=True, purify_E=False, iterations=0, **kwargs):
+    """
+    Purify the E and B modes of the input QU maps using recycling technique.
+
+    Parameters
+    ----------
+        QU_maps : array of Healpix maps
+            The input maps containing Q and U components.
+        QU_full_maps : array of Healpix maps
+            The Q and U maps containing the full signal over which the purification is actually performed.
+        mask : array
+            The mask to apply to the maps.
+        lmax : int
+            The maximum multipole to consider for purification.
+        return_E : bool, optional
+            If True, return the E-mode alms. Default is True.
+        return_B : bool, optional
+            If True, return the B-mode alms. Default is True.
+        purify_E : bool, optional
+            If True, perform purification of E modes. Default is False.
+        iterations : int, optional
+            Number of iterations for recycling purification. Default is 0.
+    
+    Returns
+    -------
+        alms_p : array
+            The purified alms for E and/or B modes based on the input flags.
+    """
 #    print('Performing recycling purification.')
     maskbin = np.zeros_like(mask)
     maskbin[mask > 0.] = 1.
@@ -104,6 +156,12 @@ def purify_recycling(QU_maps, QU_full_maps, mask,lmax, return_E=True, return_B=T
         return alms_p[0]
     else:
         return alms_p
+
+__all__ = [
+    name
+    for name, obj in globals().items()
+    if callable(obj) and getattr(obj, "__module__", None) == __name__
+]
 
 
     
