@@ -387,7 +387,7 @@ def _get_fres_pixel(
 
     # Convert alms to maps
     input_maps = np.zeros((good_channels.shape[0], 12 * config.nside**2, input_alms.shape[-1]))
-    for n, channel in enumerate(good_channels_nl):
+    for n, channel in enumerate(good_channels):
         input_maps[n] = np.array([
             hp.alm2map(np.ascontiguousarray(input_alms[channel, :, c]), config.nside, lmax=config.lmax, pol=False)
             for c in range(input_alms.shape[-1])
@@ -556,7 +556,7 @@ def _get_fres_P_needlet_j(
     good_channels_nl = _get_good_channels_nl(config, b_ell)
 
     # Load PILC weights
-    weights_path = os.path.join(config.path_outputs,
+    weights_filename = os.path.join(config.path_outputs,
         compsep_run["compsep_path"],
         f"weights/weights_{compsep_run['field']}_{config.fwhm_out}acm_ns{nside_}_lmax{config.lmax}_nl{nl_scale}"
     )
