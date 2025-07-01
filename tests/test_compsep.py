@@ -14,6 +14,10 @@ def test_import_compsep():
 def test_component_separation_runs(config_all_path):
     config = Configs(config_all_path)
     rng = np.random.default_rng()
+    fgds = 1e-6 * np.ones(
+        (len(config.instrument.frequency), 3, hp.Alm.getsize(config.lmax)),
+        dtype=complex,
+    )
     data = SimpleNamespace(
         total=1e-6
         * rng.random((len(config.instrument.frequency), 3, hp.Alm.getsize(config.lmax)))
@@ -22,17 +26,14 @@ def test_component_separation_runs(config_all_path):
             (len(config.instrument.frequency), 3, hp.Alm.getsize(config.lmax))
         )
         * (1 + 1j),
-        fgds=1e-6
-        * np.ones(
-            (len(config.instrument.frequency), 3, hp.Alm.getsize(config.lmax)),
-            dtype=complex,
-        ),
+        fgds=fgds,
         cmb=1e-6
         * np.ones(
             (len(config.instrument.frequency), 3, hp.Alm.getsize(config.lmax)),
             dtype=complex,
         ),
     )
+    broom.clusters.get_and_save_real_tracers_B(config=config, foregrounds=fgds)
     broom.compsep.component_separation(config, data)
 
 
