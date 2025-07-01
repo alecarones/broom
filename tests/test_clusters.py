@@ -1,10 +1,13 @@
-import pytest
+import numpy as np
+
 import broom.clusters
+from broom.configurations import Configs
+
 
 def test_import_clusters():
     assert hasattr(broom.clusters, "__file__")
 
-if hasattr(broom.clusters, "get_scalar_tracer"):
-    def test_get_scalar_tracer_runs():
-        # Provide minimal dummy arguments
-        broom.clusters.get_scalar_tracer(None)
+
+def test_get_scalar_tracer_runs(config_simple_path):
+    config = Configs(config_simple_path)
+    broom.clusters.get_scalar_tracer(np.ones(12 * config.nside**2))
