@@ -69,7 +69,9 @@ compsep:
   - method: "ilc"
     domain: "pixel"
     ilc_bias: 0.001
+    reduce_ilc_bias: False
     cov_noise_debias: 0.0 # 0.0, 0.1, 0.2, ...
+    save_weights: False
 
 # ILC in needlet domain (NILC) with mexican needlets (similar dictionary for standard needlets)
   - method: "ilc"
@@ -80,11 +82,12 @@ compsep:
       - merging_needlets: [0, 14, 17, 19, 40]
     ilc_bias: 0.001
     reduce_ilc_bias: False
-#    b_squared: False
+    b_squared: False
     adapt_nside: True
     save_needlets: True
     save_weights: True
     cov_noise_debias: [0., 0., 0., 0.]
+    nsim: "0"
 
 # ILC in needlet domain (NILC) with cosine needlets
   - method: "ilc"
@@ -93,10 +96,12 @@ compsep:
       - needlet_windows: "cosine"
       - ell_peaks: [0,25,48]
     ilc_bias: 0.0
-#    b_squared: False
-#    adapt_nside: False
+    b_squared: False
+    adapt_nside: False
     save_needlets: True
     save_weights: True
+    cov_noise_debias: [0., 0., 0., 0.]
+    nsim: "0"
 
 # Configuration for running MC-NILC with ideal tracer. 
   - method: "mcilc"
