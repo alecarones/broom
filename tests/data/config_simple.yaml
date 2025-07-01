@@ -69,4 +69,10 @@ compsep:
   - method: "ilc"
     domain: "pixel"
     ilc_bias: 0.001
+    reduce_ilc_bias: False
     cov_noise_debias: 0.0 # 0.0, 0.1, 0.2, ...
+    save_weights: False
+    nsim: "0"
+    field: "B"
+    adapt_nside: False
+    compsep_path: "ilc_needlet_bias0.001/mexican_B1.3_j0j13_j14j16_j17j18_j19j39"

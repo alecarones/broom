@@ -1,7 +1,10 @@
-from broom.configurations import Configs
-import broom.templates
-import numpy as np
 from types import SimpleNamespace
+
+import healpy as hp
+import numpy as np
+
+import broom.templates
+from broom.configurations import Configs
 
 
 def test_import_templates():
@@ -11,36 +14,38 @@ def test_import_templates():
 def test_get_residuals_template_runs(config_simple_path):
     config = Configs(config_simple_path)
     # Minimal input_alms: (n_freqs, n_fields, n_alms, n_comps)
-    input_alms = SimpleNamespace()
-    input_alms.data = np.zeros((2, 1, 12, 1))
-    compsep_run = {
-        "compsep_path": "ilc_pixel_bias0.0",
-        "field_in_cs": "E",
-        "nsim": None,
-        "adapt_nside": False,
-    }
-    # Should not raise, but will return None due to missing weights file
-    try:
-        broom.templates.get_residuals_template(config, input_alms, compsep_run)
-    except Exception as e:
-        assert (
-            "No such file or directory" in str(e)
-            or "needlet bands" in str(e)
-            or "not supported" in str(e)
+    rng = np.random.default_rng()
+    input_alms = SimpleNamespace(
+        total=1e-6
+        * rng.random((len(config.instrument.frequency), 3, hp.Alm.getsize(config.lmax)))
+        * (1 + 1j),
+        noise=rng.random(
+            (len(config.instrument.frequency), 3, hp.Alm.getsize(config.lmax))
         )
+        * (1 + 1j),
+        cmb=1e-6
+        * np.ones(
+            (len(config.instrument.frequency), 3, hp.Alm.getsize(config.lmax)),
+            dtype=complex,
+        ),
+    )
+    compsep_run = {
+        "gnilc_path": "gilc_needlet_bias0.01/mexican_B1.3_j0j9_j10j13_j14j16_j17j33",
+        "compsep_path": "ilc_needlet_bias0.001/mexican_B1.3_j0j13_j14j16_j17j18_j19j39",
+        "field_in": "B",
+        "adapt_nside": False,
+        "nsim": "0",
+    }
+    broom.templates.get_residuals_template(config, input_alms, compsep_run)
 
 
 def test_get_fres_scalar_error(config_simple_path):
     config = Configs(config_simple_path)
-    arr = np.zeros((2, 12, 1))
-    compsep_run = {
-        "compsep_path": "ilc_harmonic_bias0.0",
-        "field_in_cs": "E",
-        "nsim": None,
-        "adapt_nside": False,
-    }
-    # Should raise ValueError for unsupported domain
-    try:
-        broom.templates._get_fres_scalar(config, arr, compsep_run)
-    except ValueError as e:
-        assert "not supported" in str(e)
+
+    rng = np.random.default_rng()
+    input_alms = SimpleNamespace(
+        total=1e-6
+        * rng.random((len(config.instrument.frequency), hp.Alm.getsize(config.lmax), 1))
+        * (1 + 1j)
+    )
+    broom.templates._get_fres_scalar(config, input_alms.total, config.compsep[0])
