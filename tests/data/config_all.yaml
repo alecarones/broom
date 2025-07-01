@@ -139,7 +139,7 @@ compsep:
       - width: 1.3
       - merging_needlets: [0,10,14,17,34] #
     ilc_bias: 0.01
-#    b_squared: False
+    b_squared: False
     adapt_nside: True
     cmb_nuisance: True
     reduce_ilc_bias: False
@@ -147,6 +147,8 @@ compsep:
     m_bias: [0,0,0,0]
 #    channels_out: [0,1,2,3,4,5]  indices of channels you want to be reconstructed with GNILC. If not provided, all channels are reconstructed.
     save_needlets: False
+    cov_noise_debias: [0., 0., 0., 0.]
+    nsim: "0"
 
 # Constrained moment ILC. 
   - method: "cilc"
