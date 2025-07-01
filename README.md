@@ -1,4 +1,4 @@
-<img src="broom_logo_new.png" width="250"> 
+<img src="logo_broom.png" width="200"> 
 
 # BROOM: Blind Reconstruction Of signals from Observations in the Microwaves
 
