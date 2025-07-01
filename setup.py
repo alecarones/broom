@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="cmbroom",
-    version="0.1.1",
+    version="0.1.2",
     description="A Python package for blind component separation of microwave sky maps.",
     author="Alessandro Carones",
     author_email="acarones@sissa.it",
