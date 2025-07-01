@@ -84,8 +84,8 @@ compsep:
     reduce_ilc_bias: False
     b_squared: False
     adapt_nside: True
-    save_needlets: True
-    save_weights: True
+    save_needlets: False
+    save_weights: False
     cov_noise_debias: [0., 0., 0., 0.]
     nsim: "0"
 
@@ -98,8 +98,8 @@ compsep:
     ilc_bias: 0.0
     b_squared: False
     adapt_nside: False
-    save_needlets: True
-    save_weights: True
+    save_needlets: False
+    save_weights: False
     cov_noise_debias: [0., 0., 0., 0.]
     nsim: "0"
 
@@ -131,7 +131,7 @@ compsep:
     depro_cmb: [null,null,null]
     m_bias: [0,0,0,0]
 #    channels_out: [0,1,2,3,4,5]  indices of channels you want to be reconstructed with GNILC. If not provided, all channels are reconstructed.
-    save_needlets: True
+    save_needlets: False
 
 # Constrained moment ILC. 
   - method: "cilc"
@@ -164,6 +164,9 @@ compsep:
   - method: "pilc"
     domain: "pixel"
     ilc_bias: 0.001
+    reduce_ilc_bias: False
+    cov_noise_debias: 0.0 # 0.0, 0.1, 0.2, ...
+    save_weights: False
 
 # Polarization ILC (PILC) in needlet domain. Variance minimization applied to QU maps.
   - method: "pilc"
@@ -173,9 +176,12 @@ compsep:
       - width: 1.3
       - merging_needlets: [0, 14, 17, 19, 40]
     ilc_bias: 0.001
-#    b_squared: False
-    save_needlets: True
-    save_weights: True
+    b_squared: False
+    save_needlets: False
+    save_weights: False
+    reduce_ilc_bias: False
+    cov_noise_debias: [0., 0., 0., 0.]
+    nsim: "0"
 
 # Constrained moment PILC. 
   - method: "cpilc"
@@ -185,8 +191,13 @@ compsep:
       - width: 1.3
       - merging_needlets: [0, 14, 17, 19, 40]
     ilc_bias: 0.001
+    reduce_ilc_bias: False
+    save_needlets: False
+    save_weights: False
     constraints:
       - moments: ["0d","0s","1bd","1bs","1Td"]
+    cov_noise_debias: [0., 0., 0., 0.]
+    nsim: "0"
 
 # Constrained moment PILC only in the first two needlet bands (the bands have to be specified in special_nls), standard PILC in the others.
   - method: "cpilc"
@@ -196,9 +207,14 @@ compsep:
       - width: 1.3
       - merging_needlets: [0, 14, 17, 19, 40]
     ilc_bias: 0.001
+    reduce_ilc_bias: False
+    save_needlets: False
+    save_weights: False
     constraints:
       - moments: ["0d","0s","1bd","1bs","1Td"]
     special_nls: [0,1]
+    cov_noise_debias: [0., 0., 0., 0.]
+    nsim: "0"
 
 # GPILC to reconstruct foregrounds. Foreground are reconstructed in QU maps.
   - method: "gpilc"
@@ -214,7 +230,7 @@ compsep:
 #    depro_cmb: [null,0.,0.]
 #    m_bias: [0,1,1,1]
 #    channels_out: [0,1,2,3,4,5]  indices of channels you want to be reconstructed with GNILC. If not provided, all channels are reconstructed.
-    save_needlets: True
+    save_needlets: False
 
 # Foreground diagnostic for scalar fields (T, E, B).
   - method: "fgd_diagnostic"
