@@ -43,3 +43,6 @@ cover/
 
 # python version
 .python-version
+
+#outputs
+outputs/
