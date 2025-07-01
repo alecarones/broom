@@ -48,3 +48,31 @@ def test_cilc_runs(config_all_path):
         compsep["constraints"] = merge_dicts(compsep["constraints"])
         config.compsep = [compsep]
         broom.ilcs.ilc(config, input_alms, compsep)
+
+def test_mcilc_runs(config_all_path):
+    config = Configs(config_all_path)
+    compseps = config.compsep
+    selected_compseps = [compsep for compsep in compseps if compsep["method"] == "mcilc" or compsep["method"] == "mc_ilc"]
+
+    fgds = 1e-6 * np.ones(
+        (len(config.instrument.frequency), 3, hp.Alm.getsize(config.lmax)),
+        dtype=complex,
+    )
+
+    rng = np.random.default_rng()
+    input_alms = SimpleNamespace(
+        total=1e-6
+        * rng.random((len(config.instrument.frequency), hp.Alm.getsize(config.lmax)))
+        * (1 + 1j),
+        fgds=fgds[:, 2],
+    )
+
+    broom.clusters.get_and_save_real_tracers_B(config=config, foregrounds=fgds)
+    for compsep in selected_compseps:
+        if compsep["domain"] == "needlet":
+            compsep["needlet_config"] = merge_dicts(compsep["needlet_config"])
+        config.compsep = [compsep]
+        if compsep["method"] == "mc_ilc":
+            compsep["path_tracers"] = compsep["path_tracers"] if compsep["path_tracers"].endswith('/') else compsep["path_tracers"] + '/'
+        print(config.compsep)
+        broom.ilcs.ilc(config, input_alms, compsep)

@@ -113,9 +113,15 @@ compsep:
       - merging_needlets: [0, 14, 17, 19, 40]
     reduce_mcilc_bias: True
     adapt_nside: False
+    b_squared: False
     mc_type: "cea_ideal" # "cea_ideal", "rp_ideal", "cea_real", "rp_real"
     channels_tracers: [20,12] # indexes of the frequency channels to be used to construct the frequency ratio and build clusters
-    save_patches: True
+    n_patches: 20
+    save_patches: False
+    save_needlets: False
+    save_weights: False
+    cov_noise_debias: [0., 0., 0., 0.]
+    nsim: "0"
 
 # With this configuration MC-ILC is applied only in the needlet bands specified by 'special_nls'.
 # In the remaining needlet bands standard NILC is applied.
@@ -127,10 +133,19 @@ compsep:
       - merging_needlets: [0, 14, 17, 19, 40]
     reduce_mcilc_bias: True
     adapt_nside: False
+    ilc_bias: 0.0
+    reduce_ilc_bias: False
+    b_squared: False
     mc_type: "cea_real" # "cea_ideal", "rp_ideal", "cea_real", "rp_real"
     path_tracers: "outputs/LiteBIRD_PTEP/d1s1/tracers" # if mc_type is "cea_ideal" or "rp_ideal", this path is not needed
     channels_tracers: [20, 12] # indexes of the frequency channels to be used to construct the clusters
     special_nls: [0]
+    n_patches: 20
+    save_patches: False
+    save_needlets: False
+    save_weights: False
+    cov_noise_debias: [0., 0., 0., 0.]
+    nsim: "0"
 
 # Configuration for running GILC.
   - method: "gilc"
