@@ -1,8 +1,10 @@
 from types import SimpleNamespace
-import numpy as np
+
 import healpy as hp
-from broom.configurations import Configs
+import numpy as np
+
 import broom.ilcs
+from broom.configurations import Configs
 from broom.routines import merge_dicts
 
 
@@ -26,5 +28,4 @@ def test_ilc_runs(config_all_path):
         if compsep["domain"] == "needlet":
             compsep["needlet_config"] = merge_dicts(compsep["needlet_config"])
         config.compsep = [compsep]
-        print(config.compsep)
         broom.ilcs.ilc(config, input_alms, compsep)
