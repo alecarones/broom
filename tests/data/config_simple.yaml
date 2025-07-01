@@ -1,0 +1,72 @@
+# ==================================== PARAMETERS ==================================== #
+
+
+# ==== GENERAL ==== #
+lmin: 2
+nside: 16
+lmax: 48
+data_type: "alms" # "maps" or "alms"
+fwhm_out: 70.5 
+
+nsim_start: 0 
+nsims: 1
+parallelize: False # 
+verbose: True
+
+# ==== DATA AND INSTRUMENT ==== #
+
+foreground_models: ["d1","s1"] 
+experiments_file: ""
+
+experiment: "LiteBIRD_PTEP" 
+field_in: "TEB"  
+field_out: "B" 
+
+units: "uK_CMB"
+coordinates: "G" 
+
+# ==== INPUT SIMULATIONS ==== #
+
+generate_input_foregrounds: True #
+return_fgd_components: False
+bandpass_integrate: False
+
+generate_input_noise: True #
+seed_noise: null
+generate_input_cmb: True #
+seed_cmb: null
+cls_cmb_path: ""
+cls_cmb_new_ordered: True
+
+generate_input_data: True #
+save_inputs: False # 
+pixel_window_in: True
+
+
+data_path: "/inputs/LiteBIRD_PTEP/total/total_alms_ns64"
+fgds_path: "/inputs/LiteBIRD_PTEP/foregrounds/d1s1/foregrounds_alms_ns64"
+cmb_path: "/inputs/LiteBIRD_PTEP/cmb/cmb_alms_ns64"
+noise_path: "/inputs/LiteBIRD_PTEP/noise/noise_alms_ns64"
+
+
+# ==== COMPONENT SEPARATION ==== #
+
+bring_to_common_resolution: True 
+pixel_window_out: True
+
+mask_observations: null #
+mask_covariance: null # 
+leakage_correction: null
+save_compsep_products: False
+
+return_compsep_products: True #
+path_outputs: "outputs/LiteBIRD_PTEP/d1s1" 
+
+# Component separation runs
+
+compsep:
+# ILC in pixel domain
+  - method: "ilc"
+    domain: "pixel"
+    ilc_bias: 0.001
+    cov_noise_debias: 0.0 # 0.0, 0.1, 0.2, ...
