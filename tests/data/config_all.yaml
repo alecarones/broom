@@ -86,7 +86,7 @@ compsep:
     b_squared: False
     adapt_nside: True
     save_needlets: True
-    save_weights: False
+    save_weights: True
     cov_noise_debias: [0., 0., 0., 0.]
     nsim: "0"
 
@@ -100,7 +100,7 @@ compsep:
     b_squared: False
     adapt_nside: False
     save_needlets: True
-    save_weights: False
+    save_weights: True
     cov_noise_debias: [0., 0., 0., 0.]
     nsim: "0"
 
