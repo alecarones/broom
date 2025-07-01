@@ -212,6 +212,7 @@ compsep:
     domain: "pixel"
     ilc_bias: 0.001
     reduce_ilc_bias: False
+    b_squared: False
     cov_noise_debias: 0.0 # 0.0, 0.1, 0.2, ...
     save_weights: False
     nsim: "0"
@@ -240,6 +241,7 @@ compsep:
       - merging_needlets: [0, 14, 17, 19, 40]
     ilc_bias: 0.001
     reduce_ilc_bias: False
+    b_squared: False
     save_needlets: False
     save_weights: False
     constraints:
@@ -256,6 +258,7 @@ compsep:
       - merging_needlets: [0, 14, 17, 19, 40]
     ilc_bias: 0.001
     reduce_ilc_bias: False
+    b_squared: False
     save_needlets: False
     save_weights: False
     constraints:
