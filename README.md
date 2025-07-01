@@ -32,12 +32,12 @@ However, `pymaster` requires some additional system libraries to be installed **
 #### ✅ On Ubuntu/Debian:
 ```
 sudo apt update
-sudo apt install build-essential python3-dev libfftw3-dev libcfitsio-dev
+sudo apt install build-essential python3-dev libfftw3-dev libcfitsio-dev libgsl-dev
 ```
 
 #### ✅ On macOS (using Homebrew):
 ```
-brew install fftw cfitsio
+brew install fftw cfitsio gsl
 ```
 ## Documentation
 
