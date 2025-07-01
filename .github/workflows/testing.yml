@@ -25,7 +25,7 @@ jobs:
       run: |
         sudo apt install build-essential python3-dev libfftw3-dev libcfitsio-dev libgsl-dev
         pip install -e .[pymaster]
-        pip install pytest
+        pip install pytest pytest-cov
     - name: Run tests
       run: |
-        pytest -durations=5 -vv
+        pytest --durations=5 -vv
