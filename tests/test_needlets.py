@@ -1,4 +1,3 @@
-import pytest
 import broom.needlets
 
 def test_import_needlets():

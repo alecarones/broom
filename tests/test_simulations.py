@@ -1,10 +1,9 @@
-import pytest
+from broom.configurations import Configs
 import broom.simulations
 
 def test_import_simulations():
     assert hasattr(broom.simulations, "__file__")
 
-# If a function is available, test it with dummy arguments
-if hasattr(broom.simulations, "simulation_function_name"):  # Replace with real function if known
-    def test_simulation_function_runs():
-        broom.simulations.simulation_function_name()
+def test_simulation_function_runs(config_simple_path):
+    config = Configs(config_simple_path)
+    broom.simulations._get_full_simulations(config)
