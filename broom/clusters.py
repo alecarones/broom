@@ -86,7 +86,6 @@ def get_and_save_real_tracers_B(
             Saves the generated tracers to the configured output path.
     """
     from broom import component_separation
-    print('new_version')
     if "tracers_inputs_path" not in config.real_mc_tracers[0]:
         config.real_mc_tracers[0]["tracers_inputs_path"] = f"inputs_mc_tracers/{config.experiment}"
 
@@ -95,7 +94,7 @@ def get_and_save_real_tracers_B(
 
     _log("Generating input simulations for MC-ILC tracers", verbose=config_mc.verbose)
 
-    mc_data = get_mc_data(config_mc, foregrounds=foregrounds, **kwargs)
+    mc_data = get_mc_data(config_mc, foregrounds=foregrounds, systematics=systematics, **kwargs)
 
 #    if systematics is not None:
 #        print("Adding systematic effect to the data")
