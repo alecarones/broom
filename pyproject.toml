@@ -22,6 +22,7 @@ dependencies = [
 
 [project.optional-dependencies]
 pymaster = ["pymaster>=2.4"]
+dev = ["pytest", "pytest-cov", "ruff"]
 docs = ["pdoc"]
 
 
