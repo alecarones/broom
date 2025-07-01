@@ -23,7 +23,7 @@ jobs:
         python-version: ${{ matrix.python-version }}
     - name: Install dependencies
       run: |
-        sudo apt install build-essential python3-dev libfftw3-dev libcfitsio-dev
+        sudo apt install build-essential python3-dev libfftw3-dev libcfitsio-dev libgsl-dev
         pip install -e .[pymaster]
         pip install pytest
     - name: Run tests
