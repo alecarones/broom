@@ -171,7 +171,7 @@ def fgd_P_diagnostic(config: Configs, input_alms: SimpleNamespace, compsep_run: 
         nuis_alms[...,np.newaxis]],axis=-1)
     del nuis_alms
 
-    if np.any(np.array(compsep_run["cov_noise_debias"] != 0.)):
+    if np.any(np.array(compsep_run["cov_noise_debias"]) != 0.):
         noi_alms = (obj_to_array(input_alms))[...,compsep_run["noise_idx"]]
         inputs_alms_for_diagn = np.concatenate([inputs_alms_for_diagn, noi_alms[...,np.newaxis]], axis=-1)
         del noi_alms
