@@ -599,6 +599,7 @@ def _check_data_and_config(config: Configs, data: SimpleNamespace) -> Configs:
     if config.data_type == "maps":
         try:
             nside_in = hp.npix2nside(data.total.shape[-1])
+            assert config.nside_in  == nside_in, "nside_in must be equal to the nside of the provided data."
         except:
             raise ValueError("Invalid number of pixels in data.")
         if config.lmax >= 3*nside_in:
