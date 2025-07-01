@@ -57,7 +57,7 @@ pixel_window_out: True
 mask_observations: null #
 mask_covariance: null # 
 leakage_correction: null
-save_compsep_products: False
+save_compsep_products: True
 
 return_compsep_products: True #
 path_outputs: "outputs/LiteBIRD_PTEP/d1s1" 
@@ -115,6 +115,21 @@ compsep:
     mc_type: "cea_ideal" # "cea_ideal", "rp_ideal", "cea_real", "rp_real"
     channels_tracers: [20,12] # indexes of the frequency channels to be used to construct the frequency ratio and build clusters
     save_patches: True
+
+# With this configuration MC-ILC is applied only in the needlet bands specified by 'special_nls'.
+# In the remaining needlet bands standard NILC is applied.
+  - method: "mc_ilc"
+    domain: "needlet"
+    needlet_config:
+      - needlet_windows: "mexican"
+      - width: 1.3
+      - merging_needlets: [0, 14, 17, 19, 40]
+    reduce_mcilc_bias: True
+    adapt_nside: False
+    mc_type: "cea_real" # "cea_ideal", "rp_ideal", "cea_real", "rp_real"
+    path_tracers: "outputs/LiteBIRD_PTEP/d1s1/tracers" # if mc_type is "cea_ideal" or "rp_ideal", this path is not needed
+    channels_tracers: [20, 12] # indexes of the frequency channels to be used to construct the clusters
+    special_nls: [0]
 
 # Configuration for running GILC.
   - method: "gilc"
@@ -256,8 +271,56 @@ compsep:
     ilc_bias: 0.001
     cmb_nuisance: True
 
+# Configuration to get estimate of the foreground residuals.
+compsep_residuals:
+  - gnilc_path: "gilc_needlet_bias0.01/mexican_B1.3_j0j9_j10j13_j14j16_j17j33"
+    compsep_path: "ilc_needlet_bias0.001/mexican_B1.3_j0j13_j14j16_j17j18_j19j39"
+    field_in: "B" # If not provided, it will use field_out from this file.
+    adapt_nside: False # If True, the HEALPix resolution of needlet maps is adapted to the sampled range of multipoles. Should match that of compsep run.
+
 # Configuration to generate tracers for MC-ILC ratio construction
 real_mc_tracers:
   - channels_tracers: [20,12]
     path_tracers: "outputs/LiteBIRD_PTEP/d1s1/tracers"
     tracers_inputs_path: "mc_tracers_inputs/LiteBIRD_PTEP"
+
+# Configuration to combine outputs from different component separation runs.
+combine_outputs:
+  - fields_in: ["E", "B"]
+    fields_out: "QU"
+    paths_fields_in: ["",""]
+    path_out: "nilc_EB_combined"
+    components: ["output_total"]
+
+# ==================================== Cls PARAMETERS ==================================== #
+
+delta_ell: 1
+spectra_comp: 'anafast'
+return_Dell: False
+field_cls_out: "BB"
+return_spectra: True
+save_spectra: True
+save_mask: True
+
+# Dictiionary including the component separation runs and settings to compute angular power spectra.
+compute_spectra:
+  - path_method: "ilc_needlet_bias0.001/mexican_B1.3_j0j13_j14j16_j17j18_j19j39" # Path to the component separation outputs.
+    components_for_cls: [
+      "output_total",
+      "noise_residuals",
+      "fgds_residuals",
+      "output_cmb",
+      "fgres_templates/gilc_needlet_bias0.01_mexican_B1.3_j0j9_j10j13_j14j16_j17j33",
+      "fgres_templates_ideal/gilc_needlet_bias0.01_mexican_B1.3_j0j9_j10j13_j14j16_j17j33",
+      "fgres_templates_noise/gilc_needlet_bias0.01_mexican_B1.3_j0j9_j10j13_j14j16_j17j33"
+    ]
+    mask_type: "GAL60+fgres" #"from_fits" #
+    mask_path: ""
+    field_out: "B"
+    apodize_mask: null #"C1"
+    smooth_mask: 0.
+    smooth_tracer: 3.
+    fsky: 0.5
+    nmt_purify_B: True
+    nmt_purify_E: False
+
