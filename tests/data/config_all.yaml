@@ -214,6 +214,7 @@ compsep:
     reduce_ilc_bias: False
     cov_noise_debias: 0.0 # 0.0, 0.1, 0.2, ...
     save_weights: False
+    nsim: "0"
 
 # Polarization ILC (PILC) in needlet domain. Variance minimization applied to QU maps.
   - method: "pilc"
@@ -278,6 +279,7 @@ compsep:
 #    m_bias: [0,1,1,1]
 #    channels_out: [0,1,2,3,4,5]  indices of channels you want to be reconstructed with GNILC. If not provided, all channels are reconstructed.
     save_needlets: False
+    nsim: "0"
 
 # Foreground diagnostic for scalar fields (T, E, B).
   - method: "fgd_diagnostic"
