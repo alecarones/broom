@@ -1,7 +1,9 @@
 import broom.ilcs
 
+
 def test_import_ilcs():
     assert hasattr(broom.ilcs, "__file__")
+
 
 def test_ilc_runs():
     # Provide minimal dummy arguments

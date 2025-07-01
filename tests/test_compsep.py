@@ -16,24 +16,22 @@ def test_component_separation_runs(config_all_path):
     rng = np.random.default_rng()
     data = SimpleNamespace(
         total=1e-6
-        * rng.random(
-            (len(config.instrument.frequency), 3, hp.Alm.getsize(config.lmax))
-        )
+        * rng.random((len(config.instrument.frequency), 3, hp.Alm.getsize(config.lmax)))
         * (1 + 1j),
         noise=rng.random(
             (len(config.instrument.frequency), 3, hp.Alm.getsize(config.lmax))
         )
         * (1 + 1j),
-        fgds = 1e-6
+        fgds=1e-6
         * np.ones(
             (len(config.instrument.frequency), 3, hp.Alm.getsize(config.lmax)),
             dtype=complex,
         ),
-        cmb = 1e-6
+        cmb=1e-6
         * np.ones(
             (len(config.instrument.frequency), 3, hp.Alm.getsize(config.lmax)),
             dtype=complex,
-        )
+        ),
     )
     broom.compsep.component_separation(config, data)
 

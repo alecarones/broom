@@ -1,9 +1,10 @@
-
 import broom.routines
 import numpy as np
 
+
 def test_import_routines():
     assert hasattr(broom.routines, "__file__")
+
 
 def test_get_local_cov_runs():
     # Provide minimal dummy arguments
