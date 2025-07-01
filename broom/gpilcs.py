@@ -81,7 +81,7 @@ def gpilc(config: Configs, input_alms: SimpleNamespace, compsep_run: Dict[str, A
     compsep_run = _standardize_gnilc_run(compsep_run, input_alms.total.shape[0], config.lmax)
 
     compsep_run["nuis_idx"] = get_nuisance_idx(input_alms, compsep_run, config.verbose)
-    if np.any(np.array(compsep_run["cov_noise_debias"] != 0.)):
+    if np.any(np.array(compsep_run["cov_noise_debias"]) != 0.):
         if not hasattr(input_alms, "noise"):
             raise ValueError("The input_alms object must have 'noise'' attribute for debiasing the covariance.")
         compsep_run["noise_idx"] = 2 if hasattr(input_alms, "fgds") else 1
@@ -157,7 +157,7 @@ def fgd_P_diagnostic(config: Configs, input_alms: SimpleNamespace, compsep_run: 
     compsep_run.setdefault("cmb_nuisance", True)
 
     compsep_run["nuis_idx"] = get_nuisance_idx(input_alms, compsep_run, config.verbose)
-    if np.any(np.array(compsep_run["cov_noise_debias"] != 0.)):
+    if np.any(np.array(compsep_run["cov_noise_debias"]) != 0.):
         if not hasattr(input_alms, "noise"):
             raise ValueError("The input_alms object must have 'noise'' attribute for debiasing the covariance.")
         compsep_run["noise_idx"] = 2 if hasattr(input_alms, "fgds") else 1

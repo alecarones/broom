@@ -75,7 +75,7 @@ def gilc(config: Configs, input_alms: SimpleNamespace, compsep_run: Dict[str, An
     compsep_run = _standardize_gnilc_run(compsep_run, input_alms.total.shape[0], config.lmax)
     
     compsep_run["nuis_idx"] = get_nuisance_idx(input_alms, compsep_run, config.verbose)
-    if np.any(np.array(compsep_run["cov_noise_debias"] != 0.)):
+    if np.any(np.array(compsep_run["cov_noise_debias"]) != 0.):
         if not hasattr(input_alms, "noise"):
             raise ValueError("The input_alms object must have 'noise'' attribute for debiasing the covariance.")
         compsep_run["noise_idx"] = 2 if hasattr(input_alms, "fgds") else 1
@@ -151,7 +151,7 @@ def fgd_diagnostic(config: Configs, input_alms: SimpleNamespace, compsep_run: Di
         compsep_run["cmb_nuisance"] = True            
      
     compsep_run["nuis_idx"] = get_nuisance_idx(input_alms, compsep_run, config.verbose)
-    if np.any(np.array(compsep_run["cov_noise_debias"] != 0.)):
+    if np.any(np.array(compsep_run["cov_noise_debias"]) != 0.):
         if not hasattr(input_alms, "noise"):
             raise ValueError("The input_alms object must have 'noise'' attribute for debiasing the covariance.")
         compsep_run["noise_idx"] = 2 if hasattr(input_alms, "fgds") else 1
@@ -581,7 +581,6 @@ def _gilc_needlet(config: Configs, input_alms: np.ndarray, compsep_run: dict, **
 
     Parameters
     ----------
-        
         config: Configs
             Configuration object which includes general settings like nside and lmax. See `gilc` for details.
         input_alms: np.ndarray

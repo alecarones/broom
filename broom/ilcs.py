@@ -90,7 +90,7 @@ def ilc(config: Configs, input_alms: SimpleNamespace, compsep_run: Dict, **kwarg
                 raise ValueError("The input_alms object must have 'fgds' attribute for ideal tracer in MC-ILC.")
     
     if compsep_run["method"] != "mcilc":
-        if np.any(np.array(compsep_run["cov_noise_debias"] != 0.)):
+        if np.any(np.array(compsep_run["cov_noise_debias"]) != 0.):
             if not hasattr(input_alms, "noise"):
                 raise ValueError("The input_alms object must have 'noise'' attribute for debiasing the covariance.")
             compsep_run["noise_idx"] = 2 if hasattr(input_alms, "fgds") else 1
@@ -218,15 +218,19 @@ def _ilc(
         for i in range(input_alms.shape[1]):
             compsep_run["field"] = fields_ilc[i]
             if compsep_run["method"] in ["mcilc", "mc_ilc", "mc_cilc"]:
+                input_fgds_alms = np.zeros_like(input_alms[:, i, :, 0]) if "real" in compsep_run["mc_type"] else input_alms[:, i, :, 1]
                 compsep_run["tracers"] = initialize_scalar_tracers(
-                    config, input_alms[:, i, :, 1], compsep_run, field=compsep_run["field"], **kwargs
+                    config, input_fgds_alms, compsep_run, field=compsep_run["field"], **kwargs
                 )
+                del input_fgds_alms
             output_maps[i] = _ilc_scalar(config, input_alms[:, i, :, :], compsep_run, **kwargs)
 
     elif input_alms.ndim == 3:
         compsep_run["field"] = fields_ilc[0]
         if compsep_run["method"] in ["mcilc", "mc_ilc", "mc_cilc"]:
-            compsep_run["tracers"] = initialize_scalar_tracers(config, input_alms[...,1], compsep_run, field=compsep_run["field"], **kwargs)
+            input_fgds_alms = np.zeros_like(input_alms[...,0]) if "real" in compsep_run["mc_type"] else input_alms[...,1]
+            compsep_run["tracers"] = initialize_scalar_tracers(config, input_fgds_alms, compsep_run, field=compsep_run["field"], **kwargs)
+            del input_fgds_alms
         output_maps = _ilc_scalar(config, input_alms, compsep_run, **kwargs)
     
     del compsep_run["field"]
