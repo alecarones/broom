@@ -39,7 +39,7 @@ def _save_compsep_products(
     if 'path_out' not in compsep_run:
         compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
 
-    if compsep_run["method"] in ["cilc", "c_ilc","cpilc", "c_pilc"]:
+    if compsep_run["method"] in ["cilc", "c_ilc", "mc_cilc","cpilc", "c_pilc"]:
         if 'mixed' in compsep_run["path_out"]:
             with open(os.path.join(compsep_run["path_out"], "constraints_info.txt"), "w") as f: 
                 f.write("# Moments and deprojection constraints used in the component separation run\n\n")
@@ -221,7 +221,7 @@ def _get_full_path_out(config: Configs, compsep_run: Dict[str, Any]) -> str:
             Full path where outputs should be saved.
     """
     
-    if compsep_run["method"] in ["mc_ilc", "c_ilc", "c_pilc"]:
+    if compsep_run["method"] in ["mc_ilc", "mc_cilc", "c_ilc", "c_pilc"]:
         complete_path = f'{compsep_run["method"]}_{compsep_run["domain"]}_bias{compsep_run["ilc_bias"]}_nls{"-".join(map(str, compsep_run["special_nls"]))}' 
     elif compsep_run["method"] == "mcilc":
         complete_path = f'{compsep_run["method"]}_{compsep_run["domain"]}'
@@ -271,7 +271,7 @@ def _get_full_path_out(config: Configs, compsep_run: Dict[str, Any]) -> str:
                 leak_def += f'_iters{iterations}'
         complete_path += f"_{leak_def}"
 
-    if compsep_run["method"] in ["cilc", "c_ilc","cpilc", "c_pilc"]:
+    if compsep_run["method"] in ["cilc", "c_ilc", "mc_cilc","cpilc", "c_pilc"]:
         if compsep_run["domain"] == "pixel":
             mom_text = "".join(compsep_run["constraints"]["moments"])
         elif compsep_run["domain"] == "needlet":
@@ -363,7 +363,7 @@ def _get_full_path_out(config: Configs, compsep_run: Dict[str, Any]) -> str:
             text_ += "_nlsquared"
         complete_path = os.path.join(complete_path, text_)
 
-    if compsep_run["method"] in ["mcilc","mc_ilc"]:
+    if compsep_run["method"] in ["mcilc","mc_ilc","mc_cilc"]:
         text_ = compsep_run["mc_type"]
         for freq_tracer in compsep_run["channels_tracers"]:
             text_ += f"_{config.instrument.channels_tags[freq_tracer]}"

@@ -79,7 +79,7 @@ def pilc(config: Configs, input_alms: SimpleNamespace, compsep_run: Dict[str, An
     if compsep_run["method"] == "cpilc" or compsep_run["method"] == "c_pilc":
         compsep_run = _standardize_cilc(compsep_run, config.lmax)
 
-    if np.any(np.array(compsep_run["cov_noise_debias"] != 0.)):
+    if np.any(np.array(compsep_run["cov_noise_debias"]) != 0.):
         if not hasattr(input_alms, "noise"):
             raise ValueError("The input_alms object must have 'noise'' attribute for debiasing the covariance.")
         compsep_run["noise_idx"] = 2 if hasattr(input_alms, "fgds") else 1

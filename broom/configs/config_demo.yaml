@@ -257,6 +257,8 @@ path_outputs: "outputs/LiteBIRD_PTEP/d1s1"
 #       - "cilc": Constrained moment ILC method on scalar fields (T, E, B). It can be applied both in pixel and needlet domain. 
 #           Used to deproject moments.
 #       - "c_ilc": deproject moments only on selected needlet bands (specified in special_nls).
+#       - "mc_cilc": It applies Multi-clustering only on selected needlet bands (specified in special_nls) 
+#           and moments deprojection in other needlets
 #       - "pilc": Polarization ILC method to be applied on QU maps. It can be applied both in pixel and needlet domain.
 #       - "cpilc": Constrained moment PILC method to be applied on QU maps. It can be applied both in pixel and needlet domain.
 #          It can be used to deproject moments on QU maps.
@@ -356,6 +358,22 @@ compsep:
 # With this configuration MC-ILC is applied only in the needlet bands specified by 'special_nls'.
 # In the remaining needlet bands standard NILC is applied.
   - method: "mc_ilc"
+    domain: "needlet"
+    needlet_config:
+      - needlet_windows: "mexican"
+      - width: 1.3
+      - merging_needlets: [0, 14, 17, 19, 40]
+    reduce_mcilc_bias: True
+    adapt_nside: False
+    mc_type: "cea_real" # "cea_ideal", "rp_ideal", "cea_real", "rp_real"
+    path_tracers: "outputs/LiteBIRD_PTEP/d1s1/tracers" # if mc_type is "cea_ideal" or "rp_ideal", this path is not needed
+    channels_tracers: [20,12] # indexes of the frequency channels to be used to construct the clusters
+    special_nls: [0]
+    save_patches: False 
+
+# With this configuration MC-ILC is applied only in the needlet bands specified by 'special_nls'.
+# In the remaining needlet bands cMILC is applied.
+  - method: "mc_cilc"
     domain: "needlet"
     needlet_config:
       - needlet_windows: "mexican"

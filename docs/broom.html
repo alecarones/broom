@@ -26,6 +26,8 @@
   <li><a href="#broom-blind-reconstruction-of-signals-from-observations-in-the-microwaves">BROOM: Blind Reconstruction Of signals from Observations in the Microwaves</a>
   <ul>
     <li><a href="#installation">📦 Installation</a></li>
+    <li><a href="#documentation">Documentation</a></li>
+    <li><a href="#references">References</a></li>
   </ul></li>
 </ul>
 
@@ -107,6 +109,54 @@ sudo apt install build-essential python3-dev libfftw3-dev libcfitsio-dev
 <pre><code>brew install fftw cfitsio
 </code></pre>
 
+<h2 id="documentation">Documentation</h2>
+
+<p>A detailed introduction to the parameters and simulation pipeline is available in:</p>
+
+<ul>
+<li><a href="tutorials/tutorial_satellite.ipynb"><strong>tutorials/tutorial_satellite.ipynb</strong></a>   </li>
+<li><a href="broom/configs/config_demo.yaml"><strong>configs/config_demo.yaml</strong></a> — Example configuration file</li>
+</ul>
+
+<p>Component separation methods are covered in:</p>
+
+<ul>
+<li><a href="tutorials/tutorial_satellite.ipynb"><strong>tutorials/tutorial_satellite.ipynb</strong></a> </li>
+<li><a href="tutorials/tutorial_satellite_part2.ipynb"><strong>tutorials/tutorial_satellite_part2.ipynb</strong></a> </li>
+</ul>
+
+<p>Power spectrum estimation is demonstrated in:</p>
+
+<ul>
+<li><a href="tutorials/tutorial_spectra.ipynb"><strong>tutorials/tutorial_spectra.ipynb</strong></a></li>
+</ul>
+
+<p>For partial-sky, ground-based experiment analysis, see:</p>
+
+<ul>
+<li><a href="tutorials/tutorial_groundbased.ipynb"><strong>tutorials/tutorial_groundbased.ipynb</strong></a> </li>
+</ul>
+
+<p>🔗 <strong>Full online documentation:</strong><br />
+👉 <a href="https://alecarones.github.io/broom/">https://alecarones.github.io/broom/</a></p>
+
+<h2 id="references">References</h2>
+
+<p>Paper on <strong>broom</strong> package is in preparation.</p>
+
+<p>If you use the following methodologies please cite the corresponding papers:</p>
+
+<ul>
+<li>ILC or NILC: <a href="https://arxiv.org/abs/0807.0773">Delabrouille et al., 2019</a>, <a href="https://arxiv.org/abs/astro-ph/0302207">Bennett et al., 2003</a></li>
+<li>cMILC: <a href="https://arxiv.org/abs/2006.08628">Remazeilles et al., 2021</a>, <a href="https://arxiv.org/abs/2402.17579">Carones et al., 2024</a></li>
+<li>MC-ILC or MC-NILC: <a href="https://arxiv.org/abs/2212.04456">Carones et al., 2023</a></li>
+<li>PILC: <a href="https://arxiv.org/abs/1601.01515">Fernández-Cobos et al., 2016</a></li>
+<li>cPILC: <a href="https://arxiv.org/abs/2104.13778">Adak, 2021</a></li>
+<li>GILC, GNILC, GPILC: <a href="https://arxiv.org/abs/1605.09387">Planck Collaboration, 2016</a>, <a href="https://arxiv.org/abs/1103.1166">Remazeilles et al., 2011</a></li>
+<li>foreground diagnostic: <a href="https://arxiv.org/abs/2402.17579">Carones et al., 2024</a></li>
+<li>power spectrum computation: <a href="https://arxiv.org/abs/astro-ph/0409513">Gorski et al., 2025</a>, <a href="https://ui.adsabs.harvard.edu/abs/2019JOSS....4.1298Z/abstract">Zonca et al., 2019</a>, <a href="https://arxiv.org/abs/1809.09603">Alonso et al., 2019</a></li>
+</ul>
+
 <h3 id="dependencies">📦 Dependencies</h3>
 
 <p>This package relies on several scientific Python libraries:</p>
@@ -125,74 +175,113 @@ sudo apt install build-essential python3-dev libfftw3-dev libcfitsio-dev
 
                         <label class="view-source-button" for="mod-broom-view-source"><span>View Source</span></label>
 
-                        <div class="pdoc-code codehilite"><pre><span></span><span id="L-1"><a href="#L-1"><span class="linenos"> 1</span></a><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="L-2"><a href="#L-2"><span class="linenos"> 2</span></a>
-</span><span id="L-3"><a href="#L-3"><span class="linenos"> 3</span></a><span class="sd"># BROOM: Blind Reconstruction Of signals from Observations in the Microwaves</span>
-</span><span id="L-4"><a href="#L-4"><span class="linenos"> 4</span></a>
-</span><span id="L-5"><a href="#L-5"><span class="linenos"> 5</span></a><span class="sd">**BROOM** is a Python package for blind component separation and Cosmic Microwave Background (CMB) data analysis.</span>
-</span><span id="L-6"><a href="#L-6"><span class="linenos"> 6</span></a>
-</span><span id="L-7"><a href="#L-7"><span class="linenos"> 7</span></a><span class="sd">---</span>
-</span><span id="L-8"><a href="#L-8"><span class="linenos"> 8</span></a>
-</span><span id="L-9"><a href="#L-9"><span class="linenos"> 9</span></a><span class="sd">## 📦 Installation</span>
-</span><span id="L-10"><a href="#L-10"><span class="linenos">10</span></a>
-</span><span id="L-11"><a href="#L-11"><span class="linenos">11</span></a><span class="sd">You can install the base package using:</span>
-</span><span id="L-12"><a href="#L-12"><span class="linenos">12</span></a>
-</span><span id="L-13"><a href="#L-13"><span class="linenos">13</span></a><span class="sd">```</span>
-</span><span id="L-14"><a href="#L-14"><span class="linenos">14</span></a><span class="sd">pip install cmbroom</span>
-</span><span id="L-15"><a href="#L-15"><span class="linenos">15</span></a><span class="sd">```</span>
-</span><span id="L-16"><a href="#L-16"><span class="linenos">16</span></a>
-</span><span id="L-17"><a href="#L-17"><span class="linenos">17</span></a><span class="sd">This installs the core functionality.  </span>
-</span><span id="L-18"><a href="#L-18"><span class="linenos">18</span></a><span class="sd">If you plan to use the few functions that depend on `pymaster`, **you must install it separately** (version `&gt;=2.4`).</span>
-</span><span id="L-19"><a href="#L-19"><span class="linenos">19</span></a>
-</span><span id="L-20"><a href="#L-20"><span class="linenos">20</span></a><span class="sd">---</span>
-</span><span id="L-21"><a href="#L-21"><span class="linenos">21</span></a>
-</span><span id="L-22"><a href="#L-22"><span class="linenos">22</span></a><span class="sd">### 🔧 To include `pymaster` automatically:</span>
-</span><span id="L-23"><a href="#L-23"><span class="linenos">23</span></a>
-</span><span id="L-24"><a href="#L-24"><span class="linenos">24</span></a><span class="sd">You can install `cmbroom` along with its optional `pymaster` dependency by running:</span>
-</span><span id="L-25"><a href="#L-25"><span class="linenos">25</span></a>
-</span><span id="L-26"><a href="#L-26"><span class="linenos">26</span></a><span class="sd">```</span>
-</span><span id="L-27"><a href="#L-27"><span class="linenos">27</span></a><span class="sd">pip install cmbroom[pymaster]</span>
-</span><span id="L-28"><a href="#L-28"><span class="linenos">28</span></a><span class="sd">```</span>
-</span><span id="L-29"><a href="#L-29"><span class="linenos">29</span></a>
-</span><span id="L-30"><a href="#L-30"><span class="linenos">30</span></a><span class="sd">However, `pymaster` requires some additional system libraries to be installed **before** running the above command.</span>
-</span><span id="L-31"><a href="#L-31"><span class="linenos">31</span></a>
-</span><span id="L-32"><a href="#L-32"><span class="linenos">32</span></a><span class="sd">#### ✅ On Ubuntu/Debian:</span>
-</span><span id="L-33"><a href="#L-33"><span class="linenos">33</span></a><span class="sd">```</span>
-</span><span id="L-34"><a href="#L-34"><span class="linenos">34</span></a><span class="sd">sudo apt update</span>
-</span><span id="L-35"><a href="#L-35"><span class="linenos">35</span></a><span class="sd">sudo apt install build-essential python3-dev libfftw3-dev libcfitsio-dev</span>
-</span><span id="L-36"><a href="#L-36"><span class="linenos">36</span></a><span class="sd">```</span>
-</span><span id="L-37"><a href="#L-37"><span class="linenos">37</span></a>
-</span><span id="L-38"><a href="#L-38"><span class="linenos">38</span></a><span class="sd">#### ✅ On macOS (using Homebrew):</span>
-</span><span id="L-39"><a href="#L-39"><span class="linenos">39</span></a><span class="sd">```</span>
-</span><span id="L-40"><a href="#L-40"><span class="linenos">40</span></a><span class="sd">brew install fftw cfitsio</span>
-</span><span id="L-41"><a href="#L-41"><span class="linenos">41</span></a><span class="sd">```</span>
-</span><span id="L-42"><a href="#L-42"><span class="linenos">42</span></a>
-</span><span id="L-43"><a href="#L-43"><span class="linenos">43</span></a><span class="sd">### 📦 Dependencies</span>
-</span><span id="L-44"><a href="#L-44"><span class="linenos">44</span></a>
-</span><span id="L-45"><a href="#L-45"><span class="linenos">45</span></a><span class="sd">This package relies on several scientific Python libraries:</span>
-</span><span id="L-46"><a href="#L-46"><span class="linenos">46</span></a>
-</span><span id="L-47"><a href="#L-47"><span class="linenos">47</span></a><span class="sd">- [astropy&gt;=6.0.1](https://www.astropy.org/)</span>
-</span><span id="L-48"><a href="#L-48"><span class="linenos">48</span></a><span class="sd">- [numpy&gt;1.18.5](https://numpy.org/)</span>
-</span><span id="L-49"><a href="#L-49"><span class="linenos">49</span></a><span class="sd">- [scipy&gt;=1.8](https://scipy.org/)</span>
-</span><span id="L-50"><a href="#L-50"><span class="linenos">50</span></a><span class="sd">- [healpy&gt;=1.15](https://healpy.readthedocs.io/)</span>
-</span><span id="L-51"><a href="#L-51"><span class="linenos">51</span></a><span class="sd">- [pysm3&gt;=3.3.2](https://pysm3.readthedocs.io/en/latest/#)</span>
-</span><span id="L-52"><a href="#L-52"><span class="linenos">52</span></a><span class="sd">- [mtneedlet&gt;=0.0.5](https://javicarron.github.io/mtneedlet/)</span>
-</span><span id="L-53"><a href="#L-53"><span class="linenos">53</span></a>
-</span><span id="L-54"><a href="#L-54"><span class="linenos">54</span></a>
-</span><span id="L-55"><a href="#L-55"><span class="linenos">55</span></a>
-</span><span id="L-56"><a href="#L-56"><span class="linenos">56</span></a><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="L-57"><a href="#L-57"><span class="linenos">57</span></a>
-</span><span id="L-58"><a href="#L-58"><span class="linenos">58</span></a>
-</span><span id="L-59"><a href="#L-59"><span class="linenos">59</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.compsep</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-</span><span id="L-60"><a href="#L-60"><span class="linenos">60</span></a>    <span class="n">component_separation</span><span class="p">,</span> <span class="n">estimate_residuals</span><span class="p">,</span> <span class="n">_combine_products</span><span class="p">,</span> <span class="n">_load_outputs</span>
-</span><span id="L-61"><a href="#L-61"><span class="linenos">61</span></a><span class="p">)</span>
-</span><span id="L-62"><a href="#L-62"><span class="linenos">62</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.simulations</span><span class="w"> </span><span class="kn">import</span> <span class="n">_get_data_foregrounds_</span><span class="p">,</span> <span class="n">_get_data_simulations_</span><span class="p">,</span> <span class="n">_get_noise_simulation</span><span class="p">,</span> <span class="n">_get_cmb_simulation</span><span class="p">,</span> <span class="n">_get_full_simulations</span>
-</span><span id="L-63"><a href="#L-63"><span class="linenos">63</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.configurations</span><span class="w"> </span><span class="kn">import</span> <span class="n">Configs</span><span class="p">,</span> <span class="n">get_params</span>
-</span><span id="L-64"><a href="#L-64"><span class="linenos">64</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.spectra</span><span class="w"> </span><span class="kn">import</span> <span class="n">_compute_spectra</span><span class="p">,</span> <span class="n">_compute_spectra_</span><span class="p">,</span> <span class="n">_load_cls</span>
-</span><span id="L-65"><a href="#L-65"><span class="linenos">65</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.clusters</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_and_save_real_tracers_B</span>
-</span><span id="L-66"><a href="#L-66"><span class="linenos">66</span></a>
-</span><span id="L-67"><a href="#L-67"><span class="linenos">67</span></a>
-</span><span id="L-68"><a href="#L-68"><span class="linenos">68</span></a><span class="n">__version__</span> <span class="o">=</span> <span class="s2">&quot;0.1.1&quot;</span>
+                        <div class="pdoc-code codehilite"><pre><span></span><span id="L-1"><a href="#L-1"><span class="linenos">  1</span></a><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="L-2"><a href="#L-2"><span class="linenos">  2</span></a>
+</span><span id="L-3"><a href="#L-3"><span class="linenos">  3</span></a><span class="sd"># BROOM: Blind Reconstruction Of signals from Observations in the Microwaves</span>
+</span><span id="L-4"><a href="#L-4"><span class="linenos">  4</span></a>
+</span><span id="L-5"><a href="#L-5"><span class="linenos">  5</span></a><span class="sd">**BROOM** is a Python package for blind component separation and Cosmic Microwave Background (CMB) data analysis.</span>
+</span><span id="L-6"><a href="#L-6"><span class="linenos">  6</span></a>
+</span><span id="L-7"><a href="#L-7"><span class="linenos">  7</span></a><span class="sd">---</span>
+</span><span id="L-8"><a href="#L-8"><span class="linenos">  8</span></a>
+</span><span id="L-9"><a href="#L-9"><span class="linenos">  9</span></a><span class="sd">## 📦 Installation</span>
+</span><span id="L-10"><a href="#L-10"><span class="linenos"> 10</span></a>
+</span><span id="L-11"><a href="#L-11"><span class="linenos"> 11</span></a><span class="sd">You can install the base package using:</span>
+</span><span id="L-12"><a href="#L-12"><span class="linenos"> 12</span></a>
+</span><span id="L-13"><a href="#L-13"><span class="linenos"> 13</span></a><span class="sd">```</span>
+</span><span id="L-14"><a href="#L-14"><span class="linenos"> 14</span></a><span class="sd">pip install cmbroom</span>
+</span><span id="L-15"><a href="#L-15"><span class="linenos"> 15</span></a><span class="sd">```</span>
+</span><span id="L-16"><a href="#L-16"><span class="linenos"> 16</span></a>
+</span><span id="L-17"><a href="#L-17"><span class="linenos"> 17</span></a><span class="sd">This installs the core functionality.  </span>
+</span><span id="L-18"><a href="#L-18"><span class="linenos"> 18</span></a><span class="sd">If you plan to use the few functions that depend on `pymaster`, **you must install it separately** (version `&gt;=2.4`).</span>
+</span><span id="L-19"><a href="#L-19"><span class="linenos"> 19</span></a>
+</span><span id="L-20"><a href="#L-20"><span class="linenos"> 20</span></a><span class="sd">---</span>
+</span><span id="L-21"><a href="#L-21"><span class="linenos"> 21</span></a>
+</span><span id="L-22"><a href="#L-22"><span class="linenos"> 22</span></a><span class="sd">### 🔧 To include `pymaster` automatically:</span>
+</span><span id="L-23"><a href="#L-23"><span class="linenos"> 23</span></a>
+</span><span id="L-24"><a href="#L-24"><span class="linenos"> 24</span></a><span class="sd">You can install `cmbroom` along with its optional `pymaster` dependency by running:</span>
+</span><span id="L-25"><a href="#L-25"><span class="linenos"> 25</span></a>
+</span><span id="L-26"><a href="#L-26"><span class="linenos"> 26</span></a><span class="sd">```</span>
+</span><span id="L-27"><a href="#L-27"><span class="linenos"> 27</span></a><span class="sd">pip install cmbroom[pymaster]</span>
+</span><span id="L-28"><a href="#L-28"><span class="linenos"> 28</span></a><span class="sd">```</span>
+</span><span id="L-29"><a href="#L-29"><span class="linenos"> 29</span></a>
+</span><span id="L-30"><a href="#L-30"><span class="linenos"> 30</span></a><span class="sd">However, `pymaster` requires some additional system libraries to be installed **before** running the above command.</span>
+</span><span id="L-31"><a href="#L-31"><span class="linenos"> 31</span></a>
+</span><span id="L-32"><a href="#L-32"><span class="linenos"> 32</span></a><span class="sd">#### ✅ On Ubuntu/Debian:</span>
+</span><span id="L-33"><a href="#L-33"><span class="linenos"> 33</span></a><span class="sd">```</span>
+</span><span id="L-34"><a href="#L-34"><span class="linenos"> 34</span></a><span class="sd">sudo apt update</span>
+</span><span id="L-35"><a href="#L-35"><span class="linenos"> 35</span></a><span class="sd">sudo apt install build-essential python3-dev libfftw3-dev libcfitsio-dev</span>
+</span><span id="L-36"><a href="#L-36"><span class="linenos"> 36</span></a><span class="sd">```</span>
+</span><span id="L-37"><a href="#L-37"><span class="linenos"> 37</span></a>
+</span><span id="L-38"><a href="#L-38"><span class="linenos"> 38</span></a><span class="sd">#### ✅ On macOS (using Homebrew):</span>
+</span><span id="L-39"><a href="#L-39"><span class="linenos"> 39</span></a><span class="sd">```</span>
+</span><span id="L-40"><a href="#L-40"><span class="linenos"> 40</span></a><span class="sd">brew install fftw cfitsio</span>
+</span><span id="L-41"><a href="#L-41"><span class="linenos"> 41</span></a><span class="sd">```</span>
+</span><span id="L-42"><a href="#L-42"><span class="linenos"> 42</span></a>
+</span><span id="L-43"><a href="#L-43"><span class="linenos"> 43</span></a><span class="sd">## Documentation</span>
+</span><span id="L-44"><a href="#L-44"><span class="linenos"> 44</span></a>
+</span><span id="L-45"><a href="#L-45"><span class="linenos"> 45</span></a><span class="sd">A detailed introduction to the parameters and simulation pipeline is available in:</span>
+</span><span id="L-46"><a href="#L-46"><span class="linenos"> 46</span></a>
+</span><span id="L-47"><a href="#L-47"><span class="linenos"> 47</span></a><span class="sd">- [**tutorials/tutorial_satellite.ipynb**](tutorials/tutorial_satellite.ipynb)   </span>
+</span><span id="L-48"><a href="#L-48"><span class="linenos"> 48</span></a><span class="sd">- [**configs/config_demo.yaml**](broom/configs/config_demo.yaml) — Example configuration file</span>
+</span><span id="L-49"><a href="#L-49"><span class="linenos"> 49</span></a>
+</span><span id="L-50"><a href="#L-50"><span class="linenos"> 50</span></a><span class="sd">Component separation methods are covered in:</span>
+</span><span id="L-51"><a href="#L-51"><span class="linenos"> 51</span></a>
+</span><span id="L-52"><a href="#L-52"><span class="linenos"> 52</span></a><span class="sd">- [**tutorials/tutorial_satellite.ipynb**](tutorials/tutorial_satellite.ipynb) </span>
+</span><span id="L-53"><a href="#L-53"><span class="linenos"> 53</span></a><span class="sd">- [**tutorials/tutorial_satellite_part2.ipynb**](tutorials/tutorial_satellite_part2.ipynb) </span>
+</span><span id="L-54"><a href="#L-54"><span class="linenos"> 54</span></a>
+</span><span id="L-55"><a href="#L-55"><span class="linenos"> 55</span></a><span class="sd">Power spectrum estimation is demonstrated in:</span>
+</span><span id="L-56"><a href="#L-56"><span class="linenos"> 56</span></a>
+</span><span id="L-57"><a href="#L-57"><span class="linenos"> 57</span></a><span class="sd">- [**tutorials/tutorial_spectra.ipynb**](tutorials/tutorial_spectra.ipynb)</span>
+</span><span id="L-58"><a href="#L-58"><span class="linenos"> 58</span></a>
+</span><span id="L-59"><a href="#L-59"><span class="linenos"> 59</span></a><span class="sd">For partial-sky, ground-based experiment analysis, see:</span>
+</span><span id="L-60"><a href="#L-60"><span class="linenos"> 60</span></a>
+</span><span id="L-61"><a href="#L-61"><span class="linenos"> 61</span></a><span class="sd">- [**tutorials/tutorial_groundbased.ipynb**](tutorials/tutorial_groundbased.ipynb) </span>
+</span><span id="L-62"><a href="#L-62"><span class="linenos"> 62</span></a>
+</span><span id="L-63"><a href="#L-63"><span class="linenos"> 63</span></a><span class="sd">🔗 **Full online documentation:**  </span>
+</span><span id="L-64"><a href="#L-64"><span class="linenos"> 64</span></a><span class="sd">👉 [https://alecarones.github.io/broom/](https://alecarones.github.io/broom/)</span>
+</span><span id="L-65"><a href="#L-65"><span class="linenos"> 65</span></a>
+</span><span id="L-66"><a href="#L-66"><span class="linenos"> 66</span></a>
+</span><span id="L-67"><a href="#L-67"><span class="linenos"> 67</span></a><span class="sd">## References</span>
+</span><span id="L-68"><a href="#L-68"><span class="linenos"> 68</span></a>
+</span><span id="L-69"><a href="#L-69"><span class="linenos"> 69</span></a><span class="sd">Paper on **broom** package is in preparation.</span>
+</span><span id="L-70"><a href="#L-70"><span class="linenos"> 70</span></a>
+</span><span id="L-71"><a href="#L-71"><span class="linenos"> 71</span></a><span class="sd">If you use the following methodologies please cite the corresponding papers:</span>
+</span><span id="L-72"><a href="#L-72"><span class="linenos"> 72</span></a>
+</span><span id="L-73"><a href="#L-73"><span class="linenos"> 73</span></a><span class="sd">- ILC or NILC: [Delabrouille et al., 2019](https://arxiv.org/abs/0807.0773), [Bennett et al., 2003](https://arxiv.org/abs/astro-ph/0302207)</span>
+</span><span id="L-74"><a href="#L-74"><span class="linenos"> 74</span></a><span class="sd">- cMILC: [Remazeilles et al., 2021](https://arxiv.org/abs/2006.08628), [Carones et al., 2024](https://arxiv.org/abs/2402.17579)</span>
+</span><span id="L-75"><a href="#L-75"><span class="linenos"> 75</span></a><span class="sd">- MC-ILC or MC-NILC: [Carones et al., 2023](https://arxiv.org/abs/2212.04456)</span>
+</span><span id="L-76"><a href="#L-76"><span class="linenos"> 76</span></a><span class="sd">- PILC: [Fernández-Cobos et al., 2016](https://arxiv.org/abs/1601.01515)</span>
+</span><span id="L-77"><a href="#L-77"><span class="linenos"> 77</span></a><span class="sd">- cPILC: [Adak, 2021](https://arxiv.org/abs/2104.13778)</span>
+</span><span id="L-78"><a href="#L-78"><span class="linenos"> 78</span></a><span class="sd">- GILC, GNILC, GPILC: [Planck Collaboration, 2016](https://arxiv.org/abs/1605.09387), [Remazeilles et al., 2011](https://arxiv.org/abs/1103.1166)</span>
+</span><span id="L-79"><a href="#L-79"><span class="linenos"> 79</span></a><span class="sd">- foreground diagnostic: [Carones et al., 2024](https://arxiv.org/abs/2402.17579)</span>
+</span><span id="L-80"><a href="#L-80"><span class="linenos"> 80</span></a><span class="sd">- power spectrum computation: [Gorski et al., 2025](https://arxiv.org/abs/astro-ph/0409513), [Zonca et al., 2019](https://ui.adsabs.harvard.edu/abs/2019JOSS....4.1298Z/abstract), [Alonso et al., 2019](https://arxiv.org/abs/1809.09603)</span>
+</span><span id="L-81"><a href="#L-81"><span class="linenos"> 81</span></a>
+</span><span id="L-82"><a href="#L-82"><span class="linenos"> 82</span></a><span class="sd">### 📦 Dependencies</span>
+</span><span id="L-83"><a href="#L-83"><span class="linenos"> 83</span></a>
+</span><span id="L-84"><a href="#L-84"><span class="linenos"> 84</span></a><span class="sd">This package relies on several scientific Python libraries:</span>
+</span><span id="L-85"><a href="#L-85"><span class="linenos"> 85</span></a>
+</span><span id="L-86"><a href="#L-86"><span class="linenos"> 86</span></a><span class="sd">- [astropy&gt;=6.0.1](https://www.astropy.org/)</span>
+</span><span id="L-87"><a href="#L-87"><span class="linenos"> 87</span></a><span class="sd">- [numpy&gt;1.18.5](https://numpy.org/)</span>
+</span><span id="L-88"><a href="#L-88"><span class="linenos"> 88</span></a><span class="sd">- [scipy&gt;=1.8](https://scipy.org/)</span>
+</span><span id="L-89"><a href="#L-89"><span class="linenos"> 89</span></a><span class="sd">- [healpy&gt;=1.15](https://healpy.readthedocs.io/)</span>
+</span><span id="L-90"><a href="#L-90"><span class="linenos"> 90</span></a><span class="sd">- [pysm3&gt;=3.3.2](https://pysm3.readthedocs.io/en/latest/#)</span>
+</span><span id="L-91"><a href="#L-91"><span class="linenos"> 91</span></a><span class="sd">- [mtneedlet&gt;=0.0.5](https://javicarron.github.io/mtneedlet/)</span>
+</span><span id="L-92"><a href="#L-92"><span class="linenos"> 92</span></a>
+</span><span id="L-93"><a href="#L-93"><span class="linenos"> 93</span></a>
+</span><span id="L-94"><a href="#L-94"><span class="linenos"> 94</span></a>
+</span><span id="L-95"><a href="#L-95"><span class="linenos"> 95</span></a><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="L-96"><a href="#L-96"><span class="linenos"> 96</span></a>
+</span><span id="L-97"><a href="#L-97"><span class="linenos"> 97</span></a>
+</span><span id="L-98"><a href="#L-98"><span class="linenos"> 98</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.compsep</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+</span><span id="L-99"><a href="#L-99"><span class="linenos"> 99</span></a>    <span class="n">component_separation</span><span class="p">,</span> <span class="n">estimate_residuals</span><span class="p">,</span> <span class="n">_combine_products</span><span class="p">,</span> <span class="n">_load_outputs</span>
+</span><span id="L-100"><a href="#L-100"><span class="linenos">100</span></a><span class="p">)</span>
+</span><span id="L-101"><a href="#L-101"><span class="linenos">101</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.simulations</span><span class="w"> </span><span class="kn">import</span> <span class="n">_get_data_foregrounds_</span><span class="p">,</span> <span class="n">_get_data_simulations_</span><span class="p">,</span> <span class="n">_get_noise_simulation</span><span class="p">,</span> <span class="n">_get_cmb_simulation</span><span class="p">,</span> <span class="n">_get_full_simulations</span>
+</span><span id="L-102"><a href="#L-102"><span class="linenos">102</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.configurations</span><span class="w"> </span><span class="kn">import</span> <span class="n">Configs</span><span class="p">,</span> <span class="n">get_params</span>
+</span><span id="L-103"><a href="#L-103"><span class="linenos">103</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.spectra</span><span class="w"> </span><span class="kn">import</span> <span class="n">_compute_spectra</span><span class="p">,</span> <span class="n">_compute_spectra_</span><span class="p">,</span> <span class="n">_load_cls</span>
+</span><span id="L-104"><a href="#L-104"><span class="linenos">104</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.clusters</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_and_save_real_tracers_B</span>
+</span><span id="L-105"><a href="#L-105"><span class="linenos">105</span></a>
+</span><span id="L-106"><a href="#L-106"><span class="linenos">106</span></a>
+</span><span id="L-107"><a href="#L-107"><span class="linenos">107</span></a><span class="n">__version__</span> <span class="o">=</span> <span class="s2">&quot;0.1.1&quot;</span>
 </span></pre></div>
 
 

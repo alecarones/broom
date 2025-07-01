@@ -32,12 +32,12 @@ However, `pymaster` requires some additional system libraries to be installed **
 #### ✅ On Ubuntu/Debian:
 ```
 sudo apt update
-sudo apt install build-essential python3-dev libfftw3-dev libcfitsio-dev
+sudo apt install build-essential python3-dev libfftw3-dev libcfitsio-dev libgsl-dev
 ```
 
 #### ✅ On macOS (using Homebrew):
 ```
-brew install fftw cfitsio
+brew install fftw cfitsio gsl
 ```
 ## Documentation
 
@@ -62,6 +62,21 @@ For partial-sky, ground-based experiment analysis, see:
 🔗 **Full online documentation:**  
 👉 [https://alecarones.github.io/broom/](https://alecarones.github.io/broom/)
 
+
+## References
+
+Paper on **broom** package is in preparation.
+
+If you use the following methodologies please cite the corresponding papers:
+
+- ILC or NILC: [Delabrouille et al., 2019](https://arxiv.org/abs/0807.0773), [Bennett et al., 2003](https://arxiv.org/abs/astro-ph/0302207)
+- cMILC: [Remazeilles et al., 2021](https://arxiv.org/abs/2006.08628), [Carones et al., 2024](https://arxiv.org/abs/2402.17579)
+- MC-ILC or MC-NILC: [Carones et al., 2023](https://arxiv.org/abs/2212.04456)
+- PILC: [Fernández-Cobos et al., 2016](https://arxiv.org/abs/1601.01515)
+- cPILC: [Adak, 2021](https://arxiv.org/abs/2104.13778)
+- GILC, GNILC, GPILC: [Planck Collaboration, 2016](https://arxiv.org/abs/1605.09387), [Remazeilles et al., 2011](https://arxiv.org/abs/1103.1166)
+- foreground diagnostic: [Carones et al., 2024](https://arxiv.org/abs/2402.17579)
+- power spectrum computation: [Gorski et al., 2025](https://arxiv.org/abs/astro-ph/0409513), [Zonca et al., 2019](https://ui.adsabs.harvard.edu/abs/2019JOSS....4.1298Z/abstract), [Alonso et al., 2019](https://arxiv.org/abs/1809.09603)
 
 ## 📦 Dependencies
 
