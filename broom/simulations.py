@@ -23,7 +23,7 @@ prefix_to_attr = {
                 "ksz": "ksz", "rg": "radio_galaxies"
             }
 
-def _get_full_simulations(config: Configs, nsim: Optional[Union[int, str]] = None) -> SimpleNamespace:
+def _get_full_simulations(config: Configs, nsim: Optional[Union[int, str]] = None, **kwargs: Any) -> SimpleNamespace:
     """
     Generate full simulations including foregrounds and data.
 
@@ -33,14 +33,20 @@ def _get_full_simulations(config: Configs, nsim: Optional[Union[int, str]] = Non
             Configuration parameters.
         nsim: Optional[Union[int, str]]
             Simulation number.
+        kwargs: dict, optional
+            Additional keyword arguments forwarded to alm computation in map2alm.
 
     Returns
     -------
         SimpleNamespace
             Simulated data container with foregrounds and total data.
     """
-    foregrounds = _get_data_foregrounds_(config)
-    data = _get_data_simulations_(config, foregrounds, nsim=nsim)
+    kwargs = _map2alm_kwargs(**kwargs)
+
+    foregrounds = _get_data_foregrounds_(config, **kwargs)
+
+    data = _get_data_simulations_(config, foregrounds, nsim=nsim, **kwargs)
+
     return data
 
 def _get_data_foregrounds_(config: Configs, **kwargs: Any) -> SimpleNamespace:

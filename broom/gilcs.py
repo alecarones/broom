@@ -512,7 +512,7 @@ def _gilc_pixel(config: Configs, input_alms: np.ndarray, compsep_run: Dict[str, 
             Output map with separated components. Shape will be (n_channels_out, npix, n_components).
     """
 
-    compsep_run["good_channels"] = _get_good_channels_nl(config, np.ones(lmax+1))
+    compsep_run["good_channels"] = _get_good_channels_nl(config, np.ones(config.lmax+1))
 
     input_maps = np.zeros((compsep_run["good_channels"].shape[0], 12 * config.nside**2, input_alms.shape[-1]))
     for n, channel in enumerate(compsep_run["good_channels"]):
