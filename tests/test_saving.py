@@ -19,7 +19,6 @@ def test_get_gnilc_maps_runs(config_all_path):
     selected_compseps = [compsep for compsep in compseps if compsep["method"] == "gilc"]
     compsep = [selected_compseps[0]]
 
-
     rng = np.random.default_rng()
     input_alms = SimpleNamespace(
         total=1e-6

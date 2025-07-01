@@ -30,10 +30,15 @@ def test_ilc_runs(config_all_path):
         config.compsep = [compsep]
         broom.ilcs.ilc(config, input_alms, compsep)
 
+
 def test_cilc_runs(config_all_path):
     config = Configs(config_all_path)
     compseps = config.compsep
-    selected_compseps = [compsep for compsep in compseps if compsep["method"] == "cilc" or compsep["method"] == "c_ilc"]
+    selected_compseps = [
+        compsep
+        for compsep in compseps
+        if compsep["method"] == "cilc" or compsep["method"] == "c_ilc"
+    ]
 
     rng = np.random.default_rng()
     input_alms = SimpleNamespace(
@@ -49,10 +54,15 @@ def test_cilc_runs(config_all_path):
         config.compsep = [compsep]
         broom.ilcs.ilc(config, input_alms, compsep)
 
+
 def test_mcilc_runs(config_all_path):
     config = Configs(config_all_path)
     compseps = config.compsep
-    selected_compseps = [compsep for compsep in compseps if compsep["method"] == "mcilc" or compsep["method"] == "mc_ilc"]
+    selected_compseps = [
+        compsep
+        for compsep in compseps
+        if compsep["method"] == "mcilc" or compsep["method"] == "mc_ilc"
+    ]
 
     fgds = 1e-6 * np.ones(
         (len(config.instrument.frequency), 3, hp.Alm.getsize(config.lmax)),
@@ -73,6 +83,10 @@ def test_mcilc_runs(config_all_path):
             compsep["needlet_config"] = merge_dicts(compsep["needlet_config"])
         config.compsep = [compsep]
         if compsep["method"] == "mc_ilc":
-            compsep["path_tracers"] = compsep["path_tracers"] if compsep["path_tracers"].endswith('/') else compsep["path_tracers"] + '/'
+            compsep["path_tracers"] = (
+                compsep["path_tracers"]
+                if compsep["path_tracers"].endswith("/")
+                else compsep["path_tracers"] + "/"
+            )
         print(config.compsep)
         broom.ilcs.ilc(config, input_alms, compsep)

@@ -14,6 +14,4 @@ def test_get_needlet_windows_runs(config_all_path):
 
     for compsep in selected_compseps:
         compsep["needlet_config"] = merge_dicts(compsep["needlet_config"])
-        broom.needlets._get_needlet_windows_(
-            compsep["needlet_config"], config.lmax
-        )
+        broom.needlets._get_needlet_windows_(compsep["needlet_config"], config.lmax)

@@ -16,7 +16,11 @@ def test_import_templates():
 def test_get_residuals_template_runs(config_all_path):
     config = Configs(config_all_path)
     compseps = config.compsep
-    selected_compseps = [compsep for compsep in compseps if compsep["method"] == "ilc" and compsep["domain"] == "needlet"]
+    selected_compseps = [
+        compsep
+        for compsep in compseps
+        if compsep["method"] == "ilc" and compsep["domain"] == "needlet"
+    ]
     selected_compseps = [selected_compseps[0]]
 
     rng = np.random.default_rng()

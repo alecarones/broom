@@ -1,6 +1,5 @@
 from types import SimpleNamespace
 
-import healpy as hp
 import numpy as np
 
 import broom.routines

@@ -8,7 +8,6 @@ from broom.configurations import Configs
 from broom.routines import merge_dicts
 
 
-
 def test_import_gpilcs():
     assert hasattr(broom.gpilcs, "__file__")
 
@@ -16,7 +15,9 @@ def test_import_gpilcs():
 def test_gpilc_runs(config_all_path):
     config = Configs(config_all_path)
     compseps = config.compsep
-    selected_compseps = [compsep for compsep in compseps if compsep["method"] == "gpilc"]
+    selected_compseps = [
+        compsep for compsep in compseps if compsep["method"] == "gpilc"
+    ]
 
     rng = np.random.default_rng()
     input_alms = SimpleNamespace(
