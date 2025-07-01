@@ -85,7 +85,7 @@ compsep:
     reduce_ilc_bias: False
     b_squared: False
     adapt_nside: True
-    save_needlets: False
+    save_needlets: True
     save_weights: False
     cov_noise_debias: [0., 0., 0., 0.]
     nsim: "0"
@@ -99,7 +99,7 @@ compsep:
     ilc_bias: 0.0
     b_squared: False
     adapt_nside: False
-    save_needlets: False
+    save_needlets: True
     save_weights: False
     cov_noise_debias: [0., 0., 0., 0.]
     nsim: "0"
