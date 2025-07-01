@@ -172,6 +172,7 @@ def component_separation(config: Configs, data: SimpleNamespace, nsim: Optional[
     'cilc': ilc,
     'c_ilc': ilc,
     'mc_ilc': ilc,
+    'mc_cilc': ilc,
     'mcilc': ilc,
     'pilc': pilc,
     'cpilc': pilc,
@@ -415,20 +416,20 @@ def _standardize_compsep_config(compsep_run: Dict[str, Any], lmax: int, save_pro
         if compsep_run["method"] != "mcilc":
             compsep_run.setdefault("reduce_ilc_bias", False)
         
-    if compsep_run["method"] in ["c_ilc","c_pilc","mc_ilc"]:
+    if compsep_run["method"] in ["c_ilc","c_pilc","mc_ilc","mc_cilc"]:
         if compsep_run["domain"] != "needlet":
-            raise ValueError("The methods 'c_ilc', 'c_pilc' and 'mc_ilc' can only be used in the needlet domain.")
+            raise ValueError("The methods 'c_ilc', 'c_pilc', 'mc_ilc' and 'mc_cilc' can only be used in the needlet domain.")
         if "special_nls" not in compsep_run:
-            raise ValueError("special_nls must be provided for methods 'c_ilc', 'c_pilc' and 'mc_ilc'.")      
+            raise ValueError("special_nls must be provided for methods 'c_ilc', 'c_pilc', 'mc_ilc' and 'mc_cilc'.")      
         if not isinstance(compsep_run["special_nls"], list):
             raise ValueError("special_nls must be a list of integers.")
         
-    if compsep_run["method"] in ["cilc", "c_ilc", "cpilc", "c_pilc"]:
+    if compsep_run["method"] in ["cilc", "c_ilc", "mc_cilc", "cpilc", "c_pilc"]:
         if "constraints" not in compsep_run:
-            raise ValueError("A dictionary of constraints must be provided in the compsep_run dictionary for methods 'cilc', 'c_ilc', 'cpilc', 'c_pilc'.")
+            raise ValueError("A dictionary of constraints must be provided in the compsep_run dictionary for methods 'cilc', 'c_ilc', 'cpilc', 'c_pilc', 'mc_cilc'.")
         compsep_run['constraints'] = merge_dicts(compsep_run['constraints'])
     
-    if compsep_run["method"] in ["mcilc", "mc_ilc"]:
+    if compsep_run["method"] in ["mcilc", "mc_ilc", "mc_cilc"]:
         compsep_run.setdefault("mc_type", "cea_real")
         if compsep_run["mc_type"] not in ["cea_ideal","cea_real","rp_ideal","rp_real"]:
             raise ValueError("Invalid value for mc_type. It must be 'cea_ideal', 'cea_real', 'rp_ideal' or 'rp_real'.")

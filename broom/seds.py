@@ -402,6 +402,8 @@ def _standardize_cilc(compsep_run: dict, lmax: int) -> dict:
             nls_number = _get_needlet_windows_(compsep_run["needlet_config"], lmax).shape[0]
         elif compsep_run["method"] in ["c_ilc", "c_pilc"]:
             nls_number = len(compsep_run["special_nls"])
+        elif compsep_run["method"] in ["mc_cilc"]:
+            nls_number = _get_needlet_windows_(compsep_run["needlet_config"], lmax).shape[0] - len(compsep_run["special_nls"])
 
     if not "moments" in compsep_run["constraints"]:
         raise ValueError("A list of moments must be provided in the constraints dictionary.")

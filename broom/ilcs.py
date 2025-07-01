@@ -80,11 +80,11 @@ def ilc(config: Configs, input_alms: SimpleNamespace, compsep_run: Dict, **kwarg
             config.return_compsep_products is True; otherwise None.
     """
     # Standardize cilc method parameters if needed
-    if compsep_run["method"] in ["cilc", "c_ilc"]:
+    if compsep_run["method"] in ["cilc", "c_ilc", "mc_cilc"]:
         compsep_run = _standardize_cilc(compsep_run, config.lmax)
 
     # Check for MC-ILC ideal tracer requirements
-    if compsep_run["method"] in ["mcilc", "mc_ilc"]:
+    if compsep_run["method"] in ["mcilc", "mc_ilc", "mc_cilc"]:
         if compsep_run["mc_type"] in ["cea_ideal", "rp_ideal"]:
             if not hasattr(input_alms, "fgds"):
                 raise ValueError("The input_alms object must have 'fgds' attribute for ideal tracer in MC-ILC.")
@@ -217,7 +217,7 @@ def _ilc(
         output_maps = np.zeros((input_alms.shape[1], 12 * config.nside**2, input_alms.shape[3]))
         for i in range(input_alms.shape[1]):
             compsep_run["field"] = fields_ilc[i]
-            if compsep_run["method"] in ["mcilc", "mc_ilc"]:
+            if compsep_run["method"] in ["mcilc", "mc_ilc", "mc_cilc"]:
                 compsep_run["tracers"] = initialize_scalar_tracers(
                     config, input_alms[:, i, :, 1], compsep_run, field=compsep_run["field"], **kwargs
                 )
@@ -225,7 +225,7 @@ def _ilc(
 
     elif input_alms.ndim == 3:
         compsep_run["field"] = fields_ilc[0]
-        if compsep_run["method"] in ["mcilc", "mc_ilc"]:
+        if compsep_run["method"] in ["mcilc", "mc_ilc", "mc_cilc"]:
             compsep_run["tracers"] = initialize_scalar_tracers(config, input_alms[...,1], compsep_run, field=compsep_run["field"], **kwargs)
         output_maps = _ilc_scalar(config, input_alms, compsep_run, **kwargs)
     
@@ -365,7 +365,7 @@ def _ilc_needlet_j(
                 for c in range(input_alms.shape[-1])]).T
 
     # Run either MC-ILC or ILC
-    if (compsep_run["method"]=="mcilc") or (compsep_run["method"]=="mc_ilc" and nl_scale in compsep_run["special_nls"]):
+    if (compsep_run["method"]=="mcilc") or ((compsep_run["method"]=="mc_ilc" or compsep_run["method"]=="mc_cilc") and nl_scale in compsep_run["special_nls"]):
         tracer_nl = get_scalar_tracer_nl(compsep_run["tracers"], nside_, lmax_, b_ell)
         output_maps_nl = _mcilc_maps(config, input_maps_nl, tracer_nl, compsep_run, b_ell, nl_scale=nl_scale)
     else:
@@ -479,6 +479,11 @@ def _ilc_maps(config: Configs, input_maps: np.ndarray, compsep_run: Dict,
     elif (compsep_run["method"] == "c_ilc") and (nl_scale is not None) and (nl_scale in compsep_run["special_nls"]):
         compsep_run["A"] = _get_moments_SED(freqs, compsep_run["constraints"]["moments"][compsep_run["special_nls"] == nl_scale], beta_d=compsep_run["constraints"]["beta_d"][compsep_run["special_nls"] == nl_scale], T_d=compsep_run["constraints"]["T_d"][compsep_run["special_nls"] == nl_scale], beta_s=compsep_run["constraints"]["beta_s"][compsep_run["special_nls"] == nl_scale], units=config.units, bandwidths=bandwidths)
         compsep_run["e"] = np.array(compsep_run["constraints"]["deprojection"][compsep_run["special_nls"] == nl_scale])
+
+    elif (compsep_run["method"] == "mc_cilc") and (nl_scale is not None) and (nl_scale not in compsep_run["special_nls"]):
+        nl_scale_cilc = nl_scale-len(np.array(compsep_run["special_nls"])[np.array(compsep_run["special_nls"]) < 2])
+        compsep_run["A"] = _get_moments_SED(freqs, compsep_run["constraints"]["moments"][nl_scale_cilc], beta_d=compsep_run["constraints"]["beta_d"][nl_scale_cilc], T_d=compsep_run["constraints"]["T_d"][nl_scale_cilc], beta_s=compsep_run["constraints"]["beta_s"][nl_scale_cilc], units=config.units, bandwidths=bandwidths)
+        compsep_run["e"] = np.array(compsep_run["constraints"]["deprojection"][nl_scale_cilc])
 
     cov = get_ilc_cov(input_maps[...,0], config.lmax, compsep_run, b_ell)
     noise_debias = compsep_run["cov_noise_debias"] if compsep_run["domain"] == "pixel" else compsep_run["cov_noise_debias"][nl_scale]
