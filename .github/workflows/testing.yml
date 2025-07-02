@@ -25,6 +25,10 @@ jobs:
       run: |
         sudo apt install build-essential python3-dev libfftw3-dev libcfitsio-dev libgsl-dev
         pip install -e .[pymaster,dev]
+    - name: Check code style
+      run: |
+        ruff format --diff .
+        ruff check .
     - name: Run tests
       run: |
         pytest --durations=5 -vv
