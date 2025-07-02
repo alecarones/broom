@@ -24,8 +24,11 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt install build-essential python3-dev libfftw3-dev libcfitsio-dev libgsl-dev
-        pip install -e .[pymaster]
-        pip install pytest pytest-cov
+        pip install -e .[pymaster,dev]
+    - name: Check code style
+      run: |
+        ruff format --diff . --config=./pyproject.toml
+        ruff check . --config=./pyproject.toml
     - name: Run tests
       run: |
         pytest --durations=5 -vv
