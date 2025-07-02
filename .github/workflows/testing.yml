@@ -27,8 +27,8 @@ jobs:
         pip install -e .[pymaster,dev]
     - name: Check code style
       run: |
-        ruff format --diff .
-        ruff check .
+        ruff format --diff . --config=./pyproject.toml
+        ruff check . --config=./pyproject.toml
     - name: Run tests
       run: |
         pytest --durations=5 -vv
