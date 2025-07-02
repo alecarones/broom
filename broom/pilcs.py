@@ -593,7 +593,7 @@ def get_pilc_cov(
             fallback_cov_qq_uu = np.mean(np.einsum('ik,jk->ijk', input_maps[:, 0, valid], input_maps[:, 0, valid]), axis=-1) + \
                            np.mean(np.einsum('ik,jk->ijk', input_maps[:, 1, valid], input_maps[:, 1, valid]), axis=-1)
             cov_qq_uu[..., mask == 0.0] = fallback_cov_qq_uu
-            fallback_qu_uq = np.mean(np.einsum('ik,jk->ijk', input_maps[:, 0, valid], input_maps[:, 1, valid]), axis=-1) - \
+            fallback_cov_qu_uq = np.mean(np.einsum('ik,jk->ijk', input_maps[:, 0, valid], input_maps[:, 1, valid]), axis=-1) - \
                            np.mean(np.einsum('ik,jk->ijk', input_maps[:, 1, valid], input_maps[:, 0, valid]), axis=-1)
             cov_qu_uq[..., mask == 0.0] = np.repeat(fallback_cov_qu_uq[..., np.newaxis], np.sum(mask == 0.0), axis=-1)
     

@@ -379,7 +379,7 @@ def _fgd_P_diagnostic_pixel(
     def alm_to_polmap(E=None, B=None):
         T = np.zeros_like(E if E is not None else B)
         return hp.alm2map([T, E if E is not None else T, B if B is not None else T],
-                          config.nside, lmax=lmax, pol=True)[1:]
+                          config.nside, lmax=config.lmax, pol=True)[1:]
 
     for n, channel in enumerate(compsep_run["good_channels"]):
         for c in range(input_alms.shape[-1]):

@@ -441,7 +441,7 @@ def threshold_P_tracer(
     """
 
     mask_spectra = np.ones_like(map_[0])
-    map_ = hp.smoothing([0.*map_,map_[0],map_[1]],fwhm=np.radians(deg_smooth_tracer),lmax=lmax,pol=True)[1:]
+    map_ = hp.smoothing([0.*map_,map_[0],map_[1]],fwhm=np.radians(smooth_tracer),lmax=lmax,pol=True)[1:]
     map_P = np.sqrt((map_[0])**2 + (map_[1])**2)
     idx_mask = np.argsort(map_P * mask_in)[-npix_mask:]  #
     mask_spectra[idx_mask] = 0.
