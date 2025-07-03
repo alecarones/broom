@@ -43,10 +43,10 @@ save_inputs: False #
 pixel_window_in: True
 
 
-data_path: "/inputs/SO_SAT/total/total_maps_ns128"
-fgds_path: "/inputs/SO_SAT/foregrounds/d1s1/foregrounds_alms_ns128"
-cmb_path: "/inputs/SO_SAT/cmb/cmb_alms_ns128"
-noise_path: "/inputs/SO_SAT/noise/noise_alms_ns128"
+data_path: "inputs/SO_SAT/total/total_maps_ns128"
+fgds_path: "inputs/SO_SAT/foregrounds/d1s1/foregrounds_alms_ns128"
+cmb_path: "inputs/SO_SAT/cmb/cmb_alms_ns128"
+noise_path: "inputs/SO_SAT/noise/noise_alms_ns128"
 
 
 # ==== COMPONENT SEPARATION ==== #

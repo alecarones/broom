@@ -43,10 +43,10 @@ save_inputs: False #
 pixel_window_in: True
 
 
-data_path: "/inputs/LiteBIRD_PTEP/total/total_alms_ns64"
-fgds_path: "/inputs/LiteBIRD_PTEP/foregrounds/d1s1/foregrounds_alms_ns64"
-cmb_path: "/inputs/LiteBIRD_PTEP/cmb/cmb_alms_ns64"
-noise_path: "/inputs/LiteBIRD_PTEP/noise/noise_alms_ns64"
+data_path: "inputs/LiteBIRD_PTEP/total/total_alms_ns64"
+fgds_path: "inputs/LiteBIRD_PTEP/foregrounds/d1s1/foregrounds_alms_ns64"
+cmb_path: "inputs/LiteBIRD_PTEP/cmb/cmb_alms_ns64"
+noise_path: "inputs/LiteBIRD_PTEP/noise/noise_alms_ns64"
 
 
 # ==== COMPONENT SEPARATION ==== #

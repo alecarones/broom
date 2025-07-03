@@ -178,16 +178,16 @@ pixel_window_in: False
 
 # Full path to total input maps. Used save/load total simulations.
 # If nsim is provided, it will add the number of the simulation to the filename at the end.
-data_path: "/inputs/LiteBIRD_PTEP/total/total_alms_ns64"
+data_path: "inputs/LiteBIRD_PTEP/total/total_alms_ns64"
 # Full path to foreground input maps. Used to save/load foreground simulations.
 # The foreground model specified in foreground_models will be added to the filename at the end.
-fgds_path: "/inputs/LiteBIRD_PTEP/foregrounds/d1s1/foregrounds_alms_ns64"
+fgds_path: "inputs/LiteBIRD_PTEP/foregrounds/d1s1/foregrounds_alms_ns64"
 # Full path to the CMB input maps. Used to save/load CMB simulations. 
 # If nsim is provided, it will add the number of the simulation to the filename at the end.
-cmb_path: "/inputs/LiteBIRD_PTEP/cmb/cmb_alms_ns64"
+cmb_path: "inputs/LiteBIRD_PTEP/cmb/cmb_alms_ns64"
 # Full path to the noise input maps. Used to save/load noise simulations.
 # If nsim is provided, it will add the number of the simulation to the filename at the end.
-noise_path: "/inputs/LiteBIRD_PTEP/noise/noise_alms_ns64"
+noise_path: "inputs/LiteBIRD_PTEP/noise/noise_alms_ns64"
 
 
 # ==== COMPONENT SEPARATION ==== #
