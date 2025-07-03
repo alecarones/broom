@@ -1043,7 +1043,7 @@ def _get_gilc_m(λ: np.ndarray) -> Union[int, np.ndarray]:
         for i in range(λ.shape[0]):
             A_m[i]=2*i + np.sum(λ[i:]-np.log(λ[i:])-1.)
         A_m[λ.shape[0]]=2.*λ.shape[0]
-        m = np.argmin(A_m)
+        m = int(np.argmin(A_m))
     elif λ.ndim==2:
         A_m=np.zeros((λ.shape[0],λ.shape[1]+1))
         for i in range(λ.shape[1]):
