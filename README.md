@@ -1,6 +1,7 @@
 <img src="broom_logo_last.png" width="250"> 
 
-# BROOM: Blind Reconstruction Of signals from Observations in the Microwaves
+# BROOM
+## Blind Reconstruction Of signals from Observations in the Microwaves
 
 **BROOM** is a Python package for blind component separation and Cosmic Microwave Background (CMB) data analysis.
 
