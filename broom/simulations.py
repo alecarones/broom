@@ -420,10 +420,10 @@ def _get_noise_simulation(config: Configs, nsim: Optional[Union[int, str]] = Non
             raise ValueError('Provided instrumental setting must have either depth_I or depth_P attributes.')
         elif not hasattr(config.instrument, 'depth_I') and hasattr(config.instrument, 'depth_P'):
             config.instrument.depth_I = config.instrument.depth_P / np.sqrt(2)
-            print(Warning:'No intensity map depth provided. Assuming it to be the polarization one divided by sqrt(2).')
+            print('Warning: No intensity map depth provided. Assuming it to be the polarization one divided by sqrt(2).')
         elif not hasattr(config.instrument, 'depth_P') and hasattr(config.instrument, 'depth_I'):
             config.instrument.depth_P = config.instrument.depth_I * np.sqrt(2)
-            print(Warning:'No polarization map depth provided. Assuming it to be the intensity one multiplied by sqrt(2).')
+            print('Warning: No polarization map depth provided. Assuming it to be the intensity one multiplied by sqrt(2).')
         depth_i = config.instrument.depth_I
         depth_p = config.instrument.depth_P
 
