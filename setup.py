@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="cmbroom",
-    version="0.1.2",
+    version="0.1.3",
     description="A Python package for blind component separation of microwave sky maps.",
     author="Alessandro Carones",
     author_email="acarones@sissa.it",
@@ -15,7 +15,7 @@ setup(
     long_description=open("README.md", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
     license="GPL-3.0-or-later",
-    python_requires=">=3.9",
+    python_requires=">=3.10",
     packages=find_packages(where=".",include=["broom", "broom.*"]),
     include_package_data=True,
     package_data={

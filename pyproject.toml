@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cmbroom"
-version = "0.1.2"
+version = "0.1.3"
 description = "A Python package for blind component separation of microwave sky maps."
 authors = [{name = "Alessandro Carones", email = "acarones@sissa.it"}]
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = {text = "GPL-3.0-or-later"}
 dependencies = [
     "astropy>=6.0.1",
