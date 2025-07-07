@@ -30,7 +30,7 @@ setup(
         "pysm3>=3.3.2",
         "mtneedlet>=0.0.5",
         "threadpoolctl>=3.6.0",
-        "pandas>=2.3.0
+        "pandas>=2.3.0"
     ],
     classifiers=[
         "Programming Language :: Python :: 3",
