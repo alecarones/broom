@@ -712,93 +712,94 @@
 </span><span id="L-617"><a href="#L-617"><span class="linenos">617</span></a>
 </span><span id="L-618"><a href="#L-618"><span class="linenos">618</span></a>    <span class="n">config_mc</span><span class="o">.</span><span class="n">save_compsep_products</span> <span class="o">=</span> <span class="kc">False</span> <span class="c1">#</span>
 </span><span id="L-619"><a href="#L-619"><span class="linenos">619</span></a>    <span class="n">config_mc</span><span class="o">.</span><span class="n">return_compsep_products</span> <span class="o">=</span> <span class="kc">True</span>
-</span><span id="L-620"><a href="#L-620"><span class="linenos">620</span></a><span class="c1">#    config_mc.mask_type = &quot;mask_for_compsep&quot;</span>
-</span><span id="L-621"><a href="#L-621"><span class="linenos">621</span></a>
-</span><span id="L-622"><a href="#L-622"><span class="linenos">622</span></a>    <span class="k">if</span> <span class="n">config_mc</span><span class="o">.</span><span class="n">data_type</span> <span class="o">==</span> <span class="s2">&quot;maps&quot;</span><span class="p">:</span>
-</span><span id="L-623"><a href="#L-623"><span class="linenos">623</span></a>        <span class="n">config_mc</span><span class="o">.</span><span class="n">field_in</span> <span class="o">=</span> <span class="s2">&quot;QU&quot;</span>
-</span><span id="L-624"><a href="#L-624"><span class="linenos">624</span></a>        <span class="n">config_mc</span><span class="o">.</span><span class="n">mc_data_field</span> <span class="o">=</span> <span class="s2">&quot;TQU&quot;</span>
-</span><span id="L-625"><a href="#L-625"><span class="linenos">625</span></a>    <span class="k">elif</span> <span class="n">config_mc</span><span class="o">.</span><span class="n">data_type</span> <span class="o">==</span> <span class="s2">&quot;alms&quot;</span><span class="p">:</span>
-</span><span id="L-626"><a href="#L-626"><span class="linenos">626</span></a>        <span class="n">config_mc</span><span class="o">.</span><span class="n">field_in</span> <span class="o">=</span> <span class="s2">&quot;B&quot;</span>
-</span><span id="L-627"><a href="#L-627"><span class="linenos">627</span></a>        <span class="n">config_mc</span><span class="o">.</span><span class="n">mc_data_field</span> <span class="o">=</span> <span class="s2">&quot;TEB&quot;</span>
-</span><span id="L-628"><a href="#L-628"><span class="linenos">628</span></a>    <span class="n">config_mc</span><span class="o">.</span><span class="n">field_out</span> <span class="o">=</span> <span class="s2">&quot;B&quot;</span>
-</span><span id="L-629"><a href="#L-629"><span class="linenos">629</span></a>
-</span><span id="L-630"><a href="#L-630"><span class="linenos">630</span></a>    <span class="k">return</span> <span class="n">config_mc</span>
-</span><span id="L-631"><a href="#L-631"><span class="linenos">631</span></a>
-</span><span id="L-632"><a href="#L-632"><span class="linenos">632</span></a><span class="k">def</span><span class="w"> </span><span class="nf">get_mc_data</span><span class="p">(</span>
-</span><span id="L-633"><a href="#L-633"><span class="linenos">633</span></a>    <span class="n">config_mc</span><span class="p">:</span> <span class="s2">&quot;Configs&quot;</span><span class="p">,</span>
-</span><span id="L-634"><a href="#L-634"><span class="linenos">634</span></a>    <span class="n">foregrounds</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-</span><span id="L-635"><a href="#L-635"><span class="linenos">635</span></a>    <span class="n">systematics</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-</span><span id="L-636"><a href="#L-636"><span class="linenos">636</span></a>    <span class="o">**</span><span class="n">kwargs</span>
-</span><span id="L-637"><a href="#L-637"><span class="linenos">637</span></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
-</span><span id="L-638"><a href="#L-638"><span class="linenos">638</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="L-639"><a href="#L-639"><span class="linenos">639</span></a><span class="sd">    Simulate the input data for the MC-ILC tracers generation based on the provided configuration.</span>
-</span><span id="L-640"><a href="#L-640"><span class="linenos">640</span></a>
-</span><span id="L-641"><a href="#L-641"><span class="linenos">641</span></a><span class="sd">    Parameters</span>
-</span><span id="L-642"><a href="#L-642"><span class="linenos">642</span></a><span class="sd">    ----------</span>
-</span><span id="L-643"><a href="#L-643"><span class="linenos">643</span></a><span class="sd">        config_mc : Configs</span>
-</span><span id="L-644"><a href="#L-644"><span class="linenos">644</span></a><span class="sd">            Configuration object for the MC-ILC tracers generation. See &#39;get_mc_config&#39; for details.</span>
-</span><span id="L-645"><a href="#L-645"><span class="linenos">645</span></a><span class="sd">        foregrounds : SimpleNamespace, optional</span>
-</span><span id="L-646"><a href="#L-646"><span class="linenos">646</span></a><span class="sd">            Foregrounds data to be used in the simulations for tracer generation. If None, the foregrounds will be generated using the configuration parameters.</span>
-</span><span id="L-647"><a href="#L-647"><span class="linenos">647</span></a><span class="sd">        kwargs : dict, optional</span>
-</span><span id="L-648"><a href="#L-648"><span class="linenos">648</span></a><span class="sd">            Additional keyword arguments to be passed to healpy &#39;map2alm&#39; function.</span>
-</span><span id="L-649"><a href="#L-649"><span class="linenos">649</span></a><span class="sd">    </span>
-</span><span id="L-650"><a href="#L-650"><span class="linenos">650</span></a><span class="sd">    Returns</span>
-</span><span id="L-651"><a href="#L-651"><span class="linenos">651</span></a><span class="sd">    -------</span>
-</span><span id="L-652"><a href="#L-652"><span class="linenos">652</span></a><span class="sd">        SimpleNamespace</span>
-</span><span id="L-653"><a href="#L-653"><span class="linenos">653</span></a><span class="sd">            A SimpleNamespace object containing the simulated data for the MC-ILC tracers generation. </span>
-</span><span id="L-654"><a href="#L-654"><span class="linenos">654</span></a><span class="sd">            It will have the following attributes:</span>
-</span><span id="L-655"><a href="#L-655"><span class="linenos">655</span></a><span class="sd">            - `total`: The total simulated data, which includes CMB, foregrounds, and noise.</span>
-</span><span id="L-656"><a href="#L-656"><span class="linenos">656</span></a><span class="sd">            - `cmb`: The simulated CMB data.</span>
-</span><span id="L-657"><a href="#L-657"><span class="linenos">657</span></a><span class="sd">            - `fgds`: The simulated foregrounds data.</span>
-</span><span id="L-658"><a href="#L-658"><span class="linenos">658</span></a><span class="sd">            - `noise`: The simulated noise data.</span>
-</span><span id="L-659"><a href="#L-659"><span class="linenos">659</span></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="L-660"><a href="#L-660"><span class="linenos">660</span></a>
-</span><span id="L-661"><a href="#L-661"><span class="linenos">661</span></a>    <span class="k">if</span> <span class="n">foregrounds</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="L-662"><a href="#L-662"><span class="linenos">662</span></a>        <span class="n">mc_foregrounds</span> <span class="o">=</span> <span class="n">_get_data_foregrounds_</span><span class="p">(</span><span class="n">config_mc</span><span class="p">)</span>
-</span><span id="L-663"><a href="#L-663"><span class="linenos">663</span></a>    <span class="k">else</span><span class="p">:</span>
-</span><span id="L-664"><a href="#L-664"><span class="linenos">664</span></a>        <span class="n">mc_foregrounds</span> <span class="o">=</span> <span class="n">SimpleNamespace</span><span class="p">()</span>
-</span><span id="L-665"><a href="#L-665"><span class="linenos">665</span></a>        <span class="n">mc_foregrounds</span><span class="o">.</span><span class="n">total</span> <span class="o">=</span> <span class="n">foregrounds</span>
-</span><span id="L-666"><a href="#L-666"><span class="linenos">666</span></a>
-</span><span id="L-667"><a href="#L-667"><span class="linenos">667</span></a>    <span class="n">mc_data</span> <span class="o">=</span> <span class="n">_get_data_simulations_</span><span class="p">(</span><span class="n">config_mc</span><span class="p">,</span> <span class="n">mc_foregrounds</span><span class="p">)</span>
-</span><span id="L-668"><a href="#L-668"><span class="linenos">668</span></a>
-</span><span id="L-669"><a href="#L-669"><span class="linenos">669</span></a>    <span class="k">if</span> <span class="n">systematics</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="L-670"><a href="#L-670"><span class="linenos">670</span></a>        <span class="n">mc_data</span><span class="o">.</span><span class="n">total</span> <span class="o">=</span> <span class="n">mc_data</span><span class="o">.</span><span class="n">total</span> <span class="o">+</span> <span class="n">systematics</span>
-</span><span id="L-671"><a href="#L-671"><span class="linenos">671</span></a>
-</span><span id="L-672"><a href="#L-672"><span class="linenos">672</span></a>    <span class="k">return</span> <span class="n">_slice_data</span><span class="p">(</span><span class="n">mc_data</span><span class="p">,</span> <span class="n">config_mc</span><span class="o">.</span><span class="n">mc_data_field</span><span class="p">,</span> <span class="n">config_mc</span><span class="o">.</span><span class="n">field_in</span><span class="p">)</span>
-</span><span id="L-673"><a href="#L-673"><span class="linenos">673</span></a>
-</span><span id="L-674"><a href="#L-674"><span class="linenos">674</span></a><span class="k">def</span><span class="w"> </span><span class="nf">_combine_B_tracers</span><span class="p">(</span><span class="n">tracers</span><span class="p">,</span> <span class="n">coefficients</span><span class="o">=</span><span class="p">[</span><span class="mf">0.7</span><span class="p">,</span><span class="mf">0.3</span><span class="p">]):</span>
-</span><span id="L-675"><a href="#L-675"><span class="linenos">675</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="L-676"><a href="#L-676"><span class="linenos">676</span></a><span class="sd">    Combine the scalar tracers using the provided coefficients.</span>
-</span><span id="L-677"><a href="#L-677"><span class="linenos">677</span></a>
-</span><span id="L-678"><a href="#L-678"><span class="linenos">678</span></a><span class="sd">    Parameters</span>
-</span><span id="L-679"><a href="#L-679"><span class="linenos">679</span></a><span class="sd">    ----------</span>
-</span><span id="L-680"><a href="#L-680"><span class="linenos">680</span></a><span class="sd">        tracers : np.ndarray</span>
-</span><span id="L-681"><a href="#L-681"><span class="linenos">681</span></a><span class="sd">            The scalar tracers to be combined. It can be either a 3D array (multiple tracers) or a 2D array (single tracer).</span>
-</span><span id="L-682"><a href="#L-682"><span class="linenos">682</span></a><span class="sd">            If 2D, it should have shape (n_channels, n_pixels).</span>
-</span><span id="L-683"><a href="#L-683"><span class="linenos">683</span></a><span class="sd">        coefficients : List[float], optional</span>
-</span><span id="L-684"><a href="#L-684"><span class="linenos">684</span></a><span class="sd">            List of coefficients to be used for combining the tracers. Default is [0.7, 0.3].</span>
-</span><span id="L-685"><a href="#L-685"><span class="linenos">685</span></a><span class="sd">            The coefficients should sum to 1. If they do not, they will be normalized.</span>
-</span><span id="L-686"><a href="#L-686"><span class="linenos">686</span></a><span class="sd">    </span>
-</span><span id="L-687"><a href="#L-687"><span class="linenos">687</span></a><span class="sd">    Returns</span>
-</span><span id="L-688"><a href="#L-688"><span class="linenos">688</span></a><span class="sd">    -------</span>
-</span><span id="L-689"><a href="#L-689"><span class="linenos">689</span></a><span class="sd">        np.ndarray</span>
-</span><span id="L-690"><a href="#L-690"><span class="linenos">690</span></a><span class="sd">            The combined scalar tracers. If `tracers` is a 2D array, it returns the tracers as is.</span>
-</span><span id="L-691"><a href="#L-691"><span class="linenos">691</span></a><span class="sd">            If `tracers` is a 3D array, it returns the weighted sum of the tracers using the provided coefficients. </span>
-</span><span id="L-692"><a href="#L-692"><span class="linenos">692</span></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="L-693"><a href="#L-693"><span class="linenos">693</span></a>
-</span><span id="L-694"><a href="#L-694"><span class="linenos">694</span></a>    <span class="k">if</span> <span class="n">tracers</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
-</span><span id="L-695"><a href="#L-695"><span class="linenos">695</span></a>        <span class="k">return</span> <span class="n">tracers</span>
-</span><span id="L-696"><a href="#L-696"><span class="linenos">696</span></a>    <span class="k">elif</span> <span class="n">tracers</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
-</span><span id="L-697"><a href="#L-697"><span class="linenos">697</span></a>        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">coefficients</span><span class="p">)</span> <span class="o">!=</span> <span class="n">tracers</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]:</span>
-</span><span id="L-698"><a href="#L-698"><span class="linenos">698</span></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;The number of coefficients must match the number of tracers.&quot;</span><span class="p">)</span>
-</span><span id="L-699"><a href="#L-699"><span class="linenos">699</span></a>        <span class="n">coefficients</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">coefficients</span><span class="p">)</span> <span class="o">/</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">coefficients</span><span class="p">)</span>
-</span><span id="L-700"><a href="#L-700"><span class="linenos">700</span></a>        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">einsum</span><span class="p">(</span><span class="s2">&quot;i,ijk-&gt;jk&quot;</span><span class="p">,</span> <span class="n">coefficients</span><span class="p">,</span> <span class="n">tracers</span><span class="p">)</span>
-</span><span id="L-701"><a href="#L-701"><span class="linenos">701</span></a>
-</span><span id="L-702"><a href="#L-702"><span class="linenos">702</span></a><span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
-</span><span id="L-703"><a href="#L-703"><span class="linenos">703</span></a>    <span class="n">name</span>
-</span><span id="L-704"><a href="#L-704"><span class="linenos">704</span></a>    <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">obj</span> <span class="ow">in</span> <span class="nb">globals</span><span class="p">()</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
-</span><span id="L-705"><a href="#L-705"><span class="linenos">705</span></a>    <span class="k">if</span> <span class="nb">callable</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="s2">&quot;__module__&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="o">==</span> <span class="vm">__name__</span>
-</span><span id="L-706"><a href="#L-706"><span class="linenos">706</span></a><span class="p">]</span>
+</span><span id="L-620"><a href="#L-620"><span class="linenos">620</span></a>    <span class="n">config_mc</span><span class="o">.</span><span class="n">pixel_window_out</span> <span class="o">=</span> <span class="kc">False</span>
+</span><span id="L-621"><a href="#L-621"><span class="linenos">621</span></a><span class="c1">#    config_mc.mask_type = &quot;mask_for_compsep&quot;</span>
+</span><span id="L-622"><a href="#L-622"><span class="linenos">622</span></a>
+</span><span id="L-623"><a href="#L-623"><span class="linenos">623</span></a>    <span class="k">if</span> <span class="n">config_mc</span><span class="o">.</span><span class="n">data_type</span> <span class="o">==</span> <span class="s2">&quot;maps&quot;</span><span class="p">:</span>
+</span><span id="L-624"><a href="#L-624"><span class="linenos">624</span></a>        <span class="n">config_mc</span><span class="o">.</span><span class="n">field_in</span> <span class="o">=</span> <span class="s2">&quot;QU&quot;</span>
+</span><span id="L-625"><a href="#L-625"><span class="linenos">625</span></a>        <span class="n">config_mc</span><span class="o">.</span><span class="n">mc_data_field</span> <span class="o">=</span> <span class="s2">&quot;TQU&quot;</span>
+</span><span id="L-626"><a href="#L-626"><span class="linenos">626</span></a>    <span class="k">elif</span> <span class="n">config_mc</span><span class="o">.</span><span class="n">data_type</span> <span class="o">==</span> <span class="s2">&quot;alms&quot;</span><span class="p">:</span>
+</span><span id="L-627"><a href="#L-627"><span class="linenos">627</span></a>        <span class="n">config_mc</span><span class="o">.</span><span class="n">field_in</span> <span class="o">=</span> <span class="s2">&quot;B&quot;</span>
+</span><span id="L-628"><a href="#L-628"><span class="linenos">628</span></a>        <span class="n">config_mc</span><span class="o">.</span><span class="n">mc_data_field</span> <span class="o">=</span> <span class="s2">&quot;TEB&quot;</span>
+</span><span id="L-629"><a href="#L-629"><span class="linenos">629</span></a>    <span class="n">config_mc</span><span class="o">.</span><span class="n">field_out</span> <span class="o">=</span> <span class="s2">&quot;B&quot;</span>
+</span><span id="L-630"><a href="#L-630"><span class="linenos">630</span></a>
+</span><span id="L-631"><a href="#L-631"><span class="linenos">631</span></a>    <span class="k">return</span> <span class="n">config_mc</span>
+</span><span id="L-632"><a href="#L-632"><span class="linenos">632</span></a>
+</span><span id="L-633"><a href="#L-633"><span class="linenos">633</span></a><span class="k">def</span><span class="w"> </span><span class="nf">get_mc_data</span><span class="p">(</span>
+</span><span id="L-634"><a href="#L-634"><span class="linenos">634</span></a>    <span class="n">config_mc</span><span class="p">:</span> <span class="s2">&quot;Configs&quot;</span><span class="p">,</span>
+</span><span id="L-635"><a href="#L-635"><span class="linenos">635</span></a>    <span class="n">foregrounds</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="L-636"><a href="#L-636"><span class="linenos">636</span></a>    <span class="n">systematics</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="L-637"><a href="#L-637"><span class="linenos">637</span></a>    <span class="o">**</span><span class="n">kwargs</span>
+</span><span id="L-638"><a href="#L-638"><span class="linenos">638</span></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+</span><span id="L-639"><a href="#L-639"><span class="linenos">639</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="L-640"><a href="#L-640"><span class="linenos">640</span></a><span class="sd">    Simulate the input data for the MC-ILC tracers generation based on the provided configuration.</span>
+</span><span id="L-641"><a href="#L-641"><span class="linenos">641</span></a>
+</span><span id="L-642"><a href="#L-642"><span class="linenos">642</span></a><span class="sd">    Parameters</span>
+</span><span id="L-643"><a href="#L-643"><span class="linenos">643</span></a><span class="sd">    ----------</span>
+</span><span id="L-644"><a href="#L-644"><span class="linenos">644</span></a><span class="sd">        config_mc : Configs</span>
+</span><span id="L-645"><a href="#L-645"><span class="linenos">645</span></a><span class="sd">            Configuration object for the MC-ILC tracers generation. See &#39;get_mc_config&#39; for details.</span>
+</span><span id="L-646"><a href="#L-646"><span class="linenos">646</span></a><span class="sd">        foregrounds : SimpleNamespace, optional</span>
+</span><span id="L-647"><a href="#L-647"><span class="linenos">647</span></a><span class="sd">            Foregrounds data to be used in the simulations for tracer generation. If None, the foregrounds will be generated using the configuration parameters.</span>
+</span><span id="L-648"><a href="#L-648"><span class="linenos">648</span></a><span class="sd">        kwargs : dict, optional</span>
+</span><span id="L-649"><a href="#L-649"><span class="linenos">649</span></a><span class="sd">            Additional keyword arguments to be passed to healpy &#39;map2alm&#39; function.</span>
+</span><span id="L-650"><a href="#L-650"><span class="linenos">650</span></a><span class="sd">    </span>
+</span><span id="L-651"><a href="#L-651"><span class="linenos">651</span></a><span class="sd">    Returns</span>
+</span><span id="L-652"><a href="#L-652"><span class="linenos">652</span></a><span class="sd">    -------</span>
+</span><span id="L-653"><a href="#L-653"><span class="linenos">653</span></a><span class="sd">        SimpleNamespace</span>
+</span><span id="L-654"><a href="#L-654"><span class="linenos">654</span></a><span class="sd">            A SimpleNamespace object containing the simulated data for the MC-ILC tracers generation. </span>
+</span><span id="L-655"><a href="#L-655"><span class="linenos">655</span></a><span class="sd">            It will have the following attributes:</span>
+</span><span id="L-656"><a href="#L-656"><span class="linenos">656</span></a><span class="sd">            - `total`: The total simulated data, which includes CMB, foregrounds, and noise.</span>
+</span><span id="L-657"><a href="#L-657"><span class="linenos">657</span></a><span class="sd">            - `cmb`: The simulated CMB data.</span>
+</span><span id="L-658"><a href="#L-658"><span class="linenos">658</span></a><span class="sd">            - `fgds`: The simulated foregrounds data.</span>
+</span><span id="L-659"><a href="#L-659"><span class="linenos">659</span></a><span class="sd">            - `noise`: The simulated noise data.</span>
+</span><span id="L-660"><a href="#L-660"><span class="linenos">660</span></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="L-661"><a href="#L-661"><span class="linenos">661</span></a>
+</span><span id="L-662"><a href="#L-662"><span class="linenos">662</span></a>    <span class="k">if</span> <span class="n">foregrounds</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="L-663"><a href="#L-663"><span class="linenos">663</span></a>        <span class="n">mc_foregrounds</span> <span class="o">=</span> <span class="n">_get_data_foregrounds_</span><span class="p">(</span><span class="n">config_mc</span><span class="p">)</span>
+</span><span id="L-664"><a href="#L-664"><span class="linenos">664</span></a>    <span class="k">else</span><span class="p">:</span>
+</span><span id="L-665"><a href="#L-665"><span class="linenos">665</span></a>        <span class="n">mc_foregrounds</span> <span class="o">=</span> <span class="n">SimpleNamespace</span><span class="p">()</span>
+</span><span id="L-666"><a href="#L-666"><span class="linenos">666</span></a>        <span class="n">mc_foregrounds</span><span class="o">.</span><span class="n">total</span> <span class="o">=</span> <span class="n">foregrounds</span>
+</span><span id="L-667"><a href="#L-667"><span class="linenos">667</span></a>
+</span><span id="L-668"><a href="#L-668"><span class="linenos">668</span></a>    <span class="n">mc_data</span> <span class="o">=</span> <span class="n">_get_data_simulations_</span><span class="p">(</span><span class="n">config_mc</span><span class="p">,</span> <span class="n">mc_foregrounds</span><span class="p">)</span>
+</span><span id="L-669"><a href="#L-669"><span class="linenos">669</span></a>
+</span><span id="L-670"><a href="#L-670"><span class="linenos">670</span></a>    <span class="k">if</span> <span class="n">systematics</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="L-671"><a href="#L-671"><span class="linenos">671</span></a>        <span class="n">mc_data</span><span class="o">.</span><span class="n">total</span> <span class="o">=</span> <span class="n">mc_data</span><span class="o">.</span><span class="n">total</span> <span class="o">+</span> <span class="n">systematics</span>
+</span><span id="L-672"><a href="#L-672"><span class="linenos">672</span></a>
+</span><span id="L-673"><a href="#L-673"><span class="linenos">673</span></a>    <span class="k">return</span> <span class="n">_slice_data</span><span class="p">(</span><span class="n">mc_data</span><span class="p">,</span> <span class="n">config_mc</span><span class="o">.</span><span class="n">mc_data_field</span><span class="p">,</span> <span class="n">config_mc</span><span class="o">.</span><span class="n">field_in</span><span class="p">)</span>
+</span><span id="L-674"><a href="#L-674"><span class="linenos">674</span></a>
+</span><span id="L-675"><a href="#L-675"><span class="linenos">675</span></a><span class="k">def</span><span class="w"> </span><span class="nf">_combine_B_tracers</span><span class="p">(</span><span class="n">tracers</span><span class="p">,</span> <span class="n">coefficients</span><span class="o">=</span><span class="p">[</span><span class="mf">0.7</span><span class="p">,</span><span class="mf">0.3</span><span class="p">]):</span>
+</span><span id="L-676"><a href="#L-676"><span class="linenos">676</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="L-677"><a href="#L-677"><span class="linenos">677</span></a><span class="sd">    Combine the scalar tracers using the provided coefficients.</span>
+</span><span id="L-678"><a href="#L-678"><span class="linenos">678</span></a>
+</span><span id="L-679"><a href="#L-679"><span class="linenos">679</span></a><span class="sd">    Parameters</span>
+</span><span id="L-680"><a href="#L-680"><span class="linenos">680</span></a><span class="sd">    ----------</span>
+</span><span id="L-681"><a href="#L-681"><span class="linenos">681</span></a><span class="sd">        tracers : np.ndarray</span>
+</span><span id="L-682"><a href="#L-682"><span class="linenos">682</span></a><span class="sd">            The scalar tracers to be combined. It can be either a 3D array (multiple tracers) or a 2D array (single tracer).</span>
+</span><span id="L-683"><a href="#L-683"><span class="linenos">683</span></a><span class="sd">            If 2D, it should have shape (n_channels, n_pixels).</span>
+</span><span id="L-684"><a href="#L-684"><span class="linenos">684</span></a><span class="sd">        coefficients : List[float], optional</span>
+</span><span id="L-685"><a href="#L-685"><span class="linenos">685</span></a><span class="sd">            List of coefficients to be used for combining the tracers. Default is [0.7, 0.3].</span>
+</span><span id="L-686"><a href="#L-686"><span class="linenos">686</span></a><span class="sd">            The coefficients should sum to 1. If they do not, they will be normalized.</span>
+</span><span id="L-687"><a href="#L-687"><span class="linenos">687</span></a><span class="sd">    </span>
+</span><span id="L-688"><a href="#L-688"><span class="linenos">688</span></a><span class="sd">    Returns</span>
+</span><span id="L-689"><a href="#L-689"><span class="linenos">689</span></a><span class="sd">    -------</span>
+</span><span id="L-690"><a href="#L-690"><span class="linenos">690</span></a><span class="sd">        np.ndarray</span>
+</span><span id="L-691"><a href="#L-691"><span class="linenos">691</span></a><span class="sd">            The combined scalar tracers. If `tracers` is a 2D array, it returns the tracers as is.</span>
+</span><span id="L-692"><a href="#L-692"><span class="linenos">692</span></a><span class="sd">            If `tracers` is a 3D array, it returns the weighted sum of the tracers using the provided coefficients. </span>
+</span><span id="L-693"><a href="#L-693"><span class="linenos">693</span></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="L-694"><a href="#L-694"><span class="linenos">694</span></a>
+</span><span id="L-695"><a href="#L-695"><span class="linenos">695</span></a>    <span class="k">if</span> <span class="n">tracers</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+</span><span id="L-696"><a href="#L-696"><span class="linenos">696</span></a>        <span class="k">return</span> <span class="n">tracers</span>
+</span><span id="L-697"><a href="#L-697"><span class="linenos">697</span></a>    <span class="k">elif</span> <span class="n">tracers</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+</span><span id="L-698"><a href="#L-698"><span class="linenos">698</span></a>        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">coefficients</span><span class="p">)</span> <span class="o">!=</span> <span class="n">tracers</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]:</span>
+</span><span id="L-699"><a href="#L-699"><span class="linenos">699</span></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;The number of coefficients must match the number of tracers.&quot;</span><span class="p">)</span>
+</span><span id="L-700"><a href="#L-700"><span class="linenos">700</span></a>        <span class="n">coefficients</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">coefficients</span><span class="p">)</span> <span class="o">/</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">coefficients</span><span class="p">)</span>
+</span><span id="L-701"><a href="#L-701"><span class="linenos">701</span></a>        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">einsum</span><span class="p">(</span><span class="s2">&quot;i,ijk-&gt;jk&quot;</span><span class="p">,</span> <span class="n">coefficients</span><span class="p">,</span> <span class="n">tracers</span><span class="p">)</span>
+</span><span id="L-702"><a href="#L-702"><span class="linenos">702</span></a>
+</span><span id="L-703"><a href="#L-703"><span class="linenos">703</span></a><span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+</span><span id="L-704"><a href="#L-704"><span class="linenos">704</span></a>    <span class="n">name</span>
+</span><span id="L-705"><a href="#L-705"><span class="linenos">705</span></a>    <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">obj</span> <span class="ow">in</span> <span class="nb">globals</span><span class="p">()</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+</span><span id="L-706"><a href="#L-706"><span class="linenos">706</span></a>    <span class="k">if</span> <span class="nb">callable</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="s2">&quot;__module__&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="o">==</span> <span class="vm">__name__</span>
+</span><span id="L-707"><a href="#L-707"><span class="linenos">707</span></a><span class="p">]</span>
 </span></pre></div>
 
 
@@ -1903,17 +1904,18 @@ Maximum multipole for the component separation and analysis.</li>
 </span><span id="get_mc_config-618"><a href="#get_mc_config-618"><span class="linenos">618</span></a>
 </span><span id="get_mc_config-619"><a href="#get_mc_config-619"><span class="linenos">619</span></a>    <span class="n">config_mc</span><span class="o">.</span><span class="n">save_compsep_products</span> <span class="o">=</span> <span class="kc">False</span> <span class="c1">#</span>
 </span><span id="get_mc_config-620"><a href="#get_mc_config-620"><span class="linenos">620</span></a>    <span class="n">config_mc</span><span class="o">.</span><span class="n">return_compsep_products</span> <span class="o">=</span> <span class="kc">True</span>
-</span><span id="get_mc_config-621"><a href="#get_mc_config-621"><span class="linenos">621</span></a><span class="c1">#    config_mc.mask_type = &quot;mask_for_compsep&quot;</span>
-</span><span id="get_mc_config-622"><a href="#get_mc_config-622"><span class="linenos">622</span></a>
-</span><span id="get_mc_config-623"><a href="#get_mc_config-623"><span class="linenos">623</span></a>    <span class="k">if</span> <span class="n">config_mc</span><span class="o">.</span><span class="n">data_type</span> <span class="o">==</span> <span class="s2">&quot;maps&quot;</span><span class="p">:</span>
-</span><span id="get_mc_config-624"><a href="#get_mc_config-624"><span class="linenos">624</span></a>        <span class="n">config_mc</span><span class="o">.</span><span class="n">field_in</span> <span class="o">=</span> <span class="s2">&quot;QU&quot;</span>
-</span><span id="get_mc_config-625"><a href="#get_mc_config-625"><span class="linenos">625</span></a>        <span class="n">config_mc</span><span class="o">.</span><span class="n">mc_data_field</span> <span class="o">=</span> <span class="s2">&quot;TQU&quot;</span>
-</span><span id="get_mc_config-626"><a href="#get_mc_config-626"><span class="linenos">626</span></a>    <span class="k">elif</span> <span class="n">config_mc</span><span class="o">.</span><span class="n">data_type</span> <span class="o">==</span> <span class="s2">&quot;alms&quot;</span><span class="p">:</span>
-</span><span id="get_mc_config-627"><a href="#get_mc_config-627"><span class="linenos">627</span></a>        <span class="n">config_mc</span><span class="o">.</span><span class="n">field_in</span> <span class="o">=</span> <span class="s2">&quot;B&quot;</span>
-</span><span id="get_mc_config-628"><a href="#get_mc_config-628"><span class="linenos">628</span></a>        <span class="n">config_mc</span><span class="o">.</span><span class="n">mc_data_field</span> <span class="o">=</span> <span class="s2">&quot;TEB&quot;</span>
-</span><span id="get_mc_config-629"><a href="#get_mc_config-629"><span class="linenos">629</span></a>    <span class="n">config_mc</span><span class="o">.</span><span class="n">field_out</span> <span class="o">=</span> <span class="s2">&quot;B&quot;</span>
-</span><span id="get_mc_config-630"><a href="#get_mc_config-630"><span class="linenos">630</span></a>
-</span><span id="get_mc_config-631"><a href="#get_mc_config-631"><span class="linenos">631</span></a>    <span class="k">return</span> <span class="n">config_mc</span>
+</span><span id="get_mc_config-621"><a href="#get_mc_config-621"><span class="linenos">621</span></a>    <span class="n">config_mc</span><span class="o">.</span><span class="n">pixel_window_out</span> <span class="o">=</span> <span class="kc">False</span>
+</span><span id="get_mc_config-622"><a href="#get_mc_config-622"><span class="linenos">622</span></a><span class="c1">#    config_mc.mask_type = &quot;mask_for_compsep&quot;</span>
+</span><span id="get_mc_config-623"><a href="#get_mc_config-623"><span class="linenos">623</span></a>
+</span><span id="get_mc_config-624"><a href="#get_mc_config-624"><span class="linenos">624</span></a>    <span class="k">if</span> <span class="n">config_mc</span><span class="o">.</span><span class="n">data_type</span> <span class="o">==</span> <span class="s2">&quot;maps&quot;</span><span class="p">:</span>
+</span><span id="get_mc_config-625"><a href="#get_mc_config-625"><span class="linenos">625</span></a>        <span class="n">config_mc</span><span class="o">.</span><span class="n">field_in</span> <span class="o">=</span> <span class="s2">&quot;QU&quot;</span>
+</span><span id="get_mc_config-626"><a href="#get_mc_config-626"><span class="linenos">626</span></a>        <span class="n">config_mc</span><span class="o">.</span><span class="n">mc_data_field</span> <span class="o">=</span> <span class="s2">&quot;TQU&quot;</span>
+</span><span id="get_mc_config-627"><a href="#get_mc_config-627"><span class="linenos">627</span></a>    <span class="k">elif</span> <span class="n">config_mc</span><span class="o">.</span><span class="n">data_type</span> <span class="o">==</span> <span class="s2">&quot;alms&quot;</span><span class="p">:</span>
+</span><span id="get_mc_config-628"><a href="#get_mc_config-628"><span class="linenos">628</span></a>        <span class="n">config_mc</span><span class="o">.</span><span class="n">field_in</span> <span class="o">=</span> <span class="s2">&quot;B&quot;</span>
+</span><span id="get_mc_config-629"><a href="#get_mc_config-629"><span class="linenos">629</span></a>        <span class="n">config_mc</span><span class="o">.</span><span class="n">mc_data_field</span> <span class="o">=</span> <span class="s2">&quot;TEB&quot;</span>
+</span><span id="get_mc_config-630"><a href="#get_mc_config-630"><span class="linenos">630</span></a>    <span class="n">config_mc</span><span class="o">.</span><span class="n">field_out</span> <span class="o">=</span> <span class="s2">&quot;B&quot;</span>
+</span><span id="get_mc_config-631"><a href="#get_mc_config-631"><span class="linenos">631</span></a>
+</span><span id="get_mc_config-632"><a href="#get_mc_config-632"><span class="linenos">632</span></a>    <span class="k">return</span> <span class="n">config_mc</span>
 </span></pre></div>
 
 
@@ -1949,47 +1951,47 @@ tracers_inputs_path : str
 
     </div>
     <a class="headerlink" href="#get_mc_data"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="get_mc_data-633"><a href="#get_mc_data-633"><span class="linenos">633</span></a><span class="k">def</span><span class="w"> </span><span class="nf">get_mc_data</span><span class="p">(</span>
-</span><span id="get_mc_data-634"><a href="#get_mc_data-634"><span class="linenos">634</span></a>    <span class="n">config_mc</span><span class="p">:</span> <span class="s2">&quot;Configs&quot;</span><span class="p">,</span>
-</span><span id="get_mc_data-635"><a href="#get_mc_data-635"><span class="linenos">635</span></a>    <span class="n">foregrounds</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-</span><span id="get_mc_data-636"><a href="#get_mc_data-636"><span class="linenos">636</span></a>    <span class="n">systematics</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-</span><span id="get_mc_data-637"><a href="#get_mc_data-637"><span class="linenos">637</span></a>    <span class="o">**</span><span class="n">kwargs</span>
-</span><span id="get_mc_data-638"><a href="#get_mc_data-638"><span class="linenos">638</span></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
-</span><span id="get_mc_data-639"><a href="#get_mc_data-639"><span class="linenos">639</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="get_mc_data-640"><a href="#get_mc_data-640"><span class="linenos">640</span></a><span class="sd">    Simulate the input data for the MC-ILC tracers generation based on the provided configuration.</span>
-</span><span id="get_mc_data-641"><a href="#get_mc_data-641"><span class="linenos">641</span></a>
-</span><span id="get_mc_data-642"><a href="#get_mc_data-642"><span class="linenos">642</span></a><span class="sd">    Parameters</span>
-</span><span id="get_mc_data-643"><a href="#get_mc_data-643"><span class="linenos">643</span></a><span class="sd">    ----------</span>
-</span><span id="get_mc_data-644"><a href="#get_mc_data-644"><span class="linenos">644</span></a><span class="sd">        config_mc : Configs</span>
-</span><span id="get_mc_data-645"><a href="#get_mc_data-645"><span class="linenos">645</span></a><span class="sd">            Configuration object for the MC-ILC tracers generation. See &#39;get_mc_config&#39; for details.</span>
-</span><span id="get_mc_data-646"><a href="#get_mc_data-646"><span class="linenos">646</span></a><span class="sd">        foregrounds : SimpleNamespace, optional</span>
-</span><span id="get_mc_data-647"><a href="#get_mc_data-647"><span class="linenos">647</span></a><span class="sd">            Foregrounds data to be used in the simulations for tracer generation. If None, the foregrounds will be generated using the configuration parameters.</span>
-</span><span id="get_mc_data-648"><a href="#get_mc_data-648"><span class="linenos">648</span></a><span class="sd">        kwargs : dict, optional</span>
-</span><span id="get_mc_data-649"><a href="#get_mc_data-649"><span class="linenos">649</span></a><span class="sd">            Additional keyword arguments to be passed to healpy &#39;map2alm&#39; function.</span>
-</span><span id="get_mc_data-650"><a href="#get_mc_data-650"><span class="linenos">650</span></a><span class="sd">    </span>
-</span><span id="get_mc_data-651"><a href="#get_mc_data-651"><span class="linenos">651</span></a><span class="sd">    Returns</span>
-</span><span id="get_mc_data-652"><a href="#get_mc_data-652"><span class="linenos">652</span></a><span class="sd">    -------</span>
-</span><span id="get_mc_data-653"><a href="#get_mc_data-653"><span class="linenos">653</span></a><span class="sd">        SimpleNamespace</span>
-</span><span id="get_mc_data-654"><a href="#get_mc_data-654"><span class="linenos">654</span></a><span class="sd">            A SimpleNamespace object containing the simulated data for the MC-ILC tracers generation. </span>
-</span><span id="get_mc_data-655"><a href="#get_mc_data-655"><span class="linenos">655</span></a><span class="sd">            It will have the following attributes:</span>
-</span><span id="get_mc_data-656"><a href="#get_mc_data-656"><span class="linenos">656</span></a><span class="sd">            - `total`: The total simulated data, which includes CMB, foregrounds, and noise.</span>
-</span><span id="get_mc_data-657"><a href="#get_mc_data-657"><span class="linenos">657</span></a><span class="sd">            - `cmb`: The simulated CMB data.</span>
-</span><span id="get_mc_data-658"><a href="#get_mc_data-658"><span class="linenos">658</span></a><span class="sd">            - `fgds`: The simulated foregrounds data.</span>
-</span><span id="get_mc_data-659"><a href="#get_mc_data-659"><span class="linenos">659</span></a><span class="sd">            - `noise`: The simulated noise data.</span>
-</span><span id="get_mc_data-660"><a href="#get_mc_data-660"><span class="linenos">660</span></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="get_mc_data-661"><a href="#get_mc_data-661"><span class="linenos">661</span></a>
-</span><span id="get_mc_data-662"><a href="#get_mc_data-662"><span class="linenos">662</span></a>    <span class="k">if</span> <span class="n">foregrounds</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="get_mc_data-663"><a href="#get_mc_data-663"><span class="linenos">663</span></a>        <span class="n">mc_foregrounds</span> <span class="o">=</span> <span class="n">_get_data_foregrounds_</span><span class="p">(</span><span class="n">config_mc</span><span class="p">)</span>
-</span><span id="get_mc_data-664"><a href="#get_mc_data-664"><span class="linenos">664</span></a>    <span class="k">else</span><span class="p">:</span>
-</span><span id="get_mc_data-665"><a href="#get_mc_data-665"><span class="linenos">665</span></a>        <span class="n">mc_foregrounds</span> <span class="o">=</span> <span class="n">SimpleNamespace</span><span class="p">()</span>
-</span><span id="get_mc_data-666"><a href="#get_mc_data-666"><span class="linenos">666</span></a>        <span class="n">mc_foregrounds</span><span class="o">.</span><span class="n">total</span> <span class="o">=</span> <span class="n">foregrounds</span>
-</span><span id="get_mc_data-667"><a href="#get_mc_data-667"><span class="linenos">667</span></a>
-</span><span id="get_mc_data-668"><a href="#get_mc_data-668"><span class="linenos">668</span></a>    <span class="n">mc_data</span> <span class="o">=</span> <span class="n">_get_data_simulations_</span><span class="p">(</span><span class="n">config_mc</span><span class="p">,</span> <span class="n">mc_foregrounds</span><span class="p">)</span>
-</span><span id="get_mc_data-669"><a href="#get_mc_data-669"><span class="linenos">669</span></a>
-</span><span id="get_mc_data-670"><a href="#get_mc_data-670"><span class="linenos">670</span></a>    <span class="k">if</span> <span class="n">systematics</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="get_mc_data-671"><a href="#get_mc_data-671"><span class="linenos">671</span></a>        <span class="n">mc_data</span><span class="o">.</span><span class="n">total</span> <span class="o">=</span> <span class="n">mc_data</span><span class="o">.</span><span class="n">total</span> <span class="o">+</span> <span class="n">systematics</span>
-</span><span id="get_mc_data-672"><a href="#get_mc_data-672"><span class="linenos">672</span></a>
-</span><span id="get_mc_data-673"><a href="#get_mc_data-673"><span class="linenos">673</span></a>    <span class="k">return</span> <span class="n">_slice_data</span><span class="p">(</span><span class="n">mc_data</span><span class="p">,</span> <span class="n">config_mc</span><span class="o">.</span><span class="n">mc_data_field</span><span class="p">,</span> <span class="n">config_mc</span><span class="o">.</span><span class="n">field_in</span><span class="p">)</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="get_mc_data-634"><a href="#get_mc_data-634"><span class="linenos">634</span></a><span class="k">def</span><span class="w"> </span><span class="nf">get_mc_data</span><span class="p">(</span>
+</span><span id="get_mc_data-635"><a href="#get_mc_data-635"><span class="linenos">635</span></a>    <span class="n">config_mc</span><span class="p">:</span> <span class="s2">&quot;Configs&quot;</span><span class="p">,</span>
+</span><span id="get_mc_data-636"><a href="#get_mc_data-636"><span class="linenos">636</span></a>    <span class="n">foregrounds</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="get_mc_data-637"><a href="#get_mc_data-637"><span class="linenos">637</span></a>    <span class="n">systematics</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="get_mc_data-638"><a href="#get_mc_data-638"><span class="linenos">638</span></a>    <span class="o">**</span><span class="n">kwargs</span>
+</span><span id="get_mc_data-639"><a href="#get_mc_data-639"><span class="linenos">639</span></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+</span><span id="get_mc_data-640"><a href="#get_mc_data-640"><span class="linenos">640</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="get_mc_data-641"><a href="#get_mc_data-641"><span class="linenos">641</span></a><span class="sd">    Simulate the input data for the MC-ILC tracers generation based on the provided configuration.</span>
+</span><span id="get_mc_data-642"><a href="#get_mc_data-642"><span class="linenos">642</span></a>
+</span><span id="get_mc_data-643"><a href="#get_mc_data-643"><span class="linenos">643</span></a><span class="sd">    Parameters</span>
+</span><span id="get_mc_data-644"><a href="#get_mc_data-644"><span class="linenos">644</span></a><span class="sd">    ----------</span>
+</span><span id="get_mc_data-645"><a href="#get_mc_data-645"><span class="linenos">645</span></a><span class="sd">        config_mc : Configs</span>
+</span><span id="get_mc_data-646"><a href="#get_mc_data-646"><span class="linenos">646</span></a><span class="sd">            Configuration object for the MC-ILC tracers generation. See &#39;get_mc_config&#39; for details.</span>
+</span><span id="get_mc_data-647"><a href="#get_mc_data-647"><span class="linenos">647</span></a><span class="sd">        foregrounds : SimpleNamespace, optional</span>
+</span><span id="get_mc_data-648"><a href="#get_mc_data-648"><span class="linenos">648</span></a><span class="sd">            Foregrounds data to be used in the simulations for tracer generation. If None, the foregrounds will be generated using the configuration parameters.</span>
+</span><span id="get_mc_data-649"><a href="#get_mc_data-649"><span class="linenos">649</span></a><span class="sd">        kwargs : dict, optional</span>
+</span><span id="get_mc_data-650"><a href="#get_mc_data-650"><span class="linenos">650</span></a><span class="sd">            Additional keyword arguments to be passed to healpy &#39;map2alm&#39; function.</span>
+</span><span id="get_mc_data-651"><a href="#get_mc_data-651"><span class="linenos">651</span></a><span class="sd">    </span>
+</span><span id="get_mc_data-652"><a href="#get_mc_data-652"><span class="linenos">652</span></a><span class="sd">    Returns</span>
+</span><span id="get_mc_data-653"><a href="#get_mc_data-653"><span class="linenos">653</span></a><span class="sd">    -------</span>
+</span><span id="get_mc_data-654"><a href="#get_mc_data-654"><span class="linenos">654</span></a><span class="sd">        SimpleNamespace</span>
+</span><span id="get_mc_data-655"><a href="#get_mc_data-655"><span class="linenos">655</span></a><span class="sd">            A SimpleNamespace object containing the simulated data for the MC-ILC tracers generation. </span>
+</span><span id="get_mc_data-656"><a href="#get_mc_data-656"><span class="linenos">656</span></a><span class="sd">            It will have the following attributes:</span>
+</span><span id="get_mc_data-657"><a href="#get_mc_data-657"><span class="linenos">657</span></a><span class="sd">            - `total`: The total simulated data, which includes CMB, foregrounds, and noise.</span>
+</span><span id="get_mc_data-658"><a href="#get_mc_data-658"><span class="linenos">658</span></a><span class="sd">            - `cmb`: The simulated CMB data.</span>
+</span><span id="get_mc_data-659"><a href="#get_mc_data-659"><span class="linenos">659</span></a><span class="sd">            - `fgds`: The simulated foregrounds data.</span>
+</span><span id="get_mc_data-660"><a href="#get_mc_data-660"><span class="linenos">660</span></a><span class="sd">            - `noise`: The simulated noise data.</span>
+</span><span id="get_mc_data-661"><a href="#get_mc_data-661"><span class="linenos">661</span></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="get_mc_data-662"><a href="#get_mc_data-662"><span class="linenos">662</span></a>
+</span><span id="get_mc_data-663"><a href="#get_mc_data-663"><span class="linenos">663</span></a>    <span class="k">if</span> <span class="n">foregrounds</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="get_mc_data-664"><a href="#get_mc_data-664"><span class="linenos">664</span></a>        <span class="n">mc_foregrounds</span> <span class="o">=</span> <span class="n">_get_data_foregrounds_</span><span class="p">(</span><span class="n">config_mc</span><span class="p">)</span>
+</span><span id="get_mc_data-665"><a href="#get_mc_data-665"><span class="linenos">665</span></a>    <span class="k">else</span><span class="p">:</span>
+</span><span id="get_mc_data-666"><a href="#get_mc_data-666"><span class="linenos">666</span></a>        <span class="n">mc_foregrounds</span> <span class="o">=</span> <span class="n">SimpleNamespace</span><span class="p">()</span>
+</span><span id="get_mc_data-667"><a href="#get_mc_data-667"><span class="linenos">667</span></a>        <span class="n">mc_foregrounds</span><span class="o">.</span><span class="n">total</span> <span class="o">=</span> <span class="n">foregrounds</span>
+</span><span id="get_mc_data-668"><a href="#get_mc_data-668"><span class="linenos">668</span></a>
+</span><span id="get_mc_data-669"><a href="#get_mc_data-669"><span class="linenos">669</span></a>    <span class="n">mc_data</span> <span class="o">=</span> <span class="n">_get_data_simulations_</span><span class="p">(</span><span class="n">config_mc</span><span class="p">,</span> <span class="n">mc_foregrounds</span><span class="p">)</span>
+</span><span id="get_mc_data-670"><a href="#get_mc_data-670"><span class="linenos">670</span></a>
+</span><span id="get_mc_data-671"><a href="#get_mc_data-671"><span class="linenos">671</span></a>    <span class="k">if</span> <span class="n">systematics</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="get_mc_data-672"><a href="#get_mc_data-672"><span class="linenos">672</span></a>        <span class="n">mc_data</span><span class="o">.</span><span class="n">total</span> <span class="o">=</span> <span class="n">mc_data</span><span class="o">.</span><span class="n">total</span> <span class="o">+</span> <span class="n">systematics</span>
+</span><span id="get_mc_data-673"><a href="#get_mc_data-673"><span class="linenos">673</span></a>
+</span><span id="get_mc_data-674"><a href="#get_mc_data-674"><span class="linenos">674</span></a>    <span class="k">return</span> <span class="n">_slice_data</span><span class="p">(</span><span class="n">mc_data</span><span class="p">,</span> <span class="n">config_mc</span><span class="o">.</span><span class="n">mc_data_field</span><span class="p">,</span> <span class="n">config_mc</span><span class="o">.</span><span class="n">field_in</span><span class="p">)</span>
 </span></pre></div>
 
 
@@ -2033,33 +2035,33 @@ It will have the following attributes:
 
     </div>
     <a class="headerlink" href="#_combine_B_tracers"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="_combine_B_tracers-675"><a href="#_combine_B_tracers-675"><span class="linenos">675</span></a><span class="k">def</span><span class="w"> </span><span class="nf">_combine_B_tracers</span><span class="p">(</span><span class="n">tracers</span><span class="p">,</span> <span class="n">coefficients</span><span class="o">=</span><span class="p">[</span><span class="mf">0.7</span><span class="p">,</span><span class="mf">0.3</span><span class="p">]):</span>
-</span><span id="_combine_B_tracers-676"><a href="#_combine_B_tracers-676"><span class="linenos">676</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="_combine_B_tracers-677"><a href="#_combine_B_tracers-677"><span class="linenos">677</span></a><span class="sd">    Combine the scalar tracers using the provided coefficients.</span>
-</span><span id="_combine_B_tracers-678"><a href="#_combine_B_tracers-678"><span class="linenos">678</span></a>
-</span><span id="_combine_B_tracers-679"><a href="#_combine_B_tracers-679"><span class="linenos">679</span></a><span class="sd">    Parameters</span>
-</span><span id="_combine_B_tracers-680"><a href="#_combine_B_tracers-680"><span class="linenos">680</span></a><span class="sd">    ----------</span>
-</span><span id="_combine_B_tracers-681"><a href="#_combine_B_tracers-681"><span class="linenos">681</span></a><span class="sd">        tracers : np.ndarray</span>
-</span><span id="_combine_B_tracers-682"><a href="#_combine_B_tracers-682"><span class="linenos">682</span></a><span class="sd">            The scalar tracers to be combined. It can be either a 3D array (multiple tracers) or a 2D array (single tracer).</span>
-</span><span id="_combine_B_tracers-683"><a href="#_combine_B_tracers-683"><span class="linenos">683</span></a><span class="sd">            If 2D, it should have shape (n_channels, n_pixels).</span>
-</span><span id="_combine_B_tracers-684"><a href="#_combine_B_tracers-684"><span class="linenos">684</span></a><span class="sd">        coefficients : List[float], optional</span>
-</span><span id="_combine_B_tracers-685"><a href="#_combine_B_tracers-685"><span class="linenos">685</span></a><span class="sd">            List of coefficients to be used for combining the tracers. Default is [0.7, 0.3].</span>
-</span><span id="_combine_B_tracers-686"><a href="#_combine_B_tracers-686"><span class="linenos">686</span></a><span class="sd">            The coefficients should sum to 1. If they do not, they will be normalized.</span>
-</span><span id="_combine_B_tracers-687"><a href="#_combine_B_tracers-687"><span class="linenos">687</span></a><span class="sd">    </span>
-</span><span id="_combine_B_tracers-688"><a href="#_combine_B_tracers-688"><span class="linenos">688</span></a><span class="sd">    Returns</span>
-</span><span id="_combine_B_tracers-689"><a href="#_combine_B_tracers-689"><span class="linenos">689</span></a><span class="sd">    -------</span>
-</span><span id="_combine_B_tracers-690"><a href="#_combine_B_tracers-690"><span class="linenos">690</span></a><span class="sd">        np.ndarray</span>
-</span><span id="_combine_B_tracers-691"><a href="#_combine_B_tracers-691"><span class="linenos">691</span></a><span class="sd">            The combined scalar tracers. If `tracers` is a 2D array, it returns the tracers as is.</span>
-</span><span id="_combine_B_tracers-692"><a href="#_combine_B_tracers-692"><span class="linenos">692</span></a><span class="sd">            If `tracers` is a 3D array, it returns the weighted sum of the tracers using the provided coefficients. </span>
-</span><span id="_combine_B_tracers-693"><a href="#_combine_B_tracers-693"><span class="linenos">693</span></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="_combine_B_tracers-694"><a href="#_combine_B_tracers-694"><span class="linenos">694</span></a>
-</span><span id="_combine_B_tracers-695"><a href="#_combine_B_tracers-695"><span class="linenos">695</span></a>    <span class="k">if</span> <span class="n">tracers</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
-</span><span id="_combine_B_tracers-696"><a href="#_combine_B_tracers-696"><span class="linenos">696</span></a>        <span class="k">return</span> <span class="n">tracers</span>
-</span><span id="_combine_B_tracers-697"><a href="#_combine_B_tracers-697"><span class="linenos">697</span></a>    <span class="k">elif</span> <span class="n">tracers</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
-</span><span id="_combine_B_tracers-698"><a href="#_combine_B_tracers-698"><span class="linenos">698</span></a>        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">coefficients</span><span class="p">)</span> <span class="o">!=</span> <span class="n">tracers</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]:</span>
-</span><span id="_combine_B_tracers-699"><a href="#_combine_B_tracers-699"><span class="linenos">699</span></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;The number of coefficients must match the number of tracers.&quot;</span><span class="p">)</span>
-</span><span id="_combine_B_tracers-700"><a href="#_combine_B_tracers-700"><span class="linenos">700</span></a>        <span class="n">coefficients</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">coefficients</span><span class="p">)</span> <span class="o">/</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">coefficients</span><span class="p">)</span>
-</span><span id="_combine_B_tracers-701"><a href="#_combine_B_tracers-701"><span class="linenos">701</span></a>        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">einsum</span><span class="p">(</span><span class="s2">&quot;i,ijk-&gt;jk&quot;</span><span class="p">,</span> <span class="n">coefficients</span><span class="p">,</span> <span class="n">tracers</span><span class="p">)</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="_combine_B_tracers-676"><a href="#_combine_B_tracers-676"><span class="linenos">676</span></a><span class="k">def</span><span class="w"> </span><span class="nf">_combine_B_tracers</span><span class="p">(</span><span class="n">tracers</span><span class="p">,</span> <span class="n">coefficients</span><span class="o">=</span><span class="p">[</span><span class="mf">0.7</span><span class="p">,</span><span class="mf">0.3</span><span class="p">]):</span>
+</span><span id="_combine_B_tracers-677"><a href="#_combine_B_tracers-677"><span class="linenos">677</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="_combine_B_tracers-678"><a href="#_combine_B_tracers-678"><span class="linenos">678</span></a><span class="sd">    Combine the scalar tracers using the provided coefficients.</span>
+</span><span id="_combine_B_tracers-679"><a href="#_combine_B_tracers-679"><span class="linenos">679</span></a>
+</span><span id="_combine_B_tracers-680"><a href="#_combine_B_tracers-680"><span class="linenos">680</span></a><span class="sd">    Parameters</span>
+</span><span id="_combine_B_tracers-681"><a href="#_combine_B_tracers-681"><span class="linenos">681</span></a><span class="sd">    ----------</span>
+</span><span id="_combine_B_tracers-682"><a href="#_combine_B_tracers-682"><span class="linenos">682</span></a><span class="sd">        tracers : np.ndarray</span>
+</span><span id="_combine_B_tracers-683"><a href="#_combine_B_tracers-683"><span class="linenos">683</span></a><span class="sd">            The scalar tracers to be combined. It can be either a 3D array (multiple tracers) or a 2D array (single tracer).</span>
+</span><span id="_combine_B_tracers-684"><a href="#_combine_B_tracers-684"><span class="linenos">684</span></a><span class="sd">            If 2D, it should have shape (n_channels, n_pixels).</span>
+</span><span id="_combine_B_tracers-685"><a href="#_combine_B_tracers-685"><span class="linenos">685</span></a><span class="sd">        coefficients : List[float], optional</span>
+</span><span id="_combine_B_tracers-686"><a href="#_combine_B_tracers-686"><span class="linenos">686</span></a><span class="sd">            List of coefficients to be used for combining the tracers. Default is [0.7, 0.3].</span>
+</span><span id="_combine_B_tracers-687"><a href="#_combine_B_tracers-687"><span class="linenos">687</span></a><span class="sd">            The coefficients should sum to 1. If they do not, they will be normalized.</span>
+</span><span id="_combine_B_tracers-688"><a href="#_combine_B_tracers-688"><span class="linenos">688</span></a><span class="sd">    </span>
+</span><span id="_combine_B_tracers-689"><a href="#_combine_B_tracers-689"><span class="linenos">689</span></a><span class="sd">    Returns</span>
+</span><span id="_combine_B_tracers-690"><a href="#_combine_B_tracers-690"><span class="linenos">690</span></a><span class="sd">    -------</span>
+</span><span id="_combine_B_tracers-691"><a href="#_combine_B_tracers-691"><span class="linenos">691</span></a><span class="sd">        np.ndarray</span>
+</span><span id="_combine_B_tracers-692"><a href="#_combine_B_tracers-692"><span class="linenos">692</span></a><span class="sd">            The combined scalar tracers. If `tracers` is a 2D array, it returns the tracers as is.</span>
+</span><span id="_combine_B_tracers-693"><a href="#_combine_B_tracers-693"><span class="linenos">693</span></a><span class="sd">            If `tracers` is a 3D array, it returns the weighted sum of the tracers using the provided coefficients. </span>
+</span><span id="_combine_B_tracers-694"><a href="#_combine_B_tracers-694"><span class="linenos">694</span></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="_combine_B_tracers-695"><a href="#_combine_B_tracers-695"><span class="linenos">695</span></a>
+</span><span id="_combine_B_tracers-696"><a href="#_combine_B_tracers-696"><span class="linenos">696</span></a>    <span class="k">if</span> <span class="n">tracers</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+</span><span id="_combine_B_tracers-697"><a href="#_combine_B_tracers-697"><span class="linenos">697</span></a>        <span class="k">return</span> <span class="n">tracers</span>
+</span><span id="_combine_B_tracers-698"><a href="#_combine_B_tracers-698"><span class="linenos">698</span></a>    <span class="k">elif</span> <span class="n">tracers</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+</span><span id="_combine_B_tracers-699"><a href="#_combine_B_tracers-699"><span class="linenos">699</span></a>        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">coefficients</span><span class="p">)</span> <span class="o">!=</span> <span class="n">tracers</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]:</span>
+</span><span id="_combine_B_tracers-700"><a href="#_combine_B_tracers-700"><span class="linenos">700</span></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;The number of coefficients must match the number of tracers.&quot;</span><span class="p">)</span>
+</span><span id="_combine_B_tracers-701"><a href="#_combine_B_tracers-701"><span class="linenos">701</span></a>        <span class="n">coefficients</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">coefficients</span><span class="p">)</span> <span class="o">/</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">coefficients</span><span class="p">)</span>
+</span><span id="_combine_B_tracers-702"><a href="#_combine_B_tracers-702"><span class="linenos">702</span></a>        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">einsum</span><span class="p">(</span><span class="s2">&quot;i,ijk-&gt;jk&quot;</span><span class="p">,</span> <span class="n">coefficients</span><span class="p">,</span> <span class="n">tracers</span><span class="p">)</span>
 </span></pre></div>
 
 
