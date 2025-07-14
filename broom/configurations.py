@@ -88,8 +88,36 @@ class InstrumentConfig:
     #ell_knee: list = field(default_factory=list)
     #alpha_knee: list = field(default_factory=list)
     #channels_tags: list = field(default_factory=list)
+    def __init__(self):
+        # Initialize all attributes to None or default values
+        self.frequency = None
+        self.depth_I = None
+        self.depth_P = None
+        self.fwhm = None
+        self.bandwidth = None
+        self.ell_knee = None
+        self.alpha_knee = None
+        self.channels_tags = []
+        self.path_bandpasses = None
+        self.path_hits_maps = None
+        self.path_depth_maps = None
+        self.path_beams = None
+        self.beams = None
+
+    def reset_attributes(self):
+        """Reset all attributes to their default values."""
+        self.__init__()
+
+    def remove_none_attributes(self):
+        """Remove attributes that are set to None."""
+        for attr in list(self.__dict__.keys()):  # Use list() to avoid runtime modification issues
+            if getattr(self, attr) is None:
+                delattr(self, attr)
 
     def load_from_yaml(self, yaml_data: Dict[str, Any], experiment: str):
+        # Reset attributes before loading new experiment data
+        self.reset_attributes()
+
         experiment_data = yaml_data.get(experiment, {})
 
         attrs = [
@@ -118,6 +146,10 @@ class InstrumentConfig:
         self.channels_tags = experiment_data.get("channels_tags", [])
         if not self.channels_tags:
             self._generate_channel_tags()
+
+        # Remove attributes that are None after loading
+        self.remove_none_attributes()
+
 
     def _generate_channel_tags(self):
         self.channels_tags = []
@@ -266,21 +298,24 @@ class Configs:
             'lmin': self.lmin,
             'lmax': self.lmax,
             'nside': self.nside,
+            'nside_in': self.nside_in,
             'data_type': self.data_type,
             'fwhm_out': self.fwhm_out,
             'foreground_models': self.foreground_models,
             'experiment': self.experiment,
             'pixel_window_in': self.pixel_window_in,
-            'pixel_window_out': self.pixel_window_out,
+#            'pixel_window_out': self.pixel_window_out,
             'units': self.units,
             'coordinates': self.coordinates,
             'bandpass_integrate': self.bandpass_integrate,
 #            'mask_path': self.mask_path,
             'mask_observations': self.mask_observations,
             'mask_covariance': self.mask_covariance,
+            'instrument': self.instrument,
             'verbose': self.verbose,
             'cls_cmb_path': self.cls_cmb_path,
             'cls_cmb_new_ordered': self.cls_cmb_new_ordered,
+            'experiments_file': self.experiments_file,
         }
 
 

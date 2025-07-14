@@ -2,7 +2,7 @@ import numpy as np
 import healpy as hp
 from .configurations import Configs
 from .routines import _get_local_cov, _EB_to_QU, _E_to_QU, _B_to_QU, obj_to_array, array_to_obj, _log, _get_bandwidths
-from .saving import _save_compsep_products, _get_full_path_out
+from .saving import _save_compsep_products, _get_full_path_out, save_ilc_weights
 from .needlets import _get_nside_lmax_from_b_ell, _get_needlet_windows_, _needlet_filtering, _get_good_channels_nl
 from .pilcs import get_pilc_cov, get_prilc_cov
 from .gilcs import _standardize_gnilc_run, Cn_C_Cn, _get_gilc_m, get_nuisance_idx
@@ -214,6 +214,17 @@ def _gpilc(config: Configs, input_alms: np.ndarray, compsep_run: Dict[str, Any],
         np.ndarray
             Output maps after performing GPILC. Shape will depend on the input alms and compsep_run settings.
     """
+    if input_alms.ndim == 4:
+        if input_alms.shape[1] != 2:
+            raise ValueError("input_alms must have shape (nfreq, 2, nalm, ncomps) for gpilc.")
+        compsep_run["field"] = "QU"
+
+    elif input_alms.ndim == 3:
+        if config.field_out in ["E", "QU_E"]:
+            compsep_run["field"] = "QU_E"
+        elif config.field_out in ["B", "QU_B"]:
+            compsep_run["field"] = "QU_B"
+
     
     if compsep_run["domain"] == "pixel":
         return _gpilc_pixel(config, input_alms, compsep_run, **kwargs)
@@ -436,10 +447,10 @@ def _gpilc_needlet(config: Configs,
     
     for j, b_ell_j in enumerate(b_ell):
         output_maps += _gpilc_needlet_j(config, input_alms, compsep_run,
-                                        b_ell_j,
+                                        b_ell_j, j,
                                         depro_cmb=compsep_run["depro_cmb"][j],
                                         m_bias=compsep_run["m_bias"][j],
-                                        noise_debias=compsep_run["cov_noise_debias"][j],
+                                        noise_debias=compsep_run["cov_noise_debias"][j]
                                         )
 
     
@@ -502,6 +513,7 @@ def _gpilc_needlet_j(config: Configs,
                      input_alms: np.ndarray,
                      compsep_run: Dict[str, Any],
                      b_ell: np.ndarray,
+                     nl_scale: int,
                      depro_cmb: Optional[float] = None,
                      m_bias: Optional[Union[int, float]] = 0,
                      noise_debias: Optional[float] = 0.,
@@ -520,6 +532,8 @@ def _gpilc_needlet_j(config: Configs,
             Dictionary with component separation parameters. See `gpilc` function for details.
         b_ell: np.ndarray
             Needlet bandpass filter. Shape should be (lmax+1).
+        nl_scale : int
+            Needlet scale index corresponding to the current GPILC run. Used for saving weights with proper label.
         depro_cmb: float, optional
             Deprojection factor for CMB. If None, no deprojection is applied. 
             Otherwise CMB residuals in GPILC maps will be at the level of depro_cmb * CMB_input in the considered needlet band.
@@ -567,7 +581,7 @@ def _gpilc_needlet_j(config: Configs,
                                                 nside_, lmax=lmax_, pol=True)[1:]
 
     output_maps_nl = _gpilc_maps(config, input_maps_nl, compsep_run,
-                              b_ell, depro_cmb=depro_cmb, m_bias=m_bias, noise_debias=noise_debias)
+                              b_ell, depro_cmb=depro_cmb, m_bias=m_bias, noise_debias=noise_debias, nl_scale=nl_scale)
 
     del input_maps_nl
     del compsep_run['good_channels']
@@ -691,7 +705,8 @@ def _gpilc_maps(
     b_ell: np.ndarray,
     depro_cmb: Optional[float] = None,
     m_bias: Optional[Union[int, float]] = 0,
-    noise_debias: Optional[float] = 0.0
+    noise_debias: Optional[float] = 0.0,
+    nl_scale: Optional[Union[int, None]] = None,
 ) -> np.ndarray:
     """
     Perform Generalized Polarization Internal Linear Combination (GPILC) on input maps.
@@ -716,7 +731,9 @@ def _gpilc_maps(
         noise_debias: float, optional
             Noise debiasing factor. If set to a non-zero value, it will subtract a 'noise_debias' fraction of
             noise covariance from the input and nuisance covariance matrices.
-    
+        nl_scale : int, optional
+            Needlet scale index corresponding to the current GPILC run. Used for saving weights with proper label.
+
     Returns
     -------
         np.ndarray
@@ -744,6 +761,10 @@ def _gpilc_maps(
         config, U, λ, cov, cov_n, input_maps.shape, compsep_run,
         depro_cmb=depro_cmb, m_bias=m_bias
     )
+    if compsep_run["save_weights"]:
+        compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
+        save_ilc_weights(config, W, compsep_run,
+                         hp.npix2nside(input_maps.shape[-2]), nl_scale=nl_scale)
 
     del cov, cov_n, U, λ
 

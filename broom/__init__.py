@@ -104,4 +104,4 @@ from .spectra import _compute_spectra, _compute_spectra_, _load_cls
 from .clusters import get_and_save_real_tracers_B
 
 
-__version__ = "0.1.4"
+__version__ = "0.1.5"

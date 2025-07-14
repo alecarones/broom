@@ -36,8 +36,8 @@ def _save_compsep_products(
             based on the component separation method and configuration.
     """
 
-    if 'path_out' not in compsep_run:
-        compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
+    #if 'path_out' not in compsep_run:
+    compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
 
     if compsep_run["method"] in ["cilc", "c_ilc", "mc_cilc","cpilc", "c_pilc"]:
         if 'mixed' in compsep_run["path_out"]:

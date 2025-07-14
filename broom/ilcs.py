@@ -503,8 +503,8 @@ def _ilc_maps(config: Configs, input_maps: np.ndarray, compsep_run: Dict,
     del inv_cov
 
     if compsep_run["save_weights"]:
-        if 'path_out' not in compsep_run:
-            compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
+#        if 'path_out' not in compsep_run:
+        compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
         save_ilc_weights(config, w_ilc, compsep_run,
                          hp.npix2nside(input_maps.shape[-2]), nl_scale=nl_scale)
     
@@ -604,15 +604,15 @@ def _mcilc_cea_(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
 
     patches = _cea_partition(tracer, compsep_run["n_patches"], mask=mask_mcilc)
     if compsep_run["save_patches"] and (compsep_run['nsim'] is None or int(compsep_run['nsim']) == config.nsim_start):
-        if 'path_out' not in compsep_run:
-            compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
+        #if 'path_out' not in compsep_run:
+        compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
         save_patches(config, patches, compsep_run, nl_scale=nl_scale)
 
     w_mcilc = get_mcilc_weights(input_maps[...,0], patches, A_cmb, compsep_run)
 
     if compsep_run["save_weights"]:
-        if 'path_out' not in compsep_run:
-            compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
+        #if 'path_out' not in compsep_run:
+        compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
         save_ilc_weights(config, w_mcilc, compsep_run, hp.npix2nside(input_maps.shape[-2]), nl_scale=nl_scale)
     
     compsep_run.pop("A", None)
@@ -679,13 +679,13 @@ def _mcilc_rp_(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
         output_maps += (np.einsum('ij,ijk->jk', w_mcilc, input_maps) / iterations)
         
     if do_save_patches:
-        if 'path_out' not in compsep_run:
-            compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
+        #if 'path_out' not in compsep_run:
+        compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
         save_patches(config, np.array(patches_set), compsep_run, nl_scale=nl_scale)
 
     if compsep_run["save_weights"]:
-        if 'path_out' not in compsep_run:
-            compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
+        #if 'path_out' not in compsep_run:
+        compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
         save_ilc_weights(config, w_mcilc_save, compsep_run,
                          hp.npix2nside(input_maps.shape[-2]), nl_scale=nl_scale)
 

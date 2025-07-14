@@ -617,6 +617,7 @@ def get_mc_config(config: Configs, tracers_inputs_path: str) -> Configs:
 
     config_mc.save_compsep_products = False #
     config_mc.return_compsep_products = True
+    config_mc.pixel_window_out = False
 #    config_mc.mask_type = "mask_for_compsep"
 
     if config_mc.data_type == "maps":

@@ -3,7 +3,7 @@ import healpy as hp
 import sys
 from .configurations import Configs
 from .routines import _get_local_cov, _EB_to_QU, _E_to_QU, _B_to_QU, obj_to_array, array_to_obj, _log, _get_bandwidths
-from .saving import _save_compsep_products, _get_full_path_out
+from .saving import _save_compsep_products, _get_full_path_out, save_ilc_weights
 from .needlets import _get_nside_lmax_from_b_ell, _get_needlet_windows_, _needlet_filtering, _get_good_channels_nl
 from .ilcs import get_ilc_cov
 from .seds import _get_CMB_SED
@@ -324,12 +324,29 @@ def _gilc(config: Configs, input_alms: np.ndarray, compsep_run: Dict[str, Any], 
             Output separated component maps. 
             Shape will be (n_channels_out, (n_fields), npix, n_components).
     """
+    # Determine fields based on input shape and desired output
+    if input_alms.ndim == 4:
+        if input_alms.shape[1] == 3:
+            fields_ilc = ["T", "E", "B"]
+        elif input_alms.shape[1] == 2:
+            fields_ilc = ["E", "B"]
+    elif input_alms.ndim == 3:
+        if config.field_out in ["T", "E", "B"]:
+            fields_ilc = [config.field_out]
+        elif config.field_out in ["QU_E", "QU_B"]:
+            fields_ilc = [config.field_out[-1]]
+
     if input_alms.ndim == 4:
         output_maps = np.zeros((len(compsep_run["channels_out"]), input_alms.shape[1], 12 * config.nside**2, input_alms.shape[-1]))
         for i in range(input_alms.shape[1]):
+            compsep_run["field"] = fields_ilc[i]
             output_maps[:,i] = _gilc_scalar(config, input_alms[:, i], compsep_run, **kwargs)
     elif input_alms.ndim == 3:
+        compsep_run["field"] = fields_ilc[0]
         output_maps = _gilc_scalar(config, input_alms, compsep_run, **kwargs)
+
+    del compsep_run["field"]
+    
     return output_maps
 
 def _fgd_diagnostic(config: Configs, input_alms: np.ndarray, compsep_run: Dict[str, Any]) -> np.ndarray:
@@ -608,7 +625,7 @@ def _gilc_needlet(config: Configs, input_alms: np.ndarray, compsep_run: dict, **
     for j in range(b_ell.shape[0]):
         output_alms += _gilc_needlet_j(
             config, input_alms, compsep_run,
-            b_ell[j], depro_cmb=compsep_run["depro_cmb"][j], m_bias=compsep_run["m_bias"][j], 
+            b_ell[j], j, depro_cmb=compsep_run["depro_cmb"][j], m_bias=compsep_run["m_bias"][j], 
             noise_debias=compsep_run["cov_noise_debias"][j], **kwargs
         )
 
@@ -658,7 +675,7 @@ def _fgd_diagnostic_needlet(config: Configs, input_alms: np.ndarray, compsep_run
     return output_maps
 
 def _gilc_needlet_j(config: Configs, input_alms: np.ndarray, compsep_run: dict,
-                    b_ell: np.ndarray, depro_cmb: Optional[float] = None, m_bias: Optional[int] = 0, 
+                    b_ell: np.ndarray, nl_scale: int, depro_cmb: Optional[float] = None, m_bias: Optional[int] = 0, 
                     noise_debias: Optional[float] = 0., **kwargs) -> np.ndarray:
     """
     Perform GNILC component separation in a specific needlet band.
@@ -674,6 +691,8 @@ def _gilc_needlet_j(config: Configs, input_alms: np.ndarray, compsep_run: dict,
             Dictionary with component separation parameters. See `gilc` for details.
         b_ell: np.ndarray
             Needlet band window function for the current band. Shape should be (lmax+1,).
+        nl_scale : int
+            Needlet scale index corresponding to the current GILC run. Used for saving weights with proper label.
         depro_cmb: float, optional
             Deprojection factor for CMB in this needlet band. 
             Residual CMB in GNILC maps will be at the level of depro_CMB * CMB_input.
@@ -706,7 +725,9 @@ def _gilc_needlet_j(config: Configs, input_alms: np.ndarray, compsep_run: dict,
             for c in range(input_alms.shape[-1])
         ]).T
 
-    output_maps_nl = _gilc_maps(config, input_maps_nl, compsep_run, b_ell, depro_cmb=depro_cmb, m_bias=m_bias, noise_debias=noise_debias)
+    output_maps_nl = _gilc_maps(config, input_maps_nl, compsep_run, b_ell, depro_cmb=depro_cmb, 
+        m_bias=m_bias, noise_debias=noise_debias, nl_scale=nl_scale)
+
     del input_maps_nl
 
     output_alms_j = np.zeros((output_maps_nl.shape[0], hp.Alm.getsize(config.lmax), output_maps_nl.shape[-1]), dtype=complex)
@@ -785,6 +806,7 @@ def _gilc_maps(
     depro_cmb: Optional[float] = None,
     m_bias: Union[int, float] = 0,
     noise_debias: Optional[float] = 0.,
+    nl_scale: Optional[Union[int, None]] = None,
 ) -> np.ndarray:
     """
     Apply GILC component separation to the provided scalar multifrequency maps.
@@ -807,6 +829,8 @@ def _gilc_maps(
         noise_debias: float, optional
             Noise debiasing factor. If set to a non-zero value, it will subtract a 'noise_debias' fraction of
             noise covariance from the input and nuisance covariance matrices.
+        nl_scale : int, optional
+            Needlet scale index corresponding to the current GILC run. Used for saving weights with proper label.
     
     Returns
     -------
@@ -831,6 +855,10 @@ def _gilc_maps(
     λ[λ<1.]=1.
 
     W = _get_gilc_weights(config, U, λ, cov, cov_n, input_maps.shape, compsep_run, depro_cmb=depro_cmb, m_bias=m_bias) 
+    if compsep_run["save_weights"]:
+        compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
+        save_ilc_weights(config, W, compsep_run,
+                         hp.npix2nside(input_maps.shape[-2]), nl_scale=nl_scale)
 
     del cov, cov_n, U, λ
 

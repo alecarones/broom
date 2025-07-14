@@ -432,8 +432,8 @@ def _pilc_maps(
     del inv_cov
 
     if compsep_run["save_weights"]:
-        if 'path_out' not in compsep_run:
-            compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
+        #if 'path_out' not in compsep_run:
+        compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
         save_ilc_weights(config, w_pilc, compsep_run,
                          hp.npix2nside(input_maps.shape[-2]), nl_scale=nl_scale)
         

@@ -298,7 +298,8 @@ def estimate_residuals(config: Configs, nsim: Optional[Union[int, str]] = None, 
     if not config.field_out:
         config.field_out = config.field_in
 
-#    config.nside_in = config.nside
+    nside_in_in = config.nside_in
+    config.nside_in = config.nside
 
     mask_obs, mask_cov = get_masks_for_compsep(config.mask_observations, config.mask_covariance, config.nside)
 
@@ -352,6 +353,8 @@ def estimate_residuals(config: Configs, nsim: Optional[Union[int, str]] = None, 
         del compsep_run["nsim"]
         if delete_field_in:
             del compsep_run["field_in"]
+
+    config.nside_in = nside_in_in
 
     if config.return_compsep_products:
         for attr in vars(outputs).keys():
@@ -604,7 +607,8 @@ def _check_data_and_config(config: Configs, data: SimpleNamespace) -> Configs:
             raise ValueError("Invalid number of pixels in data.")
         if config.lmax >= 3*nside_in:
             raise ValueError("lmax is too high for the provided nside. It must be smaller than 3*nside.")
-        config.nside_in = nside_in
+        if not hasattr(config, "nside_in"):
+            config.nside_in = nside_in
     elif config.data_type == "alms":
         try:
             lmax_in =  hp.Alm.getlmax(data.total.shape[-1])

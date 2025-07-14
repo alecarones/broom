@@ -119,6 +119,7 @@ def _get_data_foregrounds_(config: Configs, **kwargs: Any) -> SimpleNamespace:
             config.foreground_models,
             config.instrument,
             config.nside,
+            config.nside_in,
             config.lmax,
             return_components=config.return_fgd_components,
             pixel_window=config.pixel_window_in,
@@ -420,10 +421,10 @@ def _get_noise_simulation(config: Configs, nsim: Optional[Union[int, str]] = Non
             raise ValueError('Provided instrumental setting must have either depth_I or depth_P attributes.')
         elif not hasattr(config.instrument, 'depth_I') and hasattr(config.instrument, 'depth_P'):
             config.instrument.depth_I = config.instrument.depth_P / np.sqrt(2)
-            print('Warning: No intensity map depth provided. Assuming it to be the polarization one divided by sqrt(2).')
+            _log('Warning: No intensity map depth provided. Assuming it to be the polarization one divided by sqrt(2).', verbose=config.verbose)
         elif not hasattr(config.instrument, 'depth_P') and hasattr(config.instrument, 'depth_I'):
             config.instrument.depth_P = config.instrument.depth_I * np.sqrt(2)
-            print('Warning: No polarization map depth provided. Assuming it to be the intensity one multiplied by sqrt(2).')
+            _log('Warning: No polarization map depth provided. Assuming it to be the intensity one multiplied by sqrt(2).', verbose=config.verbose)
         depth_i = config.instrument.depth_I
         depth_p = config.instrument.depth_P
 
@@ -606,7 +607,7 @@ def _get_cmb_simulation(config: Configs, nsim: Optional[Union[int, str]] = None)
             alm_cmb_i = _smooth_input_alms_(
                 alm_cmb,
                 fwhm=config.instrument.fwhm[idx],
-                nside_out=config.nside if config.pixel_window_in else None
+                nside_out=config.nside_in if config.pixel_window_in else None
             )
         else:
             beamfile = config.instrument.path_beams + f"_{config.instrument.channels_tags[idx]}.fits"
@@ -614,7 +615,7 @@ def _get_cmb_simulation(config: Configs, nsim: Optional[Union[int, str]] = None)
                 alm_cmb,
                 beam_path=beamfile,
                 symmetric_beam=(config.instrument.beams == "file_l"),
-                nside_out=config.nside if config.pixel_window_in else None
+                nside_out=config.nside_in if config.pixel_window_in else None
             )
 
         if fell is not None:
@@ -667,6 +668,7 @@ def _get_foregrounds(
     foreground_models: List[str],
     instrument: dict, 
     nside: int,
+    nside_in: int,
     lmax: int,
     return_components: bool = False,
     pixel_window: bool = False,
@@ -687,6 +689,8 @@ def _get_foregrounds(
             Instrument configuration object with frequency, beams, and optional bandpasses.
         nside: int
             Output HEALPix resolution.
+        nside_in: int
+            Input HEALPix resolution. Used to apply pixel window function (if requested)
         lmax: int
             Maximum multipole to compute alms.
         return_components: bool, optional
@@ -722,7 +726,7 @@ def _get_foregrounds(
     if not return_components or len(foreground_models) == 1:
         sky = pysm3.Sky(nside=nside_, preset_strings=foreground_models, output_unit=getattr(u, units))
         foregrounds.total = _get_foreground_component(
-            instrument, sky, nside, lmax,
+            instrument, sky, nside, nside_in, lmax,
             pixel_window=pixel_window,
             bandpass_integrate=bandpass_integrate,
             return_alms=return_alms,
@@ -735,7 +739,7 @@ def _get_foregrounds(
             sky = pysm3.Sky(nside=nside_, preset_strings=[fmodel], output_unit=getattr(u, units))
             attr = prefix_to_attr.get(fmodel[:3]) or prefix_to_attr.get(fmodel[:2]) or prefix_to_attr.get(fmodel[:1])
             setattr(foregrounds, attr, _get_foreground_component(
-                instrument, sky, nside, lmax,
+                instrument, sky, nside, nside_in, lmax,
                 pixel_window=pixel_window,
                 bandpass_integrate=bandpass_integrate,
                 return_alms=return_alms,
@@ -750,6 +754,7 @@ def _get_foreground_component(
     instrument: dict,
     sky: pysm3.Sky,
     nside_out: int,
+    nside_in: int,
     lmax: int,
     pixel_window: bool = False,
     bandpass_integrate: bool = False,
@@ -769,6 +774,8 @@ def _get_foreground_component(
             PySM3 sky model for the foreground.
         nside_out: int
             HEALPix resolution for the output.
+        nside_in: int
+            Input HEALPix resolution. Used to apply pixel window function (if requested)
         lmax: int
             Maximum multipole to compute alms.
         pixel_window: bool, optional
@@ -829,7 +836,7 @@ def _get_foreground_component(
             alm_emission = _smooth_input_alms_(
                 alm_emission,
                 fwhm=instrument.fwhm[idx],
-                nside_out=nside_out if pixel_window else None
+                nside_out=nside_in if pixel_window else None
             )
         else:
             beamfile = instrument.path_beams + f"_{instrument.channels_tags[idx]}.fits"
@@ -837,7 +844,7 @@ def _get_foreground_component(
                 alm_emission,
                 beam_path=beamfile,
                 symmetric_beam=(instrument.beams == "file_l"),
-                nside_out=nside_out if pixel_window else None
+                nside_out=nside_in if pixel_window else None
             )
 
         if lmin > 2:
