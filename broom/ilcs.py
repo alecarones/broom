@@ -4,7 +4,7 @@ from .configurations import Configs
 from .routines import _get_local_cov, _EB_to_QU, _E_to_QU, _B_to_QU,\
                       obj_to_array, array_to_obj, _get_bandwidths
 from .saving import _save_compsep_products, _get_full_path_out, save_patches, save_ilc_weights
-from .needlets import  _get_nside_lmax_from_b_ell, _get_needlet_windows_, _needlet_filtering, _get_good_channels_nl 
+from .needlets import  _get_nside_lmax_from_b_ell, _get_needlet_windows_, _needlet_filtering, _get_good_channels_nl
 from .seds import _get_CMB_SED, _get_moments_SED, _standardize_cilc
 from .clusters import _adapt_tracers_path, _cea_partition, _rp_partition, \
                       get_scalar_tracer, get_scalar_tracer_nl, initialize_scalar_tracers
@@ -31,9 +31,9 @@ def ilc(config: Configs, input_alms: SimpleNamespace, compsep_run: Dict, **kwarg
             - return_compsep_products : bool, whether to return component separation products.
             - path_outputs : str, path to save the output files.
             - units : str, units of the output maps (e.g., "uK_CMB"). Used to compute moments, if needed.
-            - bandpass_integrate : bool, whether inputs are bandpass-integrated. Used to compute moments, if needed. 
+            - bandpass_integrate : bool, whether inputs are bandpass-integrated. Used to compute moments, if needed.
         input_alms : SimpleNamespace
-            SimpleNamespace object containing input spherical harmonic coefficients (alms). 
+            SimpleNamespace object containing input spherical harmonic coefficients (alms).
             Each attribute has shape (n_channels, (n_fields), n_alms), where n_fields depend on the fields requested in config.field_out.
         compsep_run : dict
             Dictionary specifying component separation parameters. It includes:
@@ -48,16 +48,16 @@ def ilc(config: Configs, input_alms: SimpleNamespace, compsep_run: Dict, **kwarg
             - "reduce_ilc_bias": Boolean. If True, it implements a procedure to attenuate ILC bias.
             - "b_squared": Boolean indicating if the needlet windows should be squared (if domain is "needlet").
             - "adapt_nside": Adapt HEALPix resolution of needlet maps to sampled multipole range. Deafult: False.
-            - "save_needlets": boolean. Whether to save adopted needlet bands in the output directory. 
+            - "save_needlets": boolean. Whether to save adopted needlet bands in the output directory.
                 If not provided, it is set to the value of config.save_compsep_products. Default: True.
             - "save_weights": boolean. Whether to save compsep weights maps in the output directory.
                 If not provided, it is set to the value of config.save_compsep_products. Default: True.
-            - "mask": (optional) HEALPix mask which will exclude (unobserved) regions from covariance computation. 
+            - "mask": (optional) HEALPix mask which will exclude (unobserved) regions from covariance computation.
                 It must be a 1D array with shape (12 * nside**2,). If non-binary, it will be used to weigh pixel in covariance computation.
             - "n_patches": (int) Number of patches to use in MC-ILC. Default: 50.
             - "mc_type": (str), needed if method is "mcilc" or "mc_ilc".
                 Type of MC-ILC to use. Options: "cea_ideal", "rp_ideal", "cea_real", "rp_real". Default: "cea_real".
-            - "cov_noise_debias": (float, list) Noise covariance debiasing factor. 
+            - "cov_noise_debias": (float, list) Noise covariance debiasing factor.
                 If different from 0. it will debias the covariance matrix by a factor cov_noise_debias * noise_covariance.
                 It must be a list with the same length as the number of needlet scales if domain is "needlet", otherwise a single float.
             - "special_nls": (list) List of needlet scales where moment deprojection is applied in c_ilc and clustering in mc_ilc.
@@ -76,7 +76,7 @@ def ilc(config: Configs, input_alms: SimpleNamespace, compsep_run: Dict, **kwarg
     Returns
     -------
         outputs : SimpleNamespace or None
-            Output separated components as a SimpleNamespace object if 
+            Output separated components as a SimpleNamespace object if
             config.return_compsep_products is True; otherwise None.
     """
     # Standardize cilc method parameters if needed
@@ -88,18 +88,18 @@ def ilc(config: Configs, input_alms: SimpleNamespace, compsep_run: Dict, **kwarg
         if compsep_run["mc_type"] in ["cea_ideal", "rp_ideal"]:
             if not hasattr(input_alms, "fgds"):
                 raise ValueError("The input_alms object must have 'fgds' attribute for ideal tracer in MC-ILC.")
-    
+
     if compsep_run["method"] != "mcilc":
         if np.any(np.array(compsep_run["cov_noise_debias"]) != 0.):
             if not hasattr(input_alms, "noise"):
                 raise ValueError("The input_alms object must have 'noise'' attribute for debiasing the covariance.")
             compsep_run["noise_idx"] = 2 if hasattr(input_alms, "fgds") else 1
-                    
+
     # Perform the core ILC component separation
     output_maps = _ilc(config, obj_to_array(input_alms), compsep_run, **kwargs)
 
     compsep_run.pop("noise_idx", None)
-    
+
     # Post-process outputs (e.g., convert EB to QU if needed)
     output_maps = _ilc_post_processing(config, output_maps, compsep_run, **kwargs)
 
@@ -129,7 +129,7 @@ def _ilc_post_processing(
         config : Configs
             Configuration object containing output settings. See 'ilc' for details.
         output_maps : np.ndarray
-            Output maps from the ILC process. 
+            Output maps from the ILC process.
             Shape is (n_fields, npix, n_components) where n_fields depends on the requested output field in config.field_out.
         compsep_run : dict
             Dictionary specifying component separation parameters. It requires:
@@ -187,8 +187,8 @@ def _ilc(
         config : Configs
             Configuration object containing global settings. See 'ilc' for details.
         input_alms : np.ndarray
-            Input spherical harmonic coefficients. 
-            It must have shape (n_channels, n_fields, n_alms, n_components) for multifield or 
+            Input spherical harmonic coefficients.
+            It must have shape (n_channels, n_fields, n_alms, n_components) for multifield or
             (n_channels, n_alms, n_components) for scalar fields.
         compsep_run : dict
             Component separation configuration dictionary. See 'ilc' for details.
@@ -229,10 +229,11 @@ def _ilc(
         compsep_run["field"] = fields_ilc[0]
         if compsep_run["method"] in ["mcilc", "mc_ilc", "mc_cilc"]:
             input_fgds_alms = np.zeros_like(input_alms[...,0]) if "real" in compsep_run["mc_type"] else input_alms[...,1]
-            compsep_run["tracers"] = initialize_scalar_tracers(config, input_fgds_alms, compsep_run, field=compsep_run["field"], **kwargs)
+            if "custom" not in compsep_run["mc_type"]:
+                compsep_run["tracers"] = initialize_scalar_tracers(config, input_fgds_alms, compsep_run, field=compsep_run["field"], **kwargs)
             del input_fgds_alms
         output_maps = _ilc_scalar(config, input_alms, compsep_run, **kwargs)
-    
+
     del compsep_run["field"]
 
     return output_maps
@@ -308,16 +309,16 @@ def _ilc_needlet(
     output_alms = np.zeros((input_alms.shape[1], input_alms.shape[-1]), dtype=complex)
     for j in range(b_ell.shape[0]):
         output_alms += _ilc_needlet_j(config, input_alms, compsep_run, b_ell[j], j, **kwargs)
-    
+
     output_maps = np.array(
         [hp.alm2map(np.ascontiguousarray(output_alms[:, c]), config.nside, lmax=config.lmax, pol=False, pixwin=config.pixel_window_out)
             for c in range(input_alms.shape[-1])]).T
-    
+
     if "mask" in compsep_run:
         output_maps[compsep_run["mask"] == 0.,:] = 0.
 
     return output_maps
-        
+
 def _ilc_needlet_j(
     config: Configs,
     input_alms: np.ndarray,
@@ -357,7 +358,7 @@ def _ilc_needlet_j(
             nside_, lmax_ = _get_nside_lmax_from_b_ell(b_ell,config.nside,config.lmax)
         else:
             nside_, lmax_ = config.nside, config.lmax
-    
+
     # Get frequency channels to be adopted in component separation at this scale
     good_channels_nl = _get_good_channels_nl(config, b_ell)
 
@@ -370,8 +371,12 @@ def _ilc_needlet_j(
 
     # Run either MC-ILC or ILC
     if (compsep_run["method"]=="mcilc") or ((compsep_run["method"]=="mc_ilc" or compsep_run["method"]=="mc_cilc") and nl_scale in compsep_run["special_nls"]):
-        tracer_nl = get_scalar_tracer_nl(compsep_run["tracers"], nside_, lmax_, b_ell)
-        output_maps_nl = _mcilc_maps(config, input_maps_nl, tracer_nl, compsep_run, b_ell, nl_scale=nl_scale)
+        if "custom" not in compsep_run["mc_type"]:
+            tracer_nl = get_scalar_tracer_nl(compsep_run["tracers"], nside_, lmax_, b_ell)
+            output_maps_nl = _mcilc_maps(config, input_maps_nl, compsep_run, b_ell, tracer=tracer_nl, nl_scale=nl_scale)
+        else:
+            patches = np.load(compsep_run["cluster_map"])
+            output_maps_nl = _mcilc_maps(config, input_maps_nl, compsep_run, b_ell, patches=patches, nl_scale=nl_scale)
     else:
         output_maps_nl = _ilc_maps(config, input_maps_nl, compsep_run, b_ell, nl_scale=nl_scale)
 
@@ -385,7 +390,7 @@ def _ilc_needlet_j(
         output_alms_j = _needlet_filtering(output_alms_nl, np.ones(lmax_+1), config.lmax)
     else:
         output_alms_j = _needlet_filtering(output_alms_nl, b_ell[:lmax_+1], config.lmax)
-        
+
     return output_alms_j
 
 def _ilc_pixel(config: Configs, input_alms: np.ndarray, compsep_run: Dict, **kwargs) -> np.ndarray:
@@ -394,7 +399,7 @@ def _ilc_pixel(config: Configs, input_alms: np.ndarray, compsep_run: Dict, **kwa
 
     Parameters
     ----------
-        config : Configs 
+        config : Configs
             Configuration parameters. See 'ilc' for details.
         input_alms : np.ndarray
             Input spherical harmonic coefficients of shape (n_channels, n_alm, n_components).
@@ -410,10 +415,10 @@ def _ilc_pixel(config: Configs, input_alms: np.ndarray, compsep_run: Dict, **kwa
     """
     npix = 12 * config.nside ** 2
     _, _, n_comps = input_alms.shape
-    
+
     good_channels = _get_good_channels_nl(config, np.ones(config.lmax + 1))
     input_maps = np.zeros((good_channels.shape[0], npix, n_comps))
-    
+
     for n, channel in enumerate(good_channels):
         input_maps[n] = np.array([
             hp.alm2map(np.ascontiguousarray(input_alms[channel, :, c]), config.nside,
@@ -422,11 +427,15 @@ def _ilc_pixel(config: Configs, input_alms: np.ndarray, compsep_run: Dict, **kwa
 
 
     if compsep_run["method"]=="mcilc":
-        tracer = get_scalar_tracer(compsep_run["tracers"])
-        output_maps = _mcilc_maps(config, input_maps, tracer, compsep_run, np.ones(config.lmax+1))    
+        if "custom" not in compsep_run["mc_type"]:
+            tracer = get_scalar_tracer(compsep_run["tracers"])
+            output_maps = _mcilc_maps(config, input_maps, compsep_run, np.ones(config.lmax+1), tracer=tracer)
+        else:
+            patches = np.load(compsep_run["cluster_map"])
+            output_maps = _mcilc_maps(config, input_maps, compsep_run, np.ones(config.lmax+1), patches=patches)
     else:
         output_maps = _ilc_maps(config, input_maps, compsep_run, np.ones(config.lmax+1))
-    
+
     if config.pixel_window_out:
         for c in range(output_maps.shape[1]):
             alm_out = hp.map2alm(output_maps[:,c],lmax=config.lmax, pol=False, **kwargs)
@@ -471,7 +480,7 @@ def _ilc_maps(config: Configs, input_maps: np.ndarray, compsep_run: Dict,
     bandwidths = _get_bandwidths(config, good_channels)
 
     A_cmb = _get_CMB_SED(freqs, units=config.units, bandwidths=bandwidths)
-        
+
     if compsep_run["method"] == "cilc":
         if nl_scale is None:
             compsep_run["A"] = _get_moments_SED(freqs, compsep_run["constraints"]["moments"], beta_d=compsep_run["constraints"]["beta_d"], T_d=compsep_run["constraints"]["T_d"], beta_s=compsep_run["constraints"]["beta_s"], units=config.units, bandwidths=bandwidths)
@@ -507,7 +516,7 @@ def _ilc_maps(config: Configs, input_maps: np.ndarray, compsep_run: Dict,
         compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
         save_ilc_weights(config, w_ilc, compsep_run,
                          hp.npix2nside(input_maps.shape[-2]), nl_scale=nl_scale)
-    
+
     compsep_run.pop("A", None)
     compsep_run.pop("e", None)
 
@@ -518,13 +527,14 @@ def _ilc_maps(config: Configs, input_maps: np.ndarray, compsep_run: Dict,
 
     return output_maps
 
-def _mcilc_maps(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
-                compsep_run: Dict, b_ell: np.ndarray,
+def _mcilc_maps(config: Configs, input_maps: np.ndarray, compsep_run: Dict, b_ell: np.ndarray,
+                tracer: Optional[np.ndarray] = None,
+                patches: Optional[np.ndarray] = None,
                 nl_scale: Optional[Union[int, None]] = None) -> np.ndarray:
     """
     Computes foreground-cleaned sky maps using the MC-ILC method.
 
-    Depending on the specified `mc_type`, it delegates to either the CEA-based or 
+    Depending on the specified `mc_type`, it delegates to either the CEA-based or
     random partitioning (RP) implementation.
 
     Parameters
@@ -534,7 +544,7 @@ def _mcilc_maps(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
         input_maps : np.ndarray
             Input sky maps of shape (n_channels, n_pixels, n_components).
         tracer : np.ndarray
-            Tracer map used to define spatial partitions for independent component separation. 
+            Tracer map used to define spatial partitions for independent component separation.
             It should have shape (n_pixels,).
         compsep_run : dict
             Dictionary specifying the MCILC method and associated parameters:
@@ -565,6 +575,8 @@ def _mcilc_maps(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
         return _mcilc_cea_(config, input_maps, tracer, compsep_run, A_cmb, nl_scale=nl_scale)
     elif "rp" in compsep_run["mc_type"]:
         return _mcilc_rp_(config, input_maps, tracer, compsep_run, A_cmb, nl_scale=nl_scale)
+    elif "custom" in compsep_run["mc_type"]:
+        return _mcilc_custom_(config, input_maps, patches, compsep_run, A_cmb, nl_scale=nl_scale)
 
 def _mcilc_cea_(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
                 compsep_run: Dict, A_cmb: np.ndarray,
@@ -614,12 +626,12 @@ def _mcilc_cea_(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
         #if 'path_out' not in compsep_run:
         compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
         save_ilc_weights(config, w_mcilc, compsep_run, hp.npix2nside(input_maps.shape[-2]), nl_scale=nl_scale)
-    
+
     compsep_run.pop("A", None)
     compsep_run.pop("e", None)
 
     return np.einsum('ij,ijk->jk', w_mcilc, input_maps)
-    
+
 def _mcilc_rp_(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
                compsep_run: Dict, A_cmb: np.ndarray,
                iterations: int = 30, nl_scale: Optional[Union[int, None]] = None) -> np.ndarray:
@@ -665,7 +677,7 @@ def _mcilc_rp_(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
     if do_save_patches:
         patches_set = []
 
-    for it in range(iterations):  
+    for it in range(iterations):
         patches = _rp_partition(tracer, compsep_run["n_patches"], mask=mask_mcilc)
         if do_save_patches:
             patches_set.append(patches)
@@ -677,7 +689,7 @@ def _mcilc_rp_(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
             else:
                 w_mcilc_save += w_mcilc / iterations
         output_maps += (np.einsum('ij,ijk->jk', w_mcilc, input_maps) / iterations)
-        
+
     if do_save_patches:
         #if 'path_out' not in compsep_run:
         compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
@@ -691,8 +703,63 @@ def _mcilc_rp_(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
 
     compsep_run.pop("A", None)
     compsep_run.pop("e", None)
-    
+
     return output_maps
+
+def _mcilc_custom_(config: Configs, input_maps: np.ndarray, patches: np.ndarray,
+                compsep_run: Dict, A_cmb: np.ndarray,
+                nl_scale: Optional[Union[int, None]] = None) -> np.ndarray:
+    """
+    Performs MC-ILC CMB reconstruction using custom patches
+
+    The sky is divided into non-overlapping spatial patches based on a tracer map and
+    the Healpix grid, allowing region-specific ILC weight estimation.
+
+    Parameters
+    ----------
+        config : Configs
+            Configuration object with all global settings. See 'ilc' for details.
+        input_maps : np.ndarray
+            Input sky maps with shape (n_channels, n_pixels, n_components).
+        patches : np.ndarray
+            map of patches that defines sky partition.
+        compsep_run : dict
+            Component separation configuration, including:
+            - "n_patches": Number of CEA patches.
+            - "save_weights": Flag to save weights.
+            See 'ilc' for details.
+        A_cmb : np.ndarray
+            Spectral energy distribution (SED) vector for the CMB.
+        nl_scale : int, optional
+            Needlet scale index for the current ILC run. Used for:
+            - saving weights with proper label.
+
+    Returns
+    -------
+        np.ndarray
+            Output sky map cleaned via region-specific ILC weights, shape (n_pixels, n_components).
+    """
+
+    mask_mcilc = compsep_run.get("mask", np.ones(input_maps.shape[-2]))
+
+    if compsep_run["save_patches"] and (compsep_run['nsim'] is None or int(compsep_run['nsim']) == config.nsim_start):
+        #if 'path_out' not in compsep_run:
+        compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
+        save_patches(config, patches, compsep_run, nl_scale=nl_scale)
+
+    w_mcilc = get_mcilc_weights(input_maps[...,0], patches, A_cmb, compsep_run)
+
+    if compsep_run["save_weights"]:
+        #if 'path_out' not in compsep_run:
+        compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
+        save_ilc_weights(config, w_mcilc, compsep_run, hp.npix2nside(input_maps.shape[-2]), nl_scale=nl_scale)
+
+    compsep_run.pop("A", None)
+    compsep_run.pop("e", None)
+
+    return np.einsum('ij,ijk->jk', w_mcilc, input_maps)
+
+
 
 def get_ilc_weights(
     A_cmb: np.ndarray,
@@ -753,7 +820,7 @@ def get_ilc_weights(
             del w_, inv_ACA
     else:
         if compsep_run["ilc_bias"] == 0.:
-            w_ilc = (A_cmb.T @ inv_cov) / (A_cmb.T @ inv_cov @ A_cmb) 
+            w_ilc = (A_cmb.T @ inv_cov) / (A_cmb.T @ inv_cov @ A_cmb)
         else:
             w_ilc=np.zeros((input_shapes[0],input_shapes[-2]))
             AT_invC = np.einsum('j,ijk->ik', A_cmb, inv_cov) # np.sum(inv_cov,axis=1)
@@ -816,7 +883,7 @@ def get_mcilc_weights(
         for i in range(inputs.shape[0]):
             w_mcilc[i, mask_mcilc > 0.] = AT_invC[i]/AT_invC_A
         del AT_invC, AT_invC_A
-    
+
     del inv_cov
     return w_mcilc
 
@@ -889,12 +956,12 @@ def get_mcilc_cov(
             Covariance matrix per pixel, shape (n_channels, n_channels, n_valid_pixels).
     """
     cov=np.zeros((inputs.shape[0], inputs.shape[0], inputs.shape[-1]))
-    
+
     if reduce_bias:
         neigh = hp.get_all_neighbours(hp.npix2nside(inputs.shape[1]), np.argwhere(mask_mcilc > 0.)[:, 0])
         for pix_ in np.argwhere(mask_mcilc > 0.)[:, 0]:
             donut = np.ones(inputs.shape[1])
-            donut[pix_] = 0.   
+            donut[pix_] = 0.
             if mcilc_rings > 0:
                 donut[neigh[:,pix_]]=0.
             if mcilc_rings > 1:
@@ -941,5 +1008,3 @@ __all__ = [
     for name, obj in globals().items()
     if callable(obj) and getattr(obj, "__module__", None) == __name__
 ]
-                    
-
