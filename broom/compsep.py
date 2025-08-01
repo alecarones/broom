@@ -435,7 +435,7 @@ def _standardize_compsep_config(compsep_run: Dict[str, Any], lmax: int, save_pro
     if compsep_run["method"] in ["mcilc", "mc_ilc", "mc_cilc"]:
         compsep_run.setdefault("mc_type", "cea_real")
         if compsep_run["mc_type"] not in ["cea_ideal","cea_real","rp_ideal","rp_real", "custom"]:
-            raise ValueError("Invalid value for mc_type. It must be 'cea_ideal', 'cea_real', 'rp_ideal' or 'rp_real'.")
+            raise ValueError("Invalid value for mc_type. It must be 'cea_ideal', 'cea_real', 'rp_ideal', 'rp_real' or 'custom'.")
 
         if "real" in compsep_run["mc_type"]:
             if "path_tracers" not in compsep_run or not isinstance(compsep_run["path_tracers"], str):
