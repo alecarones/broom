@@ -859,7 +859,10 @@ def get_mcilc_weights(
     """
     mask_mcilc = compsep_run.get("mask", np.ones(inputs.shape[1]))
 
-    cov = get_mcilc_cov(inputs, patches, mask_mcilc, reduce_bias=compsep_run["reduce_mcilc_bias"])
+    if patches.ndim ==1:
+        cov = get_mcilc_cov(inputs, patches, mask_mcilc, reduce_bias=compsep_run["reduce_mcilc_bias"])
+    else:
+        cov = get_mcilc_cov_prob(inputs, patches)
 
     inv_cov = get_inv_cov(cov)
     del cov
@@ -981,6 +984,41 @@ def get_mcilc_cov(
             cov[...,patch_mask] = np.repeat(patch_cov[:, :, np.newaxis], np.sum(patch_mask), axis=2)
 
     return cov[...,mask_mcilc > 0.]
+
+
+
+def get_mcilc_cov_prob(
+    inputs: np.ndarray,
+    patches: np.ndarray
+) -> np.ndarray:
+    """
+    Compute pixel-wise covariance matrices for MC-ILC based on patching and optional donut-masking.
+
+    Parameters
+    ----------
+        inputs : np.ndarray
+            Input sky maps, shape (n_channels, n_pixels).
+        patches : np.ndarray
+            probabilistic clusters, shape (n_clusters, n_pixels)
+
+    Returns
+    -------
+        np.ndarray
+            Covariance matrix per pixel, shape (n_channels, n_channels, n_valid_pixels).
+    """
+    cov=np.zeros((inputs.shape[0], inputs.shape[0], inputs.shape[-1]))
+    n_clusters = clusters.shape[0]
+    n_channels, n_pixels = inputs.shape
+
+    for c in range(n_clusters):
+        weights = clusters[c]
+        weights_sum = np.sum(weights)
+        if weights_sum < 1e-12:
+            continue
+        patch_cov = (inputs * weights) @ inputs.T / weights_sum  # shape (n_channels, n_channels)
+        cov += patch_cov[..., np.newaxis] * weights[np.newaxis, np.newaxis, :]
+    return cov
+
 
 def get_inv_cov(cov: np.ndarray) -> np.ndarray:
     """

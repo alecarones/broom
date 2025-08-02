@@ -1,4 +1,4 @@
-import numpy as np 
+import numpy as np
 import healpy as hp
 import os
 from .routines import _slice_data, _map2alm_kwargs, _log
@@ -22,18 +22,18 @@ def get_and_save_real_tracers_B(
     Parameters
     ----------
         config : Configs
-            Configuration object containing the instrumental and parameters configuration. 
+            Configuration object containing the instrumental and parameters configuration.
             It should contain the following attributes:
             - experiment : str
                 Name of the experiment
-            - lmax : int 
-                Maximum multipole for the simulations and analysis.      
+            - lmax : int
+                Maximum multipole for the simulations and analysis.
             - lmin : int
                 Minimum multipole for the simulations and analysis.
             - nside : int
-                HEALPix resolution parameter.   
+                HEALPix resolution parameter.
             - data_type : str
-                Type of data to be used in the simulations, either "maps" or "alms". 
+                Type of data to be used in the simulations, either "maps" or "alms".
                 It also identifies the type of data associated eventually to provided foregrounds and systematics.
             - fwhm_out : float
                 Full width at half maximum of the output beam in arcminutes used to generate the tracer.
@@ -43,7 +43,7 @@ def get_and_save_real_tracers_B(
                 List of dictionaries containing the information about the MC-ILC tracers to be generated.
                 It should contain the following keys:
                    - channels_tracers: list
-                        List of channels indexes to be used for the tracers generation. 
+                        List of channels indexes to be used for the tracers generation.
                    - path_tracers : str
                         Path where the tracers will be saved.
             - bandpass_integrate : bool
@@ -58,24 +58,24 @@ def get_and_save_real_tracers_B(
                 Coordinate system used for the simulations, either "G" for Galactic, "E" for Ecliptic, or "C" for Celestial.
             - pixel_window_in : bool
                 Boolean indicating whether to apply the pixel window function to the input data.
-            - pixel_window_out : str 
+            - pixel_window_out : str
                 Boolean indicating whether to apply the pixel window function to the output tracer.
             - verbose : bool
                 Boolean indicating whether to print information about the process.
-            
+
         foregrounds : np.ndarray, optional
             Foregrounds data to be used in the simulations for tracer generation. If None, the foregrounds will be generated using the configuration parameters.
             Shape depends on `config.data_type`:
             - If "maps": (n_channels, 3, n_pixels) for (T, Q, U)
-            - If "alms": (n_channels, 3, n_alms) for (T, E, B) 
-        
-            
+            - If "alms": (n_channels, 3, n_alms) for (T, E, B)
+
+
         systematics : np.ndarray, optional
             Systematics data to be added to the simulations for tracer generation. If None, no systematics are added.
-            If provided, it should be a 3D array with shape: 
+            If provided, it should be a 3D array with shape:
         (n_Shape depends on `config.data_type`:
             - If "maps": (n_channels, 3, n_pixels) for (T, Q, U)
-            - If "alms": (n_channels, 3, n_alms) for (T, E, B) 
+            - If "alms": (n_channels, 3, n_alms) for (T, E, B)
 
         kwargs : dict, optional
             Additional keyword arguments to be passed to healpy 'map2alm' function.
@@ -111,7 +111,7 @@ def get_and_save_real_tracers_B(
     #mc_data.nuisance = mc_data.noise + mc_data.cmb
 
     tracers = component_separation(config_mc, mc_data)
-    
+
     tracers = _combine_B_tracers(np.array(tracers.total))
 
     _log(f"Saving the tracers in {config.real_mc_tracers[0]['path_tracers']} directory", verbose=config_mc.verbose)
@@ -133,14 +133,14 @@ def _save_real_tracers_B(tracers, path_tracers, tags, fwhm_out, lmax):
         tracers : np.ndarray
             The generated B-mode tracers to be saved. It should be a 2D with shape (n_channels, n_alms).
         path_tracers : str
-            The path where the tracers will be saved. 
+            The path where the tracers will be saved.
         tags : List[str]
             List of tags for the tracers, corresponding to the frequency channels of the tracers.
         fwhm_out : float
             Full width at half maximum of the output beam in arcminutes associated to the tracers.
         lmax : int
             Maximum multipole for the tracers.
-    
+
     Returns
     -------
         None
@@ -156,7 +156,7 @@ def _save_real_tracers_B(tracers, path_tracers, tags, fwhm_out, lmax):
 
     for i, tracer in enumerate(tracers):
         hp.write_map(path_tracers + f"B_tracer_{tags[i]}_{fwhm_out}acm_ns{hp.npix2nside(tracer.shape[0])}_lmax{lmax}.fits", tracer, overwrite=True)
-    
+
 def initialize_scalar_tracers(
     config: Configs,
     input_alms: np.ndarray,
@@ -186,11 +186,11 @@ def initialize_scalar_tracers(
             Field of the tracers to be loaded or derived, only "B" is supported. Default is "B".
         kwargs : dict, optional
             Additional keyword arguments to be passed to healpy 'map2alm' function.
-    
+
     Returns
     -------
         tracers : np.ndarray
-            The scalar tracers for the MC-ILC component separation run. 
+            The scalar tracers for the MC-ILC component separation run.
             If compsep_run["domain"] is "needlet", it will be a 2D array with alms of the tracers.
             If compsep_run["domain"] is "pixel", it will be a 2D array with maps of the tracers.
     """
@@ -237,7 +237,7 @@ def get_tracers_paths_for_ratio(
             List of tags for the tracers, corresponding to the frequency channels of the tracers.
         field : str, optional
             Field of the tracers to be loaded, only "B" is supported. Default is "B".
-    
+
     Returns
     -------
         tracers_paths : List[str]
@@ -281,7 +281,7 @@ def load_scalar_tracers_for_ratio(
             Whether to return the tracers as alms or maps. If True, returns alms; if False, returns maps. Default is True.
         kwargs : dict, optional
             Additional keyword arguments to be passed to healpy 'map2alm' function.
-    
+
     Returns
     -------
         tracers : np.ndarray
@@ -300,7 +300,7 @@ def load_scalar_tracers_for_ratio(
                 tracer = hp.alm2map(alm_, nside, lmax=lmax, pol=False)
         tracers.append(tracer)
 
-    return np.array(tracers)     
+    return np.array(tracers)
 
 def get_scalar_tracer_nl(tracers, nside_, lmax_, b_ell):
     """
@@ -316,12 +316,12 @@ def get_scalar_tracer_nl(tracers, nside_, lmax_, b_ell):
         lmax_ : int
             Maximum multipole for the tracers.
         b_ell : np.ndarray
-            Needlet filter bandpass function to be applied to the tracers. 
-    
+            Needlet filter bandpass function to be applied to the tracers.
+
     Returns
     -------
         np.ndarray
-            The filtered scalar tracer in the needlet domain. 
+            The filtered scalar tracer in the needlet domain.
     """
 
     if tracers.ndim == 1:
@@ -346,7 +346,7 @@ def get_scalar_tracer(
         tracers : np.ndarray
             The scalar tracers. It can be either a 1D array (single tracer) or a 2D array (multiple tracers).
             If 2D, the ratio of the first tracer to the second tracer will be returned.
-    
+
     Returns
     -------
         np.ndarray
@@ -376,7 +376,7 @@ def _cea_partition(
         mask : np.ndarray, optional
             A mask to be applied to the input map. If provided, only the pixels where the mask is non-zero will be considered for partitioning.
             If None, the entire map will be used for partitioning.
-    
+
     Returns
     -------
         np.ndarray
@@ -387,7 +387,7 @@ def _cea_partition(
 
     split = np.array_split(np.sort(map_[mask > 0.]),n_patches)
     patches = np.zeros(12 * (hp.get_nside(map_))**2)
-    
+
     for n in range(n_patches):
         if n==0:
             patches[(map_ <= max(split[n])) & (mask > 0.)] = float(n)
@@ -395,7 +395,7 @@ def _cea_partition(
             patches[(map_ >= min(split[n])) & (mask > 0.)] = float(n)
         else:
             patches[(min(split[n]) <= map_) & (map_ <= max(split[n])) & (mask > 0.)] = float(n)
-            
+
     return patches
 
 def _rp_partition(map_: np.ndarray,
@@ -413,7 +413,7 @@ def _rp_partition(map_: np.ndarray,
             The number of patches to be created from the input map.
         mask : np.ndarray, optional
             A mask to be applied to the input map. If provided, only the pixels where the mask is non-zero will be considered for partitioning.
-    
+
     Returns
     -------
         np.ndarray
@@ -430,7 +430,7 @@ def _rp_partition(map_: np.ndarray,
             break
 
     partition = np.cumsum(partition)
-    
+
     # Define index bins for partitioning the sorted map
 #    total_pixels = map_.shape[0]
 #    sorted_indices = np.argsort(map_)
@@ -473,7 +473,7 @@ def _adapt_tracers_path(
             The path or list of paths to the tracers. It can be a single string or a list of strings.
         n_fields : int, optional
             The number of fields to be analysed. Default is 1.
-        
+
     Returns
     -------
         Union[str, List[str]]
@@ -511,12 +511,12 @@ def get_tracers_compsep(
             List of channels indexes associated to the foreground tracers to be used in the component separation.
         lmax : int
             Maximum multipole for the component separation and analysis.
-    
+
     Returns
     -------
         List[Dict[str, Any]]
             List of dictionaries containing the configuration for GILC run to obtain the scalar tracers.
-    """    
+    """
     def generate_merging_needlets(starting_list: List[int]) -> List[int]:
         needlet_config = {
             "needlet_windows": "mexican",
@@ -561,7 +561,7 @@ def get_mc_config(config: Configs, tracers_inputs_path: str) -> Configs:
     Parameters
     ----------
     config : Configs
-            Configuration object containing the instrumental and parameters configuration. 
+            Configuration object containing the instrumental and parameters configuration.
             See 'generate_and_save_real_tracers_B' for details.
         tracers_inputs_path : str
             Path where the MC-ILC tracers inputs are stored. It should be a directory path.
@@ -591,7 +591,7 @@ def get_mc_config(config: Configs, tracers_inputs_path: str) -> Configs:
         config_mc.fgds_path = f"{tracers_inputs_path}/foregrounds_{''.join(config_mc.foreground_models)}_{config_mc.data_type}_ns{config_mc.nside}_lmax{config_mc.lmax}"
     config_mc.noise_path = f"{tracers_inputs_path}/noise_{config_mc.data_type}_ns{config_mc.nside}_lmax{config_mc.lmax}"
     config_mc.cmb_path = f"{tracers_inputs_path}/cmb_{config_mc.data_type}_ns{config_mc.nside}_lmax{config_mc.lmax}"
-    
+
 #    if not all(os.path.exists(p + ".npy") for p in [config_mc.data_path, config_mc.noise_path, config_mc.cmb_path]):
 #        if not os.path.exists(config_mc.fgds_path + f"_{''.join(config_mc.foreground_models)}.npy"):
     config_mc.generate_input_foregrounds = True #
@@ -600,7 +600,7 @@ def get_mc_config(config: Configs, tracers_inputs_path: str) -> Configs:
     config_mc.generate_input_noise = True #
     config_mc.generate_input_cmb = True #
     config_mc.generate_input_data = True #
-    config_mc.save_inputs = True # 
+    config_mc.save_inputs = True #
     config_mc.seed_cmb = None
     config_mc.seed_noise = None
 #    else:
@@ -647,11 +647,11 @@ def get_mc_data(
             Foregrounds data to be used in the simulations for tracer generation. If None, the foregrounds will be generated using the configuration parameters.
         kwargs : dict, optional
             Additional keyword arguments to be passed to healpy 'map2alm' function.
-    
+
     Returns
     -------
         SimpleNamespace
-            A SimpleNamespace object containing the simulated data for the MC-ILC tracers generation. 
+            A SimpleNamespace object containing the simulated data for the MC-ILC tracers generation.
             It will have the following attributes:
             - `total`: The total simulated data, which includes CMB, foregrounds, and noise.
             - `cmb`: The simulated CMB data.
@@ -684,12 +684,12 @@ def _combine_B_tracers(tracers, coefficients=[0.7,0.3]):
         coefficients : List[float], optional
             List of coefficients to be used for combining the tracers. Default is [0.7, 0.3].
             The coefficients should sum to 1. If they do not, they will be normalized.
-    
+
     Returns
     -------
         np.ndarray
             The combined scalar tracers. If `tracers` is a 2D array, it returns the tracers as is.
-            If `tracers` is a 3D array, it returns the weighted sum of the tracers using the provided coefficients. 
+            If `tracers` is a 3D array, it returns the weighted sum of the tracers using the provided coefficients.
     """
 
     if tracers.ndim == 2:
