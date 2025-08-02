@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import sys
 
 from .configurations import Configs
-from .routines import (merge_dicts, _map2alm_kwargs, _slice_data, _format_nsim, _log,   
+from .routines import (merge_dicts, _map2alm_kwargs, _slice_data, _format_nsim, _log,
             _EB_to_QU, _QU_to_EB, _B_to_QU, _E_to_QU)
 from .inputs import _alms_from_data
 from .gilcs import gilc, fgd_diagnostic
@@ -32,21 +32,21 @@ def get_data_and_compsep(config: Configs, foregrounds, nsim=None):
         config : Configs
             Configuration object with settings for component separation and data handling.
             See 'component_separation' for details on required attributes.
-        
+
         foregrounds : SimpleNamespace
-            Foreground data to be used in component separation. 
+            Foreground data to be used in component separation.
             It should have the 'total' attribute, a numpy array of shape (n_channels, 3, n_alms/n_pixs)
             where 3 correspond to (T, Q, U) if data_type is "maps" or (T, E, B) if data_type is "alms".
 
         nsim : Optional[int or str], optional
             Simulation number to be used for saving the outputs. If None, the outputs will be saved without label on simulation number.
             Default: None.
-    
+
     Returns
     -------
         SimpleNamespace or None
             If `config.return_compsep_products` is True, returns outputs. Otherwise returns None.
-    
+
     Raises
     ------
         ValueError
@@ -82,7 +82,7 @@ def component_separation(config: Configs, data: SimpleNamespace, nsim: Optional[
             - nside (int): Desired HEALPix resolution of the outputs.
             - fwhm_out (float): Full width at half maximum of the output maps in arcminutes.
             - compsep (Dict[str, Any]): List of dictionaries containing the configuration for each component separation method to be run.
-            - mask_observations (str): Path to HEALPix mask fits file, if any. Default: None. 
+            - mask_observations (str): Path to HEALPix mask fits file, if any. Default: None.
                 It is used to exclude unobserved regions in the alm computation and component separation.
             - mask_covariance (str): Full path to mask used to weight adn/or exclude pixels in component separation. Default: None.
             - leakage_correction (str): Whether to apply EB-leakage correction on input data if mask_type is "observed_patch". Default: None.
@@ -91,11 +91,11 @@ def component_separation(config: Configs, data: SimpleNamespace, nsim: Optional[
             - pixel_window_out (bool): Whether to include pixel window in the output products. Default: False.
             - save_compsep_products (bool): Whether to save the outputs of component separation. Default: True.
             - return_compsep_products (bool): Whether to return the outputs of component separation. Default: False.
-            - path_outputs (str): Path to the directory where the outputs will be saved if 'save_compsep_products' is True. 
+            - path_outputs (str): Path to the directory where the outputs will be saved if 'save_compsep_products' is True.
                         It will save them in "working_directory/{path_outputs}/{method_specs}", where {method_specs} is a string containing the method name, domain, and other relevant parameters.
                         Default: Working directory + "/outputs/".
             - verbose (bool): Whether to print information about the component separation process. Default: False.
-    
+
         data : SimpleNamespace
             Data object containing the input data for component separation. It should have the following attributes:
             - `total`: Total map or alms to be used for component separation.
@@ -115,7 +115,7 @@ def component_separation(config: Configs, data: SimpleNamespace, nsim: Optional[
     nsim = _format_nsim(nsim)
     if nsim is None:
         _log(f"Simulation number not provided. If 'save_compsep_products' is set to True, the outputs will be saved without label on simulation number.", verbose=config.verbose)
-            
+
     kwargs = _map2alm_kwargs(**kwargs)
 
     # Validation of config parameters and data format
@@ -130,16 +130,16 @@ def component_separation(config: Configs, data: SimpleNamespace, nsim: Optional[
         config.field_in_cs = config.field_in
 
     if nsim is None:
-        msg = f"Computing required input alms for component separation." if config.data_type=="maps" else f"Pre-processing input alms for component separation."    
+        msg = f"Computing required input alms for component separation." if config.data_type=="maps" else f"Pre-processing input alms for component separation."
     else:
         msg = f"Computing required input alms for component separation for simulation {nsim}." if config.data_type=="maps" else f"Pre-processing input alms for component separation for simulation {nsim}."
     _log(msg, verbose=config.verbose)
 
     # Preprocessing arguments for alms computation
     preprocess_args = dict(
-            data_type=config.data_type, 
-            bring_to_common_resolution=config.bring_to_common_resolution, 
-            pixel_window_in=config.pixel_window_in, 
+            data_type=config.data_type,
+            bring_to_common_resolution=config.bring_to_common_resolution,
+            pixel_window_in=config.pixel_window_in,
             **kwargs)
 
     # Initializing mask
@@ -190,11 +190,11 @@ def component_separation(config: Configs, data: SimpleNamespace, nsim: Optional[
         # Initialize attributes of `outputs` with empty lists
             for attr in vars(data):
                 setattr(outputs, attr, [])
-        
+
     _log(f"Running component separation for simulation {nsim}." if nsim is not None else f"Running component separation.", verbose=config.verbose)
 
     mask_obs, mask_cov = get_masks_for_compsep(mask_obs, mask_cov, config.nside)
-    
+
     # Starting component separation runs
     for compsep_run in config.compsep:
         compsep_run = _standardize_compsep_config(compsep_run, config.lmax, save_products=config.save_compsep_products)
@@ -206,7 +206,7 @@ def component_separation(config: Configs, data: SimpleNamespace, nsim: Optional[
             compsep_run["mask"] = mask_cov
 
         _log(f"Running {compsep_run['method']} in {compsep_run['domain']} domain for simulation {nsim}." if nsim is not None else f"Running {compsep_run['method']} in {compsep_run['domain']} domain.", verbose=config.verbose)
-        
+
         if config.return_compsep_products:
             prod = methods_map[compsep_run["method"]](config, input_alms, compsep_run, **kwargs)
             if compsep_run["method"] in ["fgd_diagnostic", "fgd_P_diagnostic"]:
@@ -223,17 +223,17 @@ def component_separation(config: Configs, data: SimpleNamespace, nsim: Optional[
 
         compsep_run.pop("mask", None)
         del compsep_run["nsim"]
-    
+
     del mask_obs, mask_cov
 
     if config.return_compsep_products:
 #        for attr in vars(outputs).keys():
 #            setattr(outputs, attr, np.array(getattr(outputs, attr)))
         return outputs
-    
+
     return None
 
-def estimate_residuals(config: Configs, nsim: Optional[Union[int, str]] = None, **kwargs) -> Optional[SimpleNamespace]:  
+def estimate_residuals(config: Configs, nsim: Optional[Union[int, str]] = None, **kwargs) -> Optional[SimpleNamespace]:
     """
     Estimate residual foregrounds from component-separated maps.
 
@@ -247,7 +247,7 @@ def estimate_residuals(config: Configs, nsim: Optional[Union[int, str]] = None, 
             - field_out (str): Fields of the desired outputs for residuals estimate. Default: `config.field_in`.
             - compsep_residuals (list): List of dictionaries with settings for each component separation method to estimate residuals. It should contain:
                 - compsep_path (str): Path to the directory containing the 'weights' folder of corresponding component separation method.
-                                    Weights will be loaded from "working_directory/{compsep_path}/weights. 
+                                    Weights will be loaded from "working_directory/{compsep_path}/weights.
                 - gnilc_path (str): Path to the directory containing the 'gnilc' maps to be used as multifrequency foreground tracers.
                                     Tracers will be loaded from "working_directory/{gnilc_path}/output_total".
                 - field_in (str): Fields of the data to be loaded. Optional, default is `config.field_out`.
@@ -274,7 +274,7 @@ def estimate_residuals(config: Configs, nsim: Optional[Union[int, str]] = None, 
     # Initializing nsim
     nsim = _format_nsim(nsim)
     if nsim is None:
-        _log(f"Simulation number not provided. If 'save_compsep_products' is set to True, the outputs will be saved without label on simulation number.", verbose=config.verbose)        
+        _log(f"Simulation number not provided. If 'save_compsep_products' is set to True, the outputs will be saved without label on simulation number.", verbose=config.verbose)
 
     kwargs = _map2alm_kwargs(**kwargs)
 
@@ -311,7 +311,7 @@ def estimate_residuals(config: Configs, nsim: Optional[Union[int, str]] = None, 
         compsep_run.setdefault("adapt_nside", False)
 
         data = get_gnilc_maps(config, compsep_run["gnilc_path"], field_in=compsep_run["field_in"], nsim=nsim)
-        
+
         if (data.total.ndim > 2) and (config.field_out != compsep_run["field_in"]):
             compsep_run["field_in_cs"] = _get_field_in_cs(compsep_run["field_in"], config.field_out)
             data = _slice_data(data, compsep_run["field_in"], compsep_run["field_in_cs"])
@@ -336,7 +336,7 @@ def estimate_residuals(config: Configs, nsim: Optional[Union[int, str]] = None, 
             preprocess_args["mask_in"] = mask_obs
 
         input_alms = _alms_from_data(config, data, compsep_run["field_in_cs"], **preprocess_args)
-        
+
 #        if mask is not None:
 #            compsep_run["mask"] = _preprocess_mask(mask, config.nside)
         if mask_cov is not None:
@@ -384,15 +384,15 @@ def _standardize_compsep_config(compsep_run: Dict[str, Any], lmax: int, save_pro
     """
 
     if compsep_run["domain"] == "pixel":
-        compsep_run["b_squared"] = False 
-        compsep_run["adapt_nside"] = False 
+        compsep_run["b_squared"] = False
+        compsep_run["adapt_nside"] = False
     if compsep_run["domain"] == "needlet":
         # Update the original dictionary with the merged dictionary
         if "needlet_config" not in compsep_run:
             raise ValueError("needlet_config must be provided if compsep domain is needlet.")
         compsep_run['needlet_config'] = merge_dicts(compsep_run['needlet_config'])
         compsep_run.setdefault("b_squared", False)
-        compsep_run.setdefault("adapt_nside", True) 
+        compsep_run.setdefault("adapt_nside", True)
         compsep_run.setdefault("save_needlets", save_products)
 
     if compsep_run["method"] != "mcilc":
@@ -411,31 +411,31 @@ def _standardize_compsep_config(compsep_run: Dict[str, Any], lmax: int, save_pro
                 _len = nls_number - compsep_run["cov_noise_debias"].shape[0]
                 if _len > 0:
                     compsep_run["cov_noise_debias"] = np.append(compsep_run["cov_noise_debias"], [0.] * _len)
-                compsep_run["cov_noise_debias"] = compsep_run["cov_noise_debias"][:nls_number]    
+                compsep_run["cov_noise_debias"] = compsep_run["cov_noise_debias"][:nls_number]
             else:
                 raise ValueError("cov_noise_debias must be a scalar, a list or a np.ndarray if domain is needlet.")
 
     if compsep_run["domain"] in ["pixel", "needlet"]:
         if compsep_run["method"] != "mcilc":
             compsep_run.setdefault("reduce_ilc_bias", False)
-        
+
     if compsep_run["method"] in ["c_ilc","c_pilc","mc_ilc","mc_cilc"]:
         if compsep_run["domain"] != "needlet":
             raise ValueError("The methods 'c_ilc', 'c_pilc', 'mc_ilc' and 'mc_cilc' can only be used in the needlet domain.")
         if "special_nls" not in compsep_run:
-            raise ValueError("special_nls must be provided for methods 'c_ilc', 'c_pilc', 'mc_ilc' and 'mc_cilc'.")      
+            raise ValueError("special_nls must be provided for methods 'c_ilc', 'c_pilc', 'mc_ilc' and 'mc_cilc'.")
         if not isinstance(compsep_run["special_nls"], list):
             raise ValueError("special_nls must be a list of integers.")
-        
+
     if compsep_run["method"] in ["cilc", "c_ilc", "mc_cilc", "cpilc", "c_pilc"]:
         if "constraints" not in compsep_run:
             raise ValueError("A dictionary of constraints must be provided in the compsep_run dictionary for methods 'cilc', 'c_ilc', 'cpilc', 'c_pilc', 'mc_cilc'.")
         compsep_run['constraints'] = merge_dicts(compsep_run['constraints'])
-    
+
     if compsep_run["method"] in ["mcilc", "mc_ilc", "mc_cilc"]:
         compsep_run.setdefault("mc_type", "cea_real")
-        if compsep_run["mc_type"] not in ["cea_ideal","cea_real","rp_ideal","rp_real"]:
-            raise ValueError("Invalid value for mc_type. It must be 'cea_ideal', 'cea_real', 'rp_ideal' or 'rp_real'.")
+        if compsep_run["mc_type"] not in ["cea_ideal","cea_real","rp_ideal","rp_real", "custom"]:
+            raise ValueError("Invalid value for mc_type. It must be 'cea_ideal', 'cea_real', 'rp_ideal', 'rp_real' or 'custom'.")
 
         if "real" in compsep_run["mc_type"]:
             if "path_tracers" not in compsep_run or not isinstance(compsep_run["path_tracers"], str):
@@ -450,11 +450,11 @@ def _standardize_compsep_config(compsep_run: Dict[str, Any], lmax: int, save_pro
         compsep_run.setdefault("reduce_mcilc_bias", True)
         compsep_run.setdefault("n_patches", 50)
         compsep_run.setdefault("save_patches", False)
-                                    
+
     compsep_run.setdefault("save_weights", save_products)
-        
+
     return compsep_run
-    
+
 
 def _check_fields(config: Configs, data: SimpleNamespace) -> Configs:
     """
@@ -554,7 +554,7 @@ def _get_field_in_cs(field_in: str, field_out: str) -> str:
         else:
             return field_in
     elif field_in == "EB":
-        if field_out in ["E", "B"]: 
+        if field_out in ["E", "B"]:
             return field_out
         elif field_out in ["QU_E", "QU_B"]:
             return field_out[-1]
@@ -596,9 +596,9 @@ def _check_data_and_config(config: Configs, data: SimpleNamespace) -> Configs:
         raise ValueError(f"The provided data have invalid attributes. Allowed attributes are: {allowed_attributes}.")
 
     if len(vars(data)) > 1:
-        attr_shape = next(iter(vars(data).values())).shape 
+        attr_shape = next(iter(vars(data).values())).shape
         if not all(attr.shape == attr_shape for attr in vars(data).values()):
-            raise ValueError("All data components must have the same shape.")    
+            raise ValueError("All data components must have the same shape.")
 
     if config.data_type == "maps":
         try:
@@ -626,7 +626,7 @@ def _check_data_and_config(config: Configs, data: SimpleNamespace) -> Configs:
         raise ValueError("The provided data have wrong number of dimensions. It must be 2 or 3.")
     return config
 
-def _load_outputs(path: str, components:list, field_out: str, 
+def _load_outputs(path: str, components:list, field_out: str,
     nside: int, lmax: int, fwhm_out: float, nsim: Optional[str] = None) -> np.ndarray:
     """
     Load component separation outputs from specified path.
@@ -652,7 +652,7 @@ def _load_outputs(path: str, components:list, field_out: str,
     -------
         np.ndarray
             Loaded HEALPix map(s) for the specified components.
-        
+
     """
 
     loaded_outputs = []
@@ -701,7 +701,7 @@ def _load_outputs_(filename: str, fields: str, nsim: Optional[str] = None) -> np
 
     if nsim is not None:
         filename += f"_{nsim}.fits"
-        
+
     if fields in ["TEB", "TQU"]:
         return hp.read_map(filename, field=[0,1,2])
     elif fields in ["EB", "QU", "QU_E", "QU_B"]:
@@ -726,9 +726,9 @@ def _combine_products(config: Configs, nsim=None):
                 - path_out (str): Path to the directory where the combined products will be saved.
                 - fields_out (str): Fields of the combined products. Default: ''.join(fields_in).
                 - components (list): List of components returned by component separation runs to be combined. Default: ['output_total'].
-    
+
         nsim : int or str, optional
-            Simulation number to be used for loading the component separation products and saving the outputs. 
+            Simulation number to be used for loading the component separation products and saving the outputs.
             If None, the outputs will be saved without label on simulation number.
             Default: None.
 
@@ -736,7 +736,7 @@ def _combine_products(config: Configs, nsim=None):
     -------
         SimpleNamespace or None
             If `config.return_compsep_products` is True, returns outputs. Otherwise returns None.
-    
+
     Raises
     ------
         ValueError
@@ -746,7 +746,7 @@ def _combine_products(config: Configs, nsim=None):
     nsim = _format_nsim(nsim)
 
     mask_obs, mask_cov = get_masks_for_compsep(config.mask_observations, config.mask_covariance, config.nside)
-    
+
     for combine_run in config.combine_outputs:
         if ("fields_in" not in combine_run) or ("paths_fields_in" not in combine_run) or ("path_out" not in combine_run):
             raise ValueError("'fields_in', 'paths_fields' and 'path_out' must be provided in the combine_outputs dictionary.")
@@ -766,7 +766,7 @@ def _combine_products(config: Configs, nsim=None):
         for component in combine_run["components"]:
             if config.save_compsep_products:
                 os.makedirs(os.path.join(config.path_outputs, combine_run["path_out"], component), exist_ok=True)
-        
+
             outputs = None
             component_name = component.split('/')[0] if '/' in component else component
 
@@ -805,7 +805,7 @@ def _combine_products(config: Configs, nsim=None):
                         raise ValueError(f"'field_out' can be {''.join(combine_run['fields_in'])}, TQU or TQU_{combine_run['fields_in'][-1]} for provided 'field_in'")
                 elif combine_run["fields_in"] in [["E", "B"], ["E"], ["B"]]:
                     if combine_run["fields_out"][:2] != "QU":
-                        raise ValueError(f"Invalid 'fields_out' for provided 'field_in'")                        
+                        raise ValueError(f"Invalid 'fields_out' for provided 'field_in'")
                     if outputs.ndim == 2:
                         combine_run["fields_out"] = "QU"
                         outputs = _EB_to_QU(outputs, config.lmax)
@@ -822,13 +822,13 @@ def _combine_products(config: Configs, nsim=None):
                         raise ValueError(f"Wrong 'field_out' for provided 'field_in'")
                 else:
                     raise ValueError(f"Invalid 'field_in' or 'field_out'")
-            
+
             if mask_cov is not None:
                 if outputs.ndim == 1:
                     outputs[mask_cov == 0.] = 0.
                 elif outputs.ndim == 2:
                     outputs[:, mask_cov == 0.] = 0.
-                
+
             if config.save_compsep_products:
                 filename_out = os.path.join(config.path_outputs, combine_run["path_out"], f"{component}/{combine_run['fields_out']}_{component_name}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}")
                 if nsim is not None:
@@ -848,9 +848,3 @@ __all__ = [
     for name, obj in globals().items()
     if callable(obj) and getattr(obj, "__module__", None) == __name__
 ]
-                    
-
-                    
-
-
-        
