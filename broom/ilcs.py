@@ -375,7 +375,10 @@ def _ilc_needlet_j(
             tracer_nl = get_scalar_tracer_nl(compsep_run["tracers"], nside_, lmax_, b_ell)
             output_maps_nl = _mcilc_maps(config, input_maps_nl, compsep_run, b_ell, tracer=tracer_nl, nl_scale=nl_scale)
         else:
-            patches = np.load(compsep_run["cluster_map"])
+            try:
+                patches = np.load(compsep_run["cluster_map"])
+            except TypeError:
+                patches = compsep_run["cluster_map"]
             output_maps_nl = _mcilc_maps(config, input_maps_nl, compsep_run, b_ell, patches=patches, nl_scale=nl_scale)
     else:
         output_maps_nl = _ilc_maps(config, input_maps_nl, compsep_run, b_ell, nl_scale=nl_scale)
