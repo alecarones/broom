@@ -1,0 +1,31 @@
+name: Python package
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  tests:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        os: [ubuntu-latest] #, macos-13] exclude macOS for now
+        python: ["3.10", "3.13"]
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        sudo apt install build-essential python3-dev libfftw3-dev libcfitsio-dev libgsl-dev
+        pip install -e .[pymaster]
+        pip install pytest pytest-cov
+    - name: Run tests
+      run: |
+        pytest --durations=5 -vv

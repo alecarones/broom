@@ -176,7 +176,7 @@ class Configs:
             self.config = yaml.load(open(self.config_path), Loader=yaml.FullLoader)
         self._store_passed_settings()
         if self.experiment:
-            self.instrument = InstrumentConfig()
+            self.instrument: InstrumentConfig = InstrumentConfig()
             self._load_experiment_parameters()
             if self.generate_input_foregrounds and self.bandpass_integrate:
                     if not hasattr(self.instrument, 'bandwidth') and not hasattr(self.instrument, 'path_bandpasses'):
