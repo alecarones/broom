@@ -2,11 +2,11 @@ import numpy as np
 import healpy as hp
 from .configurations import Configs
 from .routines import _get_local_cov, _EB_to_QU, _E_to_QU, _B_to_QU, obj_to_array, array_to_obj, _get_bandwidths
-from .saving import _save_compsep_products, _get_full_path_out, save_ilc_weights
+from .saving import _save_compsep_products, _get_full_path_out, save_ilc_weights, _get_full_path_nuiscov, load_nuiscov
 from .needlets import _get_nside_lmax_from_b_ell, _get_needlet_windows_, _needlet_filtering, _get_good_channels_nl
-from .ilcs import _standardize_cilc, get_inv_cov
+from .ilcs import get_inv_cov
 from .leakage import purify_master, purify_recycling
-from .seds import _get_CMB_SED, _get_moments_SED, _standardize_cilc
+from .seds import _get_CMB_SED, _get_SEDs, _standardize_cilc
 from types import SimpleNamespace
 import os
 import re
@@ -29,8 +29,8 @@ def pilc(config: Configs, input_alms: SimpleNamespace, compsep_run: Dict[str, An
             - save_compsep_products : bool, whether to save component separation products.
             - return_compsep_products : bool, whether to return component separation products.
             - path_outputs : str, path to save the output files.
-            - units : str, units of the output maps (e.g., "uK_CMB"). Used to compute moments, if needed.
-            - bandpass_integrate : bool, whether inputs are bandpass-integrated. Used to compute moments, if needed. 
+            - units : str, units of the output maps (e.g., "uK_CMB"). Used to compute components SEDs, if needed.
+            - bandpass_integrate : bool, whether inputs are bandpass-integrated. Used to compute components SEDs, if needed. 
 
         input_alms : SimpleNamespace
             SimpleNamespace object containing input spherical harmonic coefficients (alms). 
@@ -39,7 +39,7 @@ def pilc(config: Configs, input_alms: SimpleNamespace, compsep_run: Dict[str, An
 
         compsep_run : dict
             Dictionary specifying component separation parameters. It includes:
-            - "method": Method to use for component separation (e.g., "pilc", "cpilc").
+            - "method": Method to use for component separation (e.g., "pilc", "cpilc", "prilc", "cprilc", ..)
             - "domain": Domain of the component separation (e.g., "pixel", "needlet").
             - "needlet_config": Configuration for needlet parameters (if applicable).
             - "ilc_bias": Parameter setting the residual percentage ILC bias (default is 0. and covariance will be computed over the whole sky).
@@ -53,16 +53,16 @@ def pilc(config: Configs, input_alms: SimpleNamespace, compsep_run: Dict[str, An
             - "cov_noise_debias": (float, list) Noise covariance debiasing factor. 
                 If different from 0. it will debias the covariance matrix by a factor cov_noise_debias * noise_covariance.
                 It must be a list with the same length as the number of needlet scales if domain is "needlet", otherwise a single float.
-            - "special_nls": (list) List of needlet scales where moment deprojection is applied in c_pilc.
-            - "constraints": Dictionary to be used if method is "cpilc" or "c_pilc". It must contain:
-                - "moments": list of strings with moments to be deprojected in cPILC. It can be a list of lists if domain is "needlet".
+            - "special_nls": (list) List of needlet scales where component deprojection is applied in c_pilc.
+            - "constraints": Dictionary to be used if method is "cpilc", "cprilc", "c_pilc" or "c_prilc". It must contain:
+                - "components": list of strings with components to be deprojected in cPILC. It can be a list of lists if domain is "needlet".
                     Each list will be associated to a needlet band in order.
             Optionally can include:
                 - "beta_d": (float, list): dust spectral index to compute dust moments. If list, a different beta_d is used for each needlet band. Default: 1.54.
                 - "T_d": (float, list): dust temperature to compute dust moments. If list, a different T_d is used for each needlet band. Default: 19.6.
                 - "beta_s": (float, list): synchrotron spectral index to compute synchrotron moments. If list, a different beta_s is used for each needlet band. Default: -3.
-                - "deprojection": (float, list): deprojection factor for each moment. If list, a different deprojection factor is used for each moment.
-                    It can be a list of lists if domain is "needlet". Each list will be associated to a needlet band in order. Default: 0. (i.e. full deprojection) for each moment and each needlet band.
+                - "deprojection": (float, list): deprojection factor for each component. If list, a different deprojection factor is used for each component.
+                    It can be a list of lists if domain is "needlet". Each list will be associated to a needlet band in order. Default: 0. (i.e. full deprojection) for each component and each needlet band.
 
         **kwargs : dict
             Additional keyword arguments forwarded to hp.map2alm.
@@ -74,31 +74,38 @@ def pilc(config: Configs, input_alms: SimpleNamespace, compsep_run: Dict[str, An
     """
 
     if config.field_out not in ["E", "B", "QU", "EB", "QU_E", "QU_B"]:
-        raise ValueError("Invalid field_out for PILC. It must be E, B, QU, EB, QU_E, or QU_B.")
+        raise ValueError("Invalid field_out for P(R)ILC. It must be E, B, QU, EB, QU_E, or QU_B.")
 
-    if compsep_run["method"] == "cpilc" or compsep_run["method"] == "c_pilc":
+    if hasattr(input_alms, "total"):
+        compsep_run["from_splits"] = False
+    elif hasattr(input_alms, "total_split1") and hasattr(input_alms, "total_split2"):
+        compsep_run["from_splits"] = True
+    else:
+        raise ValueError("The input_alms object must have either 'total' attribute or both 'total_split1' and 'total_split2' attributes.")
+
+    if compsep_run["method"] in ["cpilc", "c_pilc", "cprilc", "c_prilc"]:
         compsep_run = _standardize_cilc(compsep_run, config.lmax)
 
-    if np.any(np.array(compsep_run["cov_noise_debias"]) != 0.):
-        if not hasattr(input_alms, "noise"):
-            raise ValueError("The input_alms object must have 'noise'' attribute for debiasing the covariance.")
-        compsep_run["noise_idx"] = 2 if hasattr(input_alms, "fgds") else 1
+    input_attrs = obj_to_array(input_alms, return_attributes=True)
+
+    if not compsep_run["from_splits"]:
+        if np.any(np.array(compsep_run["cov_noise_debias"]) != 0.):
+            if not ("load_noise_covariance" in compsep_run and compsep_run["load_noise_covariance"]):
+                if not hasattr(input_alms, "noise"):
+                    raise ValueError("The input_alms object must have 'noise'' attribute for debiasing the covariance.")
+                compsep_run["noise_idx"] = input_attrs.index('noise')
 
     output_maps = _pilc(config, obj_to_array(input_alms), compsep_run, **kwargs)
     
-    outputs = array_to_obj(output_maps, input_alms)
+    outputs = array_to_obj(output_maps, input_attrs)
 
     del output_maps
 
-    if config.save_compsep_products:
-        _save_compsep_products(config, outputs, compsep_run, nsim=compsep_run["nsim"])
-    if config.return_compsep_products:
-        return outputs
-    return None
+    return outputs, compsep_run
 
 def _pilc(config: Configs, input_alms: np.ndarray, compsep_run: Dict[str, Any], **kwargs) -> np.ndarray:
     """
-    Internal PILC dispatcher to either pixel or needlet domain implementation.
+    Internal P(R)ILC dispatcher to either pixel or needlet domain implementation.
 
     Parameters
     ----------
@@ -115,11 +122,11 @@ def _pilc(config: Configs, input_alms: np.ndarray, compsep_run: Dict[str, Any], 
     Returns
     -------
         np.ndarray
-            Output maps from PILC.
+            Output maps from P(R)ILC.
     """
     if input_alms.ndim == 4:
         if input_alms.shape[1] != 2:
-            raise ValueError("input_alms must have shape (nfreq, 2, nalm, ncomps) for pilc.")
+            raise ValueError("input_alms must have shape (nfreq, 2, nalm, ncomps) for p(r)ilc.")
         compsep_run["field"] = "QU"
 
     elif input_alms.ndim == 3:
@@ -139,7 +146,7 @@ def _pilc(config: Configs, input_alms: np.ndarray, compsep_run: Dict[str, Any], 
 
 def _pilc_needlet(config: Configs, input_alms: np.ndarray, compsep_run: Dict[str, Any], **kwargs) -> np.ndarray:
     """
-    Perform PILC in the needlet domain.
+    Perform P(R)ILC in the needlet domain.
 
     Parameters
     ----------
@@ -157,7 +164,7 @@ def _pilc_needlet(config: Configs, input_alms: np.ndarray, compsep_run: Dict[str
     Returns
     -------
         np.ndarray
-            Output maps after application of needlet domain PILC.
+            Output maps after application of needlet domain P(R)ILC.
     """
     b_ell = _get_needlet_windows_(compsep_run["needlet_config"], config.lmax)
     b_ell = b_ell**2
@@ -217,7 +224,7 @@ def _pilc_needlet(config: Configs, input_alms: np.ndarray, compsep_run: Dict[str
 
 def _pilc_needlet_j(config: Configs, input_alms: np.ndarray, compsep_run: Dict[str, Any], b_ell: np.ndarray, nl_scale: int) -> np.ndarray:
     """
-    Compute the needlet-scale PILC component separated maps.
+    Compute the needlet-scale P(R)ILC component separated maps.
 
     Parameters
     ----------
@@ -273,7 +280,7 @@ def _pilc_pixel(
     **kwargs
 ) -> np.ndarray:
     """
-    Perform PILC in the pixel domain.
+    Perform P(R)ILC in the pixel domain.
 
     Parameters:
     ----------
@@ -369,7 +376,7 @@ def _pilc_maps(
     nl_scale: Optional[Union[int, None]] = None
 ) -> np.ndarray:
     """
-    Performs Polarization ILC (PILC) map reconstruction.
+    Performs Polarization ILC (P(R)ILC) map reconstruction.
 
     Parameters:
     ----------
@@ -384,12 +391,12 @@ def _pilc_maps(
             Needlet window function for the current scale. It should be a 1D array of shape (lmax+1,).
             If the method domain is "pixel", it should be an array of ones with shape (lmax+1,).
         nl_scale: int, optional
-            Needlet scale index for which the PILC is performed. It has to be not None if the method domain is "needlet".
+            Needlet scale index for which the P(R)ILC is performed. It has to be not None if the method domain is "needlet".
 
     Returns
     -------
         output_maps: np.ndarray
-            Reconstructed PILC CMB maps of shape (2, n_pix, n_comps), with 2 corresponding to QU fields.
+            Reconstructed P(R)ILC CMB maps of shape (2, n_pix, n_comps), with 2 corresponding to QU fields.
     """
 
     good_channels = _get_good_channels_nl(config, b_ell)
@@ -397,13 +404,20 @@ def _pilc_maps(
 
     bandwidths = _get_bandwidths(config, good_channels)
 
-    A_cmb = _get_CMB_SED(freqs, units=config.units, bandwidths=bandwidths)
+    if compsep_run["component_out"] == "cmb":
+        A_out = _get_CMB_SED(freqs, units=config.units, bandwidths=bandwidths)
+    elif compsep_run["component_out"] in ['0d', '1bd', '1Td', '2bd', '2Td', '2bdTd', '2Tdbd']:
+        A_out = _get_SEDs(freqs, [compsep_run["component_out"]], beta_d=compsep_run["beta_d_out"], T_d=compsep_run["T_d_out"], nu_ref_d=compsep_run["nu_ref_d_out"], units=config.units, bandwidths=bandwidths)[0]
+    elif compsep_run["component_out"] in ['0s', '1bs', '2bs']:
+        A_out = _get_SEDs(freqs, [compsep_run["component_out"]], beta_s=compsep_run["beta_s_out"], nu_ref_s=compsep_run["nu_ref_s_out"], units=config.units, bandwidths=bandwidths)[0]
+    else:
+        A_out = _get_SEDs(freqs, [compsep_run["component_out"]], units=config.units, bandwidths=bandwidths)[0]
 
-    def _assign_moment_constraints(scale_idx=None):
+    def _assign_component_constraints(scale_idx=None):
         idx = scale_idx if scale_idx is not None else slice(None)
-        compsep_run["A"] = _get_moments_SED(
+        compsep_run["A"] = _get_SEDs(
             freqs,
-            compsep_run["constraints"]["moments"][idx],
+            compsep_run["constraints"]["components"][idx],
             beta_d=compsep_run["constraints"]["beta_d"][idx],
             T_d=compsep_run["constraints"]["T_d"][idx],
             beta_s=compsep_run["constraints"]["beta_s"][idx],
@@ -412,23 +426,42 @@ def _pilc_maps(
         )
         compsep_run["e"] = np.array(compsep_run["constraints"]["deprojection"][idx])
 
-    if compsep_run["method"] == "cpilc":
-        _assign_moment_constraints(nl_scale)
-    elif compsep_run["method"] == "c_pilc" and nl_scale in compsep_run.get("special_nls", []):
+    if compsep_run["method"] in ["cpilc", "cprilc"]:
+        _assign_component_constraints(nl_scale)
+    elif compsep_run["method"] in ["c_pilc", "c_prilc"] and nl_scale in compsep_run.get("special_nls", []):
         scale_idx = compsep_run["special_nls"] == nl_scale
-        _assign_moment_constraints(scale_idx)
+        _assign_component_constraints(scale_idx)
 
-    cov = get_prilc_cov(input_maps[...,0], config.lmax, compsep_run, b_ell)
-    noise_debias = compsep_run["cov_noise_debias"] if compsep_run["domain"] == "pixel" else compsep_run["cov_noise_debias"][nl_scale]
-    if noise_debias != 0.:
-        cov_n = get_prilc_cov(input_maps[...,compsep_run["noise_idx"]], config.lmax, compsep_run, b_ell)
-        cov = cov - noise_debias * cov_n
-        del cov_n
+    if compsep_run["from_splits"]:
+        if "prilc" in compsep_run["method"]:
+            cov = get_prilc_cov(input_maps[...,0], config.lmax, compsep_run, config.fwhm_out, b_ell, input_maps_2=input_maps[...,1])
+        else:
+            cov = get_pilc_cov(input_maps[...,0], config.lmax, compsep_run, config.fwhm_out, b_ell, input_maps_2=input_maps[...,1])
+    else:
+        if "prilc" in compsep_run["method"]:
+            cov = get_prilc_cov(input_maps[...,0], config.lmax, compsep_run, config.fwhm_out, b_ell)
+        else:
+            cov = get_pilc_cov(input_maps[...,0], config.lmax, compsep_run, config.fwhm_out, b_ell)
+        noise_debias = compsep_run["cov_noise_debias"] if compsep_run["domain"] == "pixel" else compsep_run["cov_noise_debias"][nl_scale]
+        if noise_debias != 0.:
+            if not ("load_noise_covariance" in compsep_run and compsep_run["load_noise_covariance"]):
+                if "prilc" in compsep_run["method"]:
+                    cov_n = get_prilc_cov(input_maps[...,compsep_run["noise_idx"]], config.lmax, compsep_run, config.fwhm_out, b_ell)
+                else:
+                    cov_n = get_pilc_cov(input_maps[...,compsep_run["noise_idx"]], config.lmax, compsep_run, config.fwhm_out, b_ell)
+            else:
+                path_noicov = _get_full_path_nuiscov(config, compsep_run)
+                cov_n = (load_nuiscov(config, path_noicov, compsep_run,
+                                    hp.npix2nside(input_maps.shape[-2]), nl_scale=nl_scale, include_noise=True, include_cmb=False)).T
+            cov = cov - noise_debias * cov_n
+            del cov_n
 
     inv_cov = get_inv_cov(cov)
     del cov
-
-    w_pilc = get_pilc_weights(A_cmb, inv_cov, input_maps.shape, compsep_run)
+    if "prilc" in compsep_run["method"]:
+        w_pilc = get_prilc_weights(A_out, inv_cov, input_maps.shape, compsep_run)
+    else:
+        w_pilc = get_pilc_weights(A_out, inv_cov, input_maps.shape, compsep_run)
     del inv_cov
 
     if compsep_run["save_weights"]:
@@ -461,20 +494,20 @@ def _pilc_maps(
             
     return output_maps
 
-def get_pilc_weights(
-    A_cmb: np.ndarray,
+def get_prilc_weights(
+    A_out: np.ndarray,
     inv_cov: np.ndarray,
     input_shapes: Tuple[int, ...],
     compsep_run: Dict
 ) -> np.ndarray:
     """
-    Compute weights for the Polarization Internal Linear Combination (PILC) method,
+    Compute real weights for the Polarization Internal Linear Combination (PRILC) method,
     with or without constraints to deproject additional components.
 
     Parameters:
     ----------
-        A_cmb: np.ndarray
-            Spectral energy distribution (SED) of the CMB. Shape: (n_channels,)
+        A_out: np.ndarray
+            Spectral energy distribution (SED) of the component to be reconstructed (e.g., CMB). Shape (n_channels,).
         inv_cov: np.ndarray
             Inverse covariance matrix of input polarization maps:
             - If ilc_bias=0: shape (n_channels, n_channels)
@@ -493,8 +526,8 @@ def get_pilc_weights(
     """
 
     if "A" in compsep_run:
-        # Add CMB constraint at the top of the A matrix and 'e' constraint vector
-        compsep_run["A"] = np.vstack((A_cmb, compsep_run["A"]))
+        # Add component constraint at the top of the A matrix and 'e' constraint vector
+        compsep_run["A"] = np.vstack((A_out, compsep_run["A"]))
         compsep_run["e"] = np.insert(compsep_run["e"], 0, 1.)
 
         if compsep_run["ilc_bias"] == 0.:
@@ -521,31 +554,145 @@ def get_pilc_weights(
             )
 
             for i in range(input_shapes[0]):
-                if "mask" in compsep_run:
-                    w_ilc[i] = w_[i]
-                else:
-                    w_ilc[i]=hp.ud_grade(w_[i],hp.npix2nside(input_shapes[-2]))
+                #if "mask" in compsep_run:
+                #    w_ilc[i] = w_[i]
+                #else:
+                w_ilc[i]=hp.ud_grade(w_[i],hp.npix2nside(input_shapes[-2]))
             del w_, inv_ACA
     else:
         if compsep_run["ilc_bias"] == 0.:
-            w_ilc = (A_cmb.T @ inv_cov) / (A_cmb.T @ inv_cov @ A_cmb) 
+            w_ilc = (A_out.T @ inv_cov) / (A_out.T @ inv_cov @ A_out) 
         else:
             w_ilc=np.zeros((input_shapes[0],input_shapes[-2]))
-            AT_invC = np.einsum('j,ijk->ik', A_cmb, inv_cov) # np.sum(inv_cov,axis=1)
-            AT_invC_A = np.einsum('j,ijk, i->k', A_cmb, inv_cov, A_cmb) #np.sum(inv_cov,axis=(0,1))
+            AT_invC = np.einsum('j,ijk->ik', A_out, inv_cov) # np.sum(inv_cov,axis=1)
+            AT_invC_A = np.einsum('j,ijk, i->k', A_out, inv_cov, A_out) #np.sum(inv_cov,axis=(0,1))
             for i in range(input_shapes[0]):
-                if "mask" in compsep_run:
-                    w_ilc[i] = AT_invC[i]/AT_invC_A
-                else:
-                    w_ilc[i]=hp.ud_grade(AT_invC[i]/AT_invC_A,hp.npix2nside(input_shapes[-2]))
+                #if "mask" in compsep_run:
+                #    w_ilc[i] = AT_invC[i]/AT_invC_A
+                #else:
+                w_ilc[i]=hp.ud_grade(AT_invC[i]/AT_invC_A,hp.npix2nside(input_shapes[-2]))
     return w_ilc
 
+def get_pilc_weights(
+    A_out: np.ndarray,
+    inv_cov: np.ndarray,
+    input_shapes: Tuple[int, ...],
+    compsep_run: Dict
+) -> np.ndarray:
+    """
+    Compute weights for the Polarization Internal Linear Combination (PILC) method,
+    with or without constraints to deproject additional components.
+
+    Parameters:
+    ----------
+        A_out: np.ndarray
+            Spectral energy distribution (SED) of the component to be reconstructed (e.g., CMB). Shape (n_channels,).
+        inv_cov: np.ndarray
+            Inverse covariance matrix of input polarization maps:
+            - If ilc_bias=0: shape (n_channels, n_channels)
+            - If ilc_bias!=0: shape (n_channels, n_channels, n_pixels)
+        input_shapes: Tuple[int, ...]
+            Shape of the input map (n_channels, 2, n_pixels, n_comps) or equivalent, used to determine spatial size and channels.
+        compsep_run: Dict
+            Dictionary with component separation settings. See 'pilc' function for details.
+
+    Returns
+    -------
+        w_ilc: np.ndarray
+            ILC weights, shaped:
+                - (n_channels,) if ilc_bias = 0
+                - (n_channels, n_pixels) if ilc_bias != 0
+    """
+
+    if "A" in compsep_run:
+        compsep_run["A"] = np.vstack((A_out, compsep_run["A"]))
+        compsep_run["e"] = np.insert(compsep_run["e"], 0, 1.)
+        if compsep_run["ilc_bias"] == 0.:
+            Mp = np.einsum('zi,ij,lj->zl', compsep_run["A"], inv_cov[:input_shapes[0],:input_shapes[0]], compsep_run["A"])
+            Mm = np.einsum('zi,ij,lj->zl', compsep_run["A"], inv_cov[:input_shapes[0],input_shapes[0]:], compsep_run["A"])
+            inv_M = np.linalg.inv(Mp + np.einsum('zl,lj,ji->zi', Mm, np.linalg.inv(Mp), Mm))
+            lr = 2. * np.einsum('zl,l->z', inv_M, compsep_run["e"])
+            li = 2. * np.einsum('zl,li,ij,j->z', np.linalg.inv(Mp), Mm, inv_M, compsep_run["e"])
+            del inv_M, Mp, Mm
+
+            w_ilc = np.zeros((2, input_shapes[0]))
+            w_ilc[0] = 0.5 * np.einsum('ij,zj,z->i', inv_cov[:input_shapes[0],:input_shapes[0]], compsep_run["A"], lr)
+            w_ilc[0] += 0.5 * np.einsum('ij,zj,z->i', inv_cov[:input_shapes[0],input_shapes[0]:], compsep_run["A"], li)
+            w_ilc[1] = 0.5 * np.einsum('ij,zj,z->i', inv_cov[input_shapes[0]:,:input_shapes[0]], compsep_run["A"], lr)
+            w_ilc[1] += 0.5 * np.einsum('ij,zj,z->i', inv_cov[input_shapes[0]:,input_shapes[0]:], compsep_run["A"], li)
+            
+        else:
+            Mp = np.einsum('zi,ijk,lj->zlk', compsep_run["A"], inv_cov[:input_shapes[0],:input_shapes[0]], compsep_run["A"])
+            Mm = np.einsum('zi,ijk,lj->zlk', compsep_run["A"], inv_cov[:input_shapes[0],input_shapes[0]:], compsep_run["A"])
+            comb_M = np.transpose(
+                Mp, (2,0,1)) + np.einsum('zlk,klj,jik->kzi', Mm, np.linalg.inv(np.transpose(
+                Mp, (2,0,1))), Mm)
+            inv_M = np.transpose(np.linalg.inv(comb_M), (1,2,0))
+            del comb_M
+            lr = 2. * np.einsum('zlk,l->zk', inv_M, compsep_run["e"])
+            li = 2. * np.einsum('kzl,lik,ijk,j->zk', np.linalg.inv(np.transpose(Mp, (2,0,1))), Mm, inv_M, compsep_run["e"])
+            del inv_M, Mp, Mm
+
+            w_ilc = np.zeros((2, input_shapes[0], input_shapes[-2]))
+            w_ = 0.5 * np.einsum('ijk,zj,zk->ik', inv_cov[:input_shapes[0],:input_shapes[0]], compsep_run["A"], lr)
+            w_ += 0.5 * np.einsum('ijk,zj,zk->ik', inv_cov[:input_shapes[0],input_shapes[0]:], compsep_run["A"], li)
+            for i in range(input_shapes[0]):
+                w_ilc[0,i]=hp.ud_grade(w_[i],hp.npix2nside(input_shapes[-2]))
+            
+            w_ = 0.5 * np.einsum('ijk,zj,zk->ik', inv_cov[input_shapes[0]:,:input_shapes[0]], compsep_run["A"], lr)
+            w_ += 0.5 * np.einsum('ijk,zj,zk->ik', inv_cov[input_shapes[0]:,input_shapes[0]:], compsep_run["A"], li)
+            del lr, li
+            for i in range(input_shapes[0]):
+                w_ilc[1,i]=hp.ud_grade(w_[i],hp.npix2nside(input_shapes[-2]))
+            del w_
+            
+    else:
+        if compsep_run["ilc_bias"] == 0.:
+            w_ilc = np.zeros((2, input_shapes[0]))
+
+            Sp = A_out.T @ (inv_cov[:input_shapes[0],:input_shapes[0]]) @ A_out
+            Sm = A_out.T @ (inv_cov[:input_shapes[0],input_shapes[0]:]) @ A_out
+
+            lr = (2. * Sp) / (Sp**2 - Sm**2)
+            li = - (2. * Sm) / (Sp**2 - Sm**2)
+            del Sp, Sm
+
+            w_ilc[0] = 0.5 * (lr * (inv_cov[:input_shapes[0],:input_shapes[0]] @ A_out) +
+                                li * (inv_cov[:input_shapes[0],input_shapes[0]:] @ A_out))
+            w_ilc[1] = 0.5 * (lr * (inv_cov[input_shapes[0]:,:input_shapes[0]] @ A_out) +
+                                li * (inv_cov[input_shapes[0]:,input_shapes[0]:] @ A_out))
+
+        else:
+            w_ilc = np.zeros((2, input_shapes[0], input_shapes[-2]))
+            
+            Sp = np.einsum('i,ijk,j->k', A_out, inv_cov[:input_shapes[0],:input_shapes[0]], A_out)
+            Sm = np.einsum('i,ijk,j->k', A_out, inv_cov[:input_shapes[0],input_shapes[0]:], A_out)
+
+            lr = (2. * Sp) / (Sp**2 - Sm**2)
+            li = - (2. * Sm) / (Sp**2 - Sm**2)
+
+            del Sp, Sm
+
+            w_ = 0.5 * np.einsum('k,ijk,j->ik', lr, inv_cov[:input_shapes[0],:input_shapes[0]], A_out)
+            w_ += 0.5 * np.einsum('k,ijk,j->ik', li, inv_cov[:input_shapes[0],input_shapes[0]:], A_out)
+            for i in range(input_shapes[0]):
+                w_ilc[0,i]=hp.ud_grade(w_[i],hp.npix2nside(input_shapes[-2]))
+
+            w_ = 0.5 * np.einsum('k,ijk,j->ik', lr, inv_cov[input_shapes[0]:,:input_shapes[0]], A_out)
+            w_ += 0.5 * np.einsum('k,ijk,j->ik', li, inv_cov[input_shapes[0]:,input_shapes[0]:], A_out)
+            del lr, li
+            for i in range(input_shapes[0]):
+                w_ilc[1,i]=hp.ud_grade(w_[i],hp.npix2nside(input_shapes[-2]))
+        
+    return w_ilc
 
 def get_pilc_cov(
     input_maps: np.ndarray,
     lmax: int,
     compsep_run: Dict,
-    b_ell: np.ndarray
+    fwhm_out: float,
+    b_ell: np.ndarray,
+    input_maps_2: Optional[np.ndarray] = None
 ) -> np.ndarray:
     """
     Compute full PILC covariance matrix.
@@ -558,45 +705,91 @@ def get_pilc_cov(
             Maximum multipole for the analysis.
         compsep_run: Dict
             Dictionary with component separation settings. See 'pilc' function for details.
+        fwhm_out: float
+            Output beam FWHM in arcminutes.
         b_ell: np.ndarray
             Needlet window function for the current scale. It should be a 1D array of shape (lmax+1,).
+        input_maps_2: np.ndarray, optional
+            Optional second set of input Q/U maps for cross-covariance computation. Shape (n_channels, 2, n_pixels).
 
     Returns
     -------
         cov: np.ndarray
             Full 2x2 polarization covariance matrix of shape (2*n_channels, 2*n_channels, [n_pixels]).
     """
-
+    
     if compsep_run["ilc_bias"] == 0.:
         if "mask" in compsep_run:
             mask = compsep_run["mask"] > 0.
-            cov_qq_uu = np.mean(np.einsum('ik,jk->ijk', input_maps[:, 0, mask], input_maps[:, 0, mask]), axis=-1) + \
-                        np.mean(np.einsum('ik,jk->ijk', input_maps[:, 1, mask], input_maps[:, 1, mask]), axis=-1)
-            cov_qu_uq = np.mean(np.einsum('ik,jk->ijk', input_maps[:, 0, mask], input_maps[:, 1, mask]), axis=-1) - \
-                        np.mean(np.einsum('ik,jk->ijk', input_maps[:, 1, mask], input_maps[:, 0, mask]), axis=-1)
+#            cov_qq_uu = np.mean(np.einsum('ik,jk->ijk', input_maps[:, 0, mask], input_maps[:, 0, mask]), axis=-1) + \
+#                        np.mean(np.einsum('ik,jk->ijk', input_maps[:, 1, mask], input_maps[:, 1, mask]), axis=-1)
+#            cov_qu_uq = np.mean(np.einsum('ik,jk->ijk', input_maps[:, 0, mask], input_maps[:, 1, mask]), axis=-1) - \
+#                        np.mean(np.einsum('ik,jk->ijk', input_maps[:, 1, mask], input_maps[:, 0, mask]), axis=-1)
+            if input_maps_2 is not None:
+                cov_qq_uu = (np.einsum('ik,jk->ij', input_maps[:, 0, mask], input_maps_2[:, 0, mask]) + \
+                            np.einsum('ik,jk->ij', input_maps[:, 1, mask], input_maps_2[:, 1, mask])) / np.sum(mask)
+                cov_qu_uq = 0.5 * (np.einsum('ik,jk->ij', input_maps[:, 0, mask], input_maps_2[:, 1, mask]) - \
+                            np.einsum('ik,jk->ij', input_maps[:, 1, mask], input_maps_2[:, 0, mask])) / np.sum(mask)
+                cov_qu_uq += 0.5 * (np.einsum('ik,jk->ij', input_maps_2[:, 0, mask], input_maps[:, 1, mask]) - \
+                            np.einsum('ik,jk->ij', input_maps_2[:, 1, mask], input_maps[:, 0, mask])) / np.sum(mask)
+            else:
+                cov_qq_uu = (np.einsum('ik,jk->ij', input_maps[:, 0, mask], input_maps[:, 0, mask]) + \
+                            np.einsum('ik,jk->ij', input_maps[:, 1, mask], input_maps[:, 1, mask])) / np.sum(mask)
+                cov_qu_uq = (np.einsum('ik,jk->ij', input_maps[:, 0, mask], input_maps[:, 1, mask]) - \
+                            np.einsum('ik,jk->ij', input_maps[:, 1, mask], input_maps[:, 0, mask])) / np.sum(mask)
         else:
-            cov_qq_uu = np.mean(np.einsum('ik,jk->ijk', input_maps[:, 0], input_maps[:, 0]), axis=-1) + \
-                        np.mean(np.einsum('ik,jk->ijk', input_maps[:, 1], input_maps[:, 1]), axis=-1)
-            cov_qu_uq = np.mean(np.einsum('ik,jk->ijk', input_maps[:, 0], input_maps[:, 1]), axis=-1) - \
-                        np.mean(np.einsum('ik,jk->ijk', input_maps[:, 1], input_maps[:, 0]), axis=-1)
+#            cov_qq_uu = np.mean(np.einsum('ik,jk->ijk', input_maps[:, 0], input_maps[:, 0]), axis=-1) + \
+#                        np.mean(np.einsum('ik,jk->ijk', input_maps[:, 1], input_maps[:, 1]), axis=-1)
+#            cov_qu_uq = np.mean(np.einsum('ik,jk->ijk', input_maps[:, 0], input_maps[:, 1]), axis=-1) - \
+#                        np.mean(np.einsum('ik,jk->ijk', input_maps[:, 1], input_maps[:, 0]), axis=-1)
+            if input_maps_2 is not None:
+                cov_qq_uu = (np.einsum('ik,jk->ij', input_maps[:, 0], input_maps_2[:, 0]) + \
+                            np.einsum('ik,jk->ij', input_maps[:, 1], input_maps_2[:, 1])) / input_maps.shape[-1]
+                cov_qu_uq = 0.5 * (np.einsum('ik,jk->ij', input_maps[:, 0], input_maps_2[:, 1]) - \
+                            np.einsum('ik,jk->ij', input_maps[:, 1], input_maps_2[:, 0])) / input_maps.shape[-1]
+                cov_qu_uq += 0.5 * (np.einsum('ik,jk->ij', input_maps_2[:, 0], input_maps[:, 1]) - \
+                            np.einsum('ik,jk->ij', input_maps_2[:, 1], input_maps[:, 0])) / input_maps.shape[-1]
+            else:
+                cov_qq_uu = (np.einsum('ik,jk->ij', input_maps[:, 0], input_maps[:, 0]) + \
+                            np.einsum('ik,jk->ij', input_maps[:, 1], input_maps[:, 1])) / input_maps.shape[-1]
+                cov_qu_uq = (np.einsum('ik,jk->ij', input_maps[:, 0], input_maps[:, 1]) - \
+                            np.einsum('ik,jk->ij', input_maps[:, 1], input_maps[:, 0])) / input_maps.shape[-1]
     else:
         mask = compsep_run.get("mask")
         reduce_bias = compsep_run["reduce_ilc_bias"]
 
-        cov_qq_uu = _get_local_cov(input_maps[:, 0], lmax, compsep_run["ilc_bias"], b_ell = b_ell, mask=mask, reduce_bias=reduce_bias) + \
-                    _get_local_cov(input_maps[:, 1], lmax, compsep_run["ilc_bias"], b_ell = b_ell, mask=mask, reduce_bias=reduce_bias)
-        cov_qu_uq = _get_local_cov(input_maps[:, 0], lmax, compsep_run["ilc_bias"], b_ell = b_ell, mask=mask, reduce_bias=reduce_bias, input_maps_2=input_maps[:, 1]) - \
-                    _get_local_cov(input_maps[:, 1], lmax, compsep_run["ilc_bias"], b_ell = b_ell, mask=mask, reduce_bias=reduce_bias, input_maps_2=input_maps[:, 0])
+        if input_maps_2 is not None:
+            cov_qq_uu = _get_local_cov(input_maps[:, 0], lmax, compsep_run["ilc_bias"], fwhm_out, b_ell = b_ell, mask=mask, reduce_bias=reduce_bias, input_maps_2=input_maps_2[:, 0]) + \
+                        _get_local_cov(input_maps[:, 1], lmax, compsep_run["ilc_bias"], fwhm_out, b_ell = b_ell, mask=mask, reduce_bias=reduce_bias, input_maps_2=input_maps_2[:, 1])
+            cov_qu_uq = 0.5 * (_get_local_cov(input_maps[:, 0], lmax, compsep_run["ilc_bias"], fwhm_out, b_ell = b_ell, mask=mask, reduce_bias=reduce_bias, input_maps_2=input_maps_2[:, 1]) - \
+                        _get_local_cov(input_maps[:, 1], lmax, compsep_run["ilc_bias"], fwhm_out, b_ell = b_ell, mask=mask, reduce_bias=reduce_bias, input_maps_2=input_maps_2[:, 0]))
+            cov_qu_uq += 0.5 * (_get_local_cov(input_maps_2[:, 0], lmax, compsep_run["ilc_bias"], fwhm_out, b_ell = b_ell, mask=mask, reduce_bias=reduce_bias, input_maps_2=input_maps[:, 1]) - \
+                        _get_local_cov(input_maps_2[:, 1], lmax, compsep_run["ilc_bias"], fwhm_out, b_ell = b_ell, mask=mask, reduce_bias=reduce_bias, input_maps_2=input_maps[:, 0]))
+        else:
+            cov_qq_uu = _get_local_cov(input_maps[:, 0], lmax, compsep_run["ilc_bias"], fwhm_out, b_ell = b_ell, mask=mask, reduce_bias=reduce_bias) + \
+                        _get_local_cov(input_maps[:, 1], lmax, compsep_run["ilc_bias"], fwhm_out, b_ell = b_ell, mask=mask, reduce_bias=reduce_bias)
+            cov_qu_uq = _get_local_cov(input_maps[:, 0], lmax, compsep_run["ilc_bias"], fwhm_out, b_ell = b_ell, mask=mask, reduce_bias=reduce_bias, input_maps_2=input_maps[:, 1]) - \
+                        _get_local_cov(input_maps[:, 1], lmax, compsep_run["ilc_bias"], fwhm_out, b_ell = b_ell, mask=mask, reduce_bias=reduce_bias, input_maps_2=input_maps[:, 0])
 
-        if mask is not None and cov_qq_uu.shape[-1] == input_maps.shape[-1]:
-            valid = mask > 0.0
-            fallback_cov_qq_uu = np.mean(np.einsum('ik,jk->ijk', input_maps[:, 0, valid], input_maps[:, 0, valid]), axis=-1) + \
-                           np.mean(np.einsum('ik,jk->ijk', input_maps[:, 1, valid], input_maps[:, 1, valid]), axis=-1)
-            cov_qq_uu[..., mask == 0.0] = fallback_cov_qq_uu
-            fallback_cov_qu_uq = np.mean(np.einsum('ik,jk->ijk', input_maps[:, 0, valid], input_maps[:, 1, valid]), axis=-1) - \
-                           np.mean(np.einsum('ik,jk->ijk', input_maps[:, 1, valid], input_maps[:, 0, valid]), axis=-1)
-            cov_qu_uq[..., mask == 0.0] = np.repeat(fallback_cov_qu_uq[..., np.newaxis], np.sum(mask == 0.0), axis=-1)
-    
+        #if mask is not None and cov_qq_uu.shape[-1] == input_maps.shape[-1]:
+        #    valid = mask > 0.0
+        #    fallback_cov_qq_uu = np.mean(np.einsum('ik,jk->ijk', input_maps[:, 0, valid], input_maps[:, 0, valid]), axis=-1) + \
+        #                   np.mean(np.einsum('ik,jk->ijk', input_maps[:, 1, valid], input_maps[:, 1, valid]), axis=-1)
+        #    cov_qq_uu[..., mask == 0.0] = fallback_cov_qq_uu
+        #    fallback_cov_qu_uq = np.mean(np.einsum('ik,jk->ijk', input_maps[:, 0, valid], input_maps[:, 1, valid]), axis=-1) - \
+        #                   np.mean(np.einsum('ik,jk->ijk', input_maps[:, 1, valid], input_maps[:, 0, valid]), axis=-1)
+        #    cov_qu_uq[..., mask == 0.0] = np.repeat(fallback_cov_qu_uq[..., np.newaxis], np.sum(mask == 0.0), axis=-1)
+        mask_cov = (cov_qq_uu[0,0,:] != 0.).astype(float)# * (cov_qu_uq[0,0,:] != 0.).astype(float)
+        if np.sum(mask_cov == 0.) > 0:
+            mask_valid = mask_cov > 0.0
+            fallback_cov_qq_uu = (np.einsum('ik,jk->ij', input_maps[:, 0, mask_valid], input_maps[:, 0, mask_valid]) + \
+                            np.einsum('ik,jk->ij', input_maps[:, 1, mask_valid], input_maps[:, 1, mask_valid])) / np.sum(mask_valid)
+            cov_qq_uu[..., mask_cov == 0.0] = np.repeat(fallback_cov_qq_uu[..., np.newaxis], np.sum(mask_cov == 0.0), axis=-1)
+            fallback_cov_qu_uq = (np.einsum('ik,jk->ij', input_maps[:, 0, mask_valid], input_maps[:, 1, mask_valid]) - \
+                            np.einsum('ik,jk->ij', input_maps[:, 1, mask_valid], input_maps[:, 0, mask_valid])) / np.sum(mask_valid)
+            cov_qu_uq[..., mask_cov == 0.0] = np.repeat(fallback_cov_qu_uq[..., np.newaxis], np.sum(mask_cov == 0.0), axis=-1)
+            del fallback_cov_qq_uu, fallback_cov_qu_uq
+
     cov = np.concatenate((
         np.concatenate((cov_qq_uu, -cov_qu_uq), axis=1),
         np.concatenate((cov_qu_uq, cov_qq_uu), axis=1)
@@ -608,7 +801,9 @@ def get_prilc_cov(
     input_maps: np.ndarray,
     lmax: int,
     compsep_run: Dict,
-    b_ell: np.ndarray
+    fwhm_out: float,
+    b_ell: np.ndarray,
+    input_maps_2: Optional[np.ndarray] = None
 ) -> np.ndarray:
     """
     Compute the reduced ILC covariance matrix for polarization maps.
@@ -621,8 +816,12 @@ def get_prilc_cov(
             Maximum multipole for the analysis.
         compsep_run: Dict
             Dictionary with component separation settings. See 'pilc' function for details.
+        fwhm_out: float
+            Output beam FWHM in arcminutes.
         b_ell: np.ndarray
             Needlet window function for the current scale. It should be a 1D array of shape (lmax+1,).
+        input_maps_2: np.ndarray, optional
+            Optional second set of input Q/U maps for cross-covariance computation. Shape (n_channels, 2, n_pixels).
 
     Returns
     -------
@@ -632,24 +831,45 @@ def get_prilc_cov(
     if compsep_run["ilc_bias"] == 0.:
         if "mask" in compsep_run:
             mask = compsep_run["mask"] > 0.0
-            cov = np.mean(np.einsum('ik,jk->ijk', input_maps[:, 0, mask], input_maps[:, 0, mask]), axis=-1) + \
-                  np.mean(np.einsum('ik,jk->ijk', input_maps[:, 1, mask], input_maps[:, 1, mask]), axis=-1)
+#            cov = np.mean(np.einsum('ik,jk->ijk', input_maps[:, 0, mask], input_maps[:, 0, mask]), axis=-1) + \
+#                  np.mean(np.einsum('ik,jk->ijk', input_maps[:, 1, mask], input_maps[:, 1, mask]), axis=-1)
+            if input_maps_2 is not None:
+                cov = (np.einsum('ik,jk->ij', input_maps[:, 0, mask], input_maps_2[:, 0, mask]) + \
+                  np.einsum('ik,jk->ij', input_maps[:, 1, mask], input_maps_2[:, 1, mask])) / np.sum(mask)
+            else:
+                cov = (np.einsum('ik,jk->ij', input_maps[:, 0, mask], input_maps[:, 0, mask]) + \
+                    np.einsum('ik,jk->ij', input_maps[:, 1, mask], input_maps[:, 1, mask])) / np.sum(mask)
         else:
-            cov = np.mean(np.einsum('ik,jk->ijk', input_maps[:, 0], input_maps[:, 0]), axis=-1) + \
-                  np.mean(np.einsum('ik,jk->ijk', input_maps[:, 1], input_maps[:, 1]), axis=-1)
+#            cov = np.mean(np.einsum('ik,jk->ijk', input_maps[:, 0], input_maps[:, 0]), axis=-1) + \
+#                  np.mean(np.einsum('ik,jk->ijk', input_maps[:, 1], input_maps[:, 1]), axis=-1)
+            if input_maps_2 is not None:
+                cov = (np.einsum('ik,jk->ij', input_maps[:, 0], input_maps_2[:, 0]) + \
+                  np.einsum('ik,jk->ij', input_maps[:, 1], input_maps_2[:, 1])) / input_maps.shape[-1]
+            else:
+                cov = (np.einsum('ik,jk->ij', input_maps[:, 0], input_maps[:, 0]) + \
+                    np.einsum('ik,jk->ij', input_maps[:, 1], input_maps[:, 1])) / input_maps.shape[-1]
 
     else:
         mask = compsep_run.get("mask")
         reduce_bias = compsep_run["reduce_ilc_bias"]
+        if input_maps_2 is not None:
+            cov = _get_local_cov(input_maps[:, 0], lmax, compsep_run["ilc_bias"], fwhm_out, b_ell = b_ell, mask=mask, reduce_bias=reduce_bias, input_maps_2=input_maps_2[:, 0]) + \
+              _get_local_cov(input_maps[:, 1], lmax, compsep_run["ilc_bias"], fwhm_out, b_ell = b_ell, mask=mask, reduce_bias=reduce_bias, input_maps_2=input_maps_2[:, 1])
+        else:
+            cov = _get_local_cov(input_maps[:, 0], lmax, compsep_run["ilc_bias"], fwhm_out, b_ell = b_ell, mask=mask, reduce_bias=reduce_bias) + \
+                _get_local_cov(input_maps[:, 1], lmax, compsep_run["ilc_bias"], fwhm_out, b_ell = b_ell, mask=mask, reduce_bias=reduce_bias)
 
-        cov = _get_local_cov(input_maps[:, 0], lmax, compsep_run["ilc_bias"], b_ell = b_ell, mask=mask, reduce_bias=reduce_bias) + \
-              _get_local_cov(input_maps[:, 1], lmax, compsep_run["ilc_bias"], b_ell = b_ell, mask=mask, reduce_bias=reduce_bias)
-
-        if mask is not None and cov.shape[-1] == input_maps.shape[-1]:
-            mask_valid = mask > 0.0
-            fallback_cov = np.mean(np.einsum('ik,jk->ijk', input_maps[:, 0, mask_valid], input_maps[:, 0, mask_valid]), axis=-1) + \
-                           np.mean(np.einsum('ik,jk->ijk', input_maps[:, 1, mask_valid], input_maps[:, 1, mask_valid]), axis=-1)
-            cov[..., mask == 0.0] = np.repeat(fallback_cov[..., np.newaxis], np.sum(mask == 0.0), axis=-1)
+        #if mask is not None and cov.shape[-1] == input_maps.shape[-1]:
+        #    mask_valid = mask > 0.0
+        #    fallback_cov = np.mean(np.einsum('ik,jk->ijk', input_maps[:, 0, mask_valid], input_maps[:, 0, mask_valid]), axis=-1) + \
+        #                   np.mean(np.einsum('ik,jk->ijk', input_maps[:, 1, mask_valid], input_maps[:, 1, mask_valid]), axis=-1)
+        #    cov[..., mask == 0.0] = np.repeat(fallback_cov[..., np.newaxis], np.sum(mask == 0.0), axis=-1)
+        mask_cov = (cov[0,0,:] != 0.).astype(float)
+        if np.sum(mask_cov == 0.) > 0:
+            mask_valid = mask_cov > 0.0
+            fallback_cov = (np.einsum('ik,jk->ij', input_maps[:, 0, mask_valid], input_maps[:, 0, mask_valid]) + \
+                           np.einsum('ik,jk->ijk', input_maps[:, 1, mask_valid], input_maps[:, 1, mask_valid])) / np.sum(mask_valid)
+            cov[..., mask_cov == 0.0] = np.repeat(fallback_cov[..., np.newaxis], np.sum(mask_cov == 0.0), axis=-1)
 
     return cov
 

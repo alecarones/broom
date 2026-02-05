@@ -8,17 +8,19 @@ from types import SimpleNamespace
 from .routines import _log, _get_ell_filter, _bl_from_fwhms, _bl_from_file
 from typing import Any, Optional, Union, Dict
 from types import SimpleNamespace
-
+import random
 
 
 def _alms_from_data(
     config: Configs,
     data,
     field_in: str,
+    inputs_type: str,
     mask_in: np.ndarray = None,
     data_type: str = "maps",
     bring_to_common_resolution: bool = True,
     pixel_window_in: bool = False,
+    fwhm_in: Optional[float] = None,
     **kwargs
 ) -> SimpleNamespace:
     """Return spherical harmonic coefficients (alms) from input map or alm multifrequency data.
@@ -30,7 +32,7 @@ def _alms_from_data(
                 - lmax: Maximum multipole for spherical harmonics.
                 - nside_in: HEALPix nside associated with input maps or alms.
                 - field_out: Desired output field type from component separation (e.g., "T", "E", "B", "QU", "TEB").
-                - leakage_correction: Leakage correction method (e.g., "mask_only", "purify_master_B", "purify_recycling_B").
+                - leakage_correction: Leakage correction method (e.g., "B_purify", "E_purify", "EB_recycling_iterationsN", or None).
                 - fwhm_out: Desired angular resolution FWHM of output products in arcminutes.
                 - instrument: Instrument configuration, which should include:
                     - beams: Type of beam (e.g., "gaussian", "file_l", "file_lm").
@@ -42,6 +44,8 @@ def _alms_from_data(
             Namespace containing input data. Each attribute should be a 2D or 3D NumPy array.
         field_in: str
             Field type associated to input data (e.g., "TQU", "EB").
+        inputs_type: str
+            Type of input data: either 'compsep' for component separation inputs or 'weights' for propagation through combination weights.
         mask_in: np.ndarray, optional
             Mask to apply to maps. To be applied in case of simulations of partial-sky observations.
             Default: None.
@@ -52,6 +56,9 @@ def _alms_from_data(
             If False, it is assumed that all input data are already at the same resolution.    
         pixel_window_in:  bool, optional
             Whether to apply pixel window correction. Default: False.
+        fwhm_in: float, optional
+            If bring_to_common_resolution is True, fwhm_in will not be used.
+            If bring_to_common_resolution is False and fwhm_in is provided, it will be used to correct for the input common beam.
         **kwargs: 
             Additional arguments passed to map2alm.
 
@@ -60,14 +67,15 @@ def _alms_from_data(
         SimpleNamespace
             Alms associated to input data.
     """
-    fell = _get_ell_filter(2,config.lmax)
+    if inputs_type not in ["compsep", "weights"]:
+        raise ValueError("inputs_type must be either 'compsep' or 'weights'")
 
     if data_type == "maps":
-        alms = _maps_to_alms(config, data, field_in, mask_in=mask_in, **kwargs)
+        alms = _maps_to_alms(config, data, field_in, inputs_type, mask_in=mask_in, **kwargs)
     elif data_type == "alms":
-        alms = _alms_to_alms(config, data)
+        alms = _alms_to_alms(config, data, inputs_type)
 
-    alms = _processing_alms(config, alms, bring_to_common_resolution=bring_to_common_resolution, pixel_window_in=pixel_window_in)    
+    alms = _processing_alms(config, alms, bring_to_common_resolution=bring_to_common_resolution, pixel_window_in=pixel_window_in, fwhm_in=fwhm_in)    
 
     return alms
 
@@ -75,6 +83,7 @@ def _maps_to_alms(
     config: Configs,
     data: SimpleNamespace,
     field_in: str,
+    inputs_type: str,
     mask_in: Union[np.ndarray, None] = None,
     **kwargs
 ) -> SimpleNamespace:
@@ -90,6 +99,8 @@ def _maps_to_alms(
             as (n_channels, [n_fields], n_pixels).
         field_in : str
             The input field type, e.g. "T", "QU", "TEB", or "EB".
+        inputs_type : str
+            Type of input data: either 'compsep' for component separation inputs or 'weights' for propagation through combination weights.
         mask_in : np.ndarray or None, optional
             Optional mask to apply before harmonic transform. If None, a mask of ones is used.
         kwargs : dict
@@ -100,14 +111,19 @@ def _maps_to_alms(
         alms : SimpleNamespace
             Namespace containing harmonic coefficients for each map component with matching structure to `data`.
     """
-    fell = _get_ell_filter(2,config.lmax)
+    if inputs_type == "compsep":
+        fell = _get_ell_filter(config.lmin,config.lmax)
+    elif inputs_type == "weights":
+        fell = _get_ell_filter(0,config.lmax)
 
     # Validate and prepare mask
+    data_shape = data.total.shape if hasattr(data, 'total') else getattr(data, list(vars(data).keys())[0]).shape
+
     if mask_in is None:
-        mask_in = np.ones(data.total.shape[-1])
+        mask_in = np.ones(data_shape[-1])
     elif not isinstance(mask_in, np.ndarray): 
         raise ValueError("Invalid mask. It must be a numpy array.")
-    elif hp.get_nside(mask_in) != hp.npix2nside(data.total.shape[-1]):
+    elif hp.get_nside(mask_in) != hp.npix2nside(data_shape[-1]):
             raise ValueError("Mask HEALPix resolution does not match data HEALPix resolution.")
 
     mask_in /= np.max(mask_in)
@@ -117,9 +133,16 @@ def _maps_to_alms(
     for attr_name in vars(data):
         attr_maps = getattr(data, attr_name)
 
-        alms_attr = _attr_maps_to_alms(config, attr_maps, field_in, mask_in, fell,
-            total_maps=data.total if config.leakage_correction and "_recycling" in config.leakage_correction else None, **kwargs)
-
+        if config.leakage_correction and "_recycling" in config.leakage_correction:
+            if hasattr(data, 'total'):
+                alms_attr = _attr_maps_to_alms(config, attr_maps, field_in, mask_in, fell,
+                    total_maps=data.total, **kwargs)
+            elif hasattr(data, 'total_split1') and hasattr(data, 'total_split2'):
+                alms_attr = _attr_maps_to_alms(config, attr_maps, field_in, mask_in, fell,
+                    total_maps=0.5*(data.total_split1 + data.total_split2), **kwargs)
+        else:
+            alms_attr = _attr_maps_to_alms(config, attr_maps, field_in, mask_in, fell, **kwargs)
+        
         setattr(alms, attr_name, alms_attr)
 
     return alms
@@ -269,6 +292,7 @@ def _maps_to_alms_channel(config: Configs, maps, field_in, mask_in, fell, total_
 def _alms_to_alms(
     config: Configs,
     data: SimpleNamespace,
+    inputs_type: str
 ) -> SimpleNamespace:
     """
     Process provided input alms into coefficients arrays ready to be used in the component separation pipeline.
@@ -282,13 +306,19 @@ def _alms_to_alms(
             - (n_channels, n_alms) for scalar inputs,
             - (n_channels, 2, n_alms) for EB,
             - (n_channels, 3, n_alms) for TEB.
+        inputs_type : str
+            Type of input data: either 'compsep' for component separation inputs or 'weights' for propagation through combination weights.
 
     Returns
     -------
         alms : SimpleNamespace
             Namespace with transformed alm coefficients matching `config.field_out` and to be used in the component separation pipeline.
     """
-    fell = _get_ell_filter(2,config.lmax)
+    if inputs_type == "compsep":
+        fell = _get_ell_filter(config.lmin,config.lmax)
+    elif inputs_type == "weights":
+        fell = _get_ell_filter(0,config.lmax)
+
     alms = SimpleNamespace()
 
     for attr_name in vars(data):
@@ -329,7 +359,8 @@ def _processing_alms(
     config: Configs,
     alms: SimpleNamespace,
     bring_to_common_resolution: bool = True,
-    pixel_window_in: bool = False
+    pixel_window_in: bool = False,
+    fwhm_in: Optional[float] = None
 ) -> SimpleNamespace:
     """
     Preprocess Alm coefficients including:
@@ -346,6 +377,9 @@ def _processing_alms(
             Whether to bring all inputs to a common angular resolution. Default is True.
         pixel_window_in : bool, optional
             Whether to correct input for the HEALPix pixel window function. Default is False.
+        fwhm_in : float, optional
+            If bring_to_common_resolution is True, fwhm_in will not be used.
+            If bring_to_common_resolution is False and fwhm_in is provided, it will be used to correct for the input common beam.
 
     Returns
     -------
@@ -357,6 +391,9 @@ def _processing_alms(
         alms = _bring_to_common_resolution(config, alms)
     else:
         _log("Inputs are assumed to be at common angular resolution", verbose=config.verbose)
+        if fwhm_in is not None and fwhm_in != config.fwhm_out:
+            _log("Correcting for input common beam", verbose=config.verbose)
+            alms = _change_common_resolution(alms, fwhm_in, config.fwhm_out, config.field_out)
     if pixel_window_in:
         _log("Correcting for input pixel window function", verbose=config.verbose)
         alms = _correct_input_pixwin(config, alms)
@@ -382,7 +419,10 @@ def _bring_to_common_resolution(
             Alm coefficients adjusted to the common beam resolution.
     """
 
-    if alms.total.ndim == 2:
+    alms_ndim = alms.total.ndim if hasattr(alms, 'total') else getattr(alms, list(vars(alms).keys())[0]).ndim
+    alms_shape = alms.total.shape if hasattr(alms, 'total') else getattr(alms, list(vars(alms).keys())[0]).shape
+
+    if alms_ndim == 2:
         idx_bl = {
             "T": 0,
             "E": 1, "QU_E": 1,
@@ -390,13 +430,13 @@ def _bring_to_common_resolution(
         }.get(config.field_out)
         if idx_bl is None:
             raise ValueError(f"Invalid field_out for 2D alms: {config.field_out}")
-    elif alms.total.ndim == 3:
-        idx_bl = [0,1,2] if alms.total.shape[1] == 3 else [1,2]
+    elif alms_ndim == 3:
+        idx_bl = [0,1,2] if alms_shape[1] == 3 else [1,2]
     
     if config.instrument.beams not in ["gaussian", "file_l", "file_lm"]:
         raise ValueError("instrument.beams must be 'gaussian', 'file_l', or 'file_lm'")
 
-    for i in range(alms.total.shape[0]):  # Loop over channels
+    for i in range(alms_shape[0]):  # Loop over channels
         if config.instrument.beams == "gaussian":
             bl = _bl_from_fwhms(config.fwhm_out,config.instrument.fwhm[i],config.lmax)
         else:
@@ -425,6 +465,63 @@ def _bring_to_common_resolution(
 
             getattr(alms, attr_name)[i] = alm
             del alm
+
+    return alms
+
+def _change_common_resolution(
+    alms: SimpleNamespace,
+    fwhm_in: float,
+    fwhm_out: float,
+    field_out: str
+) -> SimpleNamespace:
+    """
+    Change the common resolution of Alm coefficients from fwhm_in to fwhm_out.
+
+    Parameters
+    ----------
+        alms : SimpleNamespace
+            Namespace with Alm arrays to be corrected.
+        fwhm_in : float
+            Input common beam FWHM in arcminutes.
+        fwhm_out : float
+            Desired output common beam FWHM in arcminutes.
+        field_out : str
+            Desired output field type from component separation (e.g., "T", "E", "B", "QU", "TEB").
+
+    Returns
+    -------
+        SimpleNamespace
+            Alm coefficients adjusted to the new common beam resolution.
+    """
+    rand_attr = getattr(alms,random.choice(list(vars(alms).keys())))
+
+    lmax = hp.Alm.getlmax(rand_attr.shape[-1])
+
+    bl = _bl_from_fwhms(fwhm_out, fwhm_in, lmax)
+
+    if rand_attr.ndim == 2:
+        idx_bl = {
+            "T": 0,
+            "E": 1, "QU_E": 1,
+            "B": 2, "QU_B": 2
+        }.get(field_out)
+        if idx_bl is None:
+            raise ValueError(f"Invalid field_out for 2D alms: {config.field_out}")
+    elif rand_attr.ndim == 3:
+        idx_bl = [0,1,2] if rand_attr.shape[1] == 3 else [1,2]
+
+    for attr_name in vars(alms):
+        alm = getattr(alms, attr_name)
+
+        if alm.ndim == 2:
+            for i in range(alm.shape[0]):
+                alm[i] = hp.almxfl(alm[i], bl[:, idx_bl])
+        elif alm.ndim == 3:
+            for i, j in np.ndindex(alm.shape[0], alm.shape[1]):
+                alm[i, j] = hp.almxfl(alm[i, j], bl[:, idx_bl[j]])
+
+        setattr(alms, attr_name, alm)
+        del alm
 
     return alms
 

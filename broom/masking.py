@@ -5,8 +5,9 @@ from types import SimpleNamespace
 from .spectra import nmt
 import os
 import sys
+import random
 
-from .routines import _slice_outputs, obj_out_to_array, _slice_data
+from .routines import _slice_outputs, _slice_data, change_coord_mask
 from .configurations import Configs
 
 REMOTE = 'https://irsa.ipac.caltech.edu/data/Planck/release_2/'
@@ -16,7 +17,7 @@ import astropy
 from typing import Any, Dict, Optional, Union, Tuple
 
 
-def _preprocess_mask(mask: np.ndarray, nside_out: int) -> np.ndarray:
+def _preprocess_mask(mask: np.ndarray, nside_out: int, threshold: float = 0.5) -> np.ndarray:
     """
     Preprocess a HEALPix mask by adjusting its resolution and assessing if it is binary or hits map.
 
@@ -26,6 +27,8 @@ def _preprocess_mask(mask: np.ndarray, nside_out: int) -> np.ndarray:
             The input HEALPix mask, assumed to be a 1D array.
         nside_out : int
             Desired output NSIDE resolution.
+        threshold : float, optional
+            Threshold for binarizing the mask when downgrading resolution.
 
     Returns
     -------
@@ -47,7 +50,7 @@ def _preprocess_mask(mask: np.ndarray, nside_out: int) -> np.ndarray:
                 mask = _upgrade_mask(mask, nside_out)
             elif nside_mask > nside_out:
                 print("Provided mask has higher HEALPix resolution than that required for outputs. Mask will be downgraded to the output resolution.")
-                mask = _downgrade_mask(mask, nside_out, threshold=0.5)
+                mask = _downgrade_mask(mask, nside_out, threshold=threshold)
         except:
             raise ValueError("Invalid mask. It must be a valid HEALPix mask.")
         return mask
@@ -93,9 +96,13 @@ def _downgrade_mask(mask: np.ndarray, nside_out: int, threshold: float = 0.5) ->
             The downgraded (possibly binarized) mask.
     """
     if is_binary_mask(mask):
+        if hp.get_nside(mask) > 512 and nside_out < 512:
+            mask = hp.ud_grade(mask, 512)
         mask = hp.ud_grade(mask, nside_out)
         return (mask > threshold).astype(float)
     else:
+        if hp.get_nside(mask) > 512 and nside_out < 512:
+            mask = hp.ud_grade(mask, 512, power=-2)
         return hp.ud_grade(mask, nside_out, power=-2)
 
 def is_binary_mask(mask: np.ndarray) -> bool:
@@ -148,24 +155,33 @@ def _get_mask(config: Configs, compute_cls: Dict[str, Any], nsim: Optional[str] 
             Final mask array, potentially multi-field (shape: [n_fields, npix]).
     """
     # Derive the number of fields and pixels from the outputs
-    n_fields_in = obj_out_to_array(compute_cls["outputs"]).shape[-2] if obj_out_to_array(compute_cls["outputs"]).ndim == 3 else 1
-    npix = obj_out_to_array(compute_cls["outputs"]).shape[-1]
+    random_attr = random.choice(list(vars(compute_cls["outputs"]).keys()))
+    random_attr_value = getattr(compute_cls["outputs"], random_attr)
+    if '_x_' in random_attr:
+        n_fields_in  = random_attr_value.shape[0] if random_attr_value.ndim == 3 else 1
+    else:
+        n_fields_in  = random_attr_value.shape[0] if random_attr_value.ndim == 2 else 1
+    npix = random_attr_value.shape[-1]
     
     # Define the mask patterns to match against compute_cls["mask_type"]
     mask_patterns = ['GAL*+fgres', 'GAL*+fgtemp', 'GAL*+fgtemp^3','GAL*0', 'GAL97', 'GAL99', 'fgres', 'fgtemp', 
-            'fgtemp^3', 'config+fgres', 'config+fgtemp', 'config+fgtemp^3', 'config']
+            'fgtemp^3']
 
     # Case 1: No mask defined
 #    if compute_cls["mask_type"] is None and config.mask_path is None:
     if compute_cls["mask_type"] is None and config.mask_observations is None and config.mask_covariance is None:
         return np.ones(npix) if n_fields_in == 1 else np.ones((n_fields_in, npix))
 
+    if config.mask_observations is not None or config.mask_covariance is not None:
+        _, mask_compsep = get_masks_for_compsep(config.mask_observations, config.mask_covariance, config.nside)
+    else:
+        mask_compsep = np.ones(npix)
+
     # Case 2: Use config-defined mask
 #    if compute_cls["mask_type"] is None and config.mask_path is not None:
 #        mask_spectra = _preprocess_mask(hp.read_map(config.mask_path, field=0), config.nside)
-    if compute_cls["mask_type"] is None and (config.mask_observations is not None or config.mask_covariance is not None):
-        _, mask_spectra = get_masks_for_compsep(config.mask_observations, config.mask_covariance, config.nside)
-        return mask_spectra if n_fields_in == 1 else np.repeat(mask_spectra[np.newaxis, :], n_fields_in, axis=0)
+    if compute_cls["mask_type"] is None:
+        return mask_compsep if n_fields_in == 1 else np.repeat(mask_compsep[np.newaxis, :], n_fields_in, axis=0)
         
     # Case 3: Load from FITS file directly        
     if compute_cls["mask_type"] == "from_fits":
@@ -173,7 +189,9 @@ def _get_mask(config: Configs, compute_cls: Dict[str, Any], nsim: Optional[str] 
             raise ValueError("mask_path must be a string and defined in compute_cls when mask_type is 'from_fits'")
 
         if n_fields_in == 1:
-            return _preprocess_mask(hp.read_map(compute_cls["mask_path"], field=0), config.nside)
+            mask_spectra = _preprocess_mask(hp.read_map(compute_cls["mask_path"], field=0), config.nside)
+            mask_spectra[mask_compsep == 0.] = 0.
+            return mask_spectra
         
         mask_spectra = np.zeros((n_fields_in, npix))
         mask_spectra[0] = _preprocess_mask(hp.read_map(compute_cls["mask_path"], field=0), config.nside)
@@ -191,6 +209,7 @@ def _get_mask(config: Configs, compute_cls: Dict[str, Any], nsim: Optional[str] 
                     mask_spectra[i] = _preprocess_mask(hp.read_map(compute_cls["mask_path"], field=i), config.nside)
                 except IndexError:
                     mask_spectra[i] = mask_spectra[0]
+        mask_spectra[:, mask_compsep == 0.] = 0.
         return mask_spectra
 
     # Case 4: Named pattern (e.g., GAL99+fgres, config, etc.)
@@ -201,22 +220,19 @@ def _get_mask(config: Configs, compute_cls: Dict[str, Any], nsim: Optional[str] 
             if compute_cls["mask_type"][:5] not in gal_masks_list:
                 raise ValueError("GAL mask must be one of {}".format(", ".join(gal_masks_list)))
             idx_m = gal_masks_list.index(compute_cls["mask_type"][:5])
-            rot = hp.Rotator(coord=f"G{config.coordinates}") if config.coordinates != "G" else None
+            #rot = hp.Rotator(coord=f"G{config.coordinates}") if config.coordinates != "G" else None
             mask_init = hp.ud_grade(get_planck_mask(0, field=idx_m, nside=512),hp.npix2nside(npix))
             # Applying coordinate rotation if needed
             if config.coordinates != "G":
-                alm_mask = hp.map2alm(mask_init, lmax=2*hp.npix2nside(npix), pol=False)
-                rot.rotate_alm(alm_mask, inplace=True)
-                mask_init = hp.alm2map(alm_mask, nside_out=hp.npix2nside(npix), lmax=2*hp.npix2nside(npix), pol=False)
-            mask_init = mask_init == 1.
-        elif 'config' in compute_cls["mask_type"]:
-#            mask_init = np.ones(npix) if config.mask_path is None else _preprocess_mask(hp.read_map(config.mask_path, field=0), config.nside)
-            if config.mask_observations is not None or config.mask_covariance is not None:
-                _, mask_init = get_masks_for_compsep(config.mask_observations, config.mask_covariance, config.nside)
-            else:
-                mask_init = np.ones(npix)
+                #alm_mask = hp.map2alm(mask_init, lmax=2*hp.npix2nside(npix), pol=False)
+                #rot.rotate_alm(alm_mask, inplace=True)
+                #mask_init = hp.alm2map(alm_mask, nside=hp.npix2nside(npix), lmax=2*hp.npix2nside(npix), pol=False)
+                mask_init = change_coord_mask(mask_init, ["G",config.coordinates])
+            mask_init = mask_init >= 1.
         else:
             mask_init = np.ones(npix)
+
+        mask_init[mask_compsep == 0.] = 0.
 
         # Generating and returning the final mask according to the mask_type
         if 'fgres' in compute_cls["mask_type"] or 'fgtemp' in compute_cls["mask_type"]:

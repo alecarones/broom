@@ -188,22 +188,106 @@ def _cls_from_config(
 
     compute_cls["outputs"] = SimpleNamespace()
 
-    compute_cls["path"] = os.path.join(config.path_outputs, compute_cls["path_method"])
+    if "path_outputs" in compute_cls:
+        compute_cls["path"] = os.path.join(compute_cls["path_outputs"], compute_cls["path_method"])
+    else:
+        compute_cls["path"] = os.path.join(config.path_outputs, compute_cls["path_method"])
 
     _check_fields_for_cls(compute_cls["field_out"],config.field_cls_out)
     compute_cls["field_cls_in"] = _get_fields_in_for_cls(compute_cls["field_out"],config.field_cls_out)
     
     for component in compute_cls["components_for_cls"]:
-        component_name = component.split('/')[0] if '/' in component else component
-        filename = os.path.join(
-            compute_cls["path"],
-            f"{component}/{compute_cls['field_out']}_{component_name}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}"
-        )
-        setattr(
-            compute_cls["outputs"],
-            component_name,
-            _load_outputs_(filename, compute_cls["field_out"], nsim=nsim)
-        )
+        if isinstance(component, str):
+            if "gilc_" in compute_cls["path"] or "gpilc_" in compute_cls["path"] or "gprilc_" in compute_cls["path"]:
+                component_name = '_'.join(component.split('_')[:-1])
+                if nsim is not None:
+                    filename = os.path.join(
+                        compute_cls["path"],
+                        f"{component_name}/{nsim}/{compute_cls['field_out']}_{component_name}_{component.split('_')[-1]}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}"
+                    )
+                else:
+                    filename = os.path.join(
+                        compute_cls["path"],
+                        f"{component_name}/{compute_cls['field_out']}_{component_name}_{component.split('_')[-1]}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}"
+                    )
+                component_name = component
+            else:
+                component_name = component.split('/')[0] if '/' in component else component
+                filename = os.path.join(
+                    compute_cls["path"],
+                    f"{component}/{compute_cls['field_out']}_{component_name}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}"
+                )
+
+            setattr(
+                compute_cls["outputs"],
+                component_name,
+                _load_outputs_(filename, compute_cls["field_out"], nsim=nsim)
+            )
+
+        elif isinstance(component, list):
+            if len(component)==2:
+                filenames = []
+                for idx, component_ in enumerate(component):
+                    if "gilc_" in compute_cls["path"] or "gpilc_" in compute_cls["path"] or "gprilc_" in compute_cls["path"]:
+                        component_name_ = '_'.join(component_.split('_')[:-1])
+                        if nsim is not None:
+                            filenames.append(os.path.join(
+                                compute_cls["path"],
+                                f"{component_name_}/{nsim}/{compute_cls['field_out']}_{component_name_}_{component_.split('_')[-1]}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}"
+                            ))
+                        else:
+                            filenames.append(os.path.join(
+                                compute_cls["path"],
+                                f"{component_name_}/{compute_cls['field_out']}_{component_name_}_{component_.split('_')[-1]}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}"
+                            ))
+                        if idx == 0:
+                            component_name = component_
+                        elif idx == 1:
+                            component_name += f"_x_{component_}"
+                    else:
+                        component_name_ = component_.split('/')[0] if '/' in component_ else component_
+                        filenames.append(os.path.join(
+                            compute_cls["path"],
+                            f"{component_}/{compute_cls['field_out']}_{component_name_}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}"
+                        ))
+                        if idx == 0:
+                            component_name = component_name_
+                        elif idx == 1:
+                            component_name += f"_x_{component_name_}"
+
+                setattr(
+                    compute_cls["outputs"],
+                    component_name,
+                    [])
+                
+                for filename in filenames:
+                    getattr(
+                        compute_cls["outputs"],
+                        component_name
+                    ).append(_load_outputs_(filename, compute_cls["field_out"], nsim=nsim))
+
+                setattr(compute_cls["outputs"], component_name, np.array(getattr(
+                    compute_cls["outputs"],
+                    component_name
+                )))
+
+                if getattr(
+                    compute_cls["outputs"],
+                    component_name
+                ).ndim == 3:
+                    setattr(
+                        compute_cls["outputs"],
+                        component_name,
+                        np.transpose(getattr(
+                            compute_cls["outputs"],
+                            component_name
+                        ), (1,0,2)
+                    ))
+            else:
+                raise ValueError("Components as list must contain exactly two elements for cross-spectra.")
+        else:
+            raise TypeError("Components for cls must be either str or list of two str.")
+        
 
     #if (config.field_out in ["TQU", "TEB"]) and (config.field_cls_out not in ["TE", "TB", "TEB"]):
     if len(compute_cls['field_out']) > 1:
@@ -217,10 +301,10 @@ def _cls_from_config(
 
     if config.save_mask:
         if compute_cls["mask_type"] is not None:
-            if 'fgres' in compute_cls["mask_type"] or 'fgtemp' in compute_cls["mask_type"]:
-                _save_mask(compute_cls["mask"], config, compute_cls, nsim=nsim)
-            else:
-                _log("Mask type does not include 'fgres' or 'fgtemp', not saving mask.", verbose=config.verbose)
+            #if 'fgres' in compute_cls["mask_type"] or 'fgtemp' in compute_cls["mask_type"]:
+            _save_mask(compute_cls["mask"], config, compute_cls, nsim=nsim)
+            #else:
+            #    _log("Mask type does not include 'fgres' or 'fgtemp', not saving mask.", verbose=config.verbose)
         else:
             _log("Mask type not defined, not saving mask.", verbose=config.verbose)
 
@@ -263,12 +347,13 @@ def _cls_from_maps(
 
     compute_cls["mask"] = _get_mask(config, compute_cls, nsim=nsim)
 
-    if compute_cls["apodize_mask"] is not None:
-        compute_cls["mask"] = _smooth_masks(
-            compute_cls["mask"],
-            compute_cls["apodize_mask"],
-            compute_cls["smooth_mask"]
-        )
+    if not (compute_cls["mask_type"] is None and config.mask_observations is None and config.mask_covariance is None):
+        if compute_cls["apodize_mask"] is not None:
+            compute_cls["mask"] = _smooth_masks(
+                compute_cls["mask"],
+                compute_cls["apodize_mask"],
+                compute_cls["smooth_mask"]
+            )
 
     cls_out = _get_cls(config, compute_cls, nsim=nsim)
 
@@ -305,8 +390,8 @@ def _get_cls(config: Configs, compute_cls, nsim=None):
 
     wspaces = {}
 
-    ndim = obj_out_to_array(compute_cls["outputs"]).ndim
-    out_shapes = obj_out_to_array(compute_cls["outputs"]).shape
+#    ndim = obj_out_to_array(compute_cls["outputs"]).ndim
+#    out_shapes = obj_out_to_array(compute_cls["outputs"]).shape
 
     def compute_anafast_scalar(maps, mask, beam):
         cl = hp.anafast(maps * mask, lmax=config.lmax, pol=False)
@@ -347,7 +432,12 @@ def _get_cls(config: Configs, compute_cls, nsim=None):
         return (nmt.compute_full_master(f1, f2, b_bin, workspace=wspaces[f"00_{field1}{field2}"]))[0]
 
     def compute_anafast_full_TQU(T_map, Q_map, U_map, T_mask, Q_mask, beam_T, beam_E, beam_B, get_cross=False):
-        cl = hp.anafast([T_map * T_mask, Q_map * Q_mask, U_map * Q_mask], lmax=config.lmax, pol=True)[:3]
+        if T_map.ndim == 1 and Q_map.ndim ==1 and U_map.ndim ==1:
+            cl = hp.anafast([T_map * T_mask, Q_map * Q_mask, U_map * Q_mask], lmax=config.lmax, pol=True)[:3]
+        elif T_map.ndim == 2 and Q_map.ndim ==2 and U_map.ndim ==2:
+            cl = hp.anafast([T_map[0] * T_mask, Q_map[0] * Q_mask, U_map[0] * Q_mask], 
+                map2=[T_map[1] * T_mask, Q_map[1] * Q_mask, U_map[1] * Q_mask], lmax=config.lmax, pol=True)[:3]
+        
         cl[0] = cl[0] / np.mean(T_mask**2) / (beam_T**2)
         cl[1] = cl[1] / np.mean(Q_mask**2) / (beam_E**2)
         cl[2] = cl[2] / np.mean(Q_mask**2) / (beam_B**2)
@@ -355,7 +445,11 @@ def _get_cls(config: Configs, compute_cls, nsim=None):
             cl /= np.mean(mask_in_maps**2)
         if get_cross:
             mask_ =  Q_mask if np.mean(np.ceil(T_mask)) > np.mean(np.ceil(Q_mask)) else T_mask
-            cl_cross = (hp.anafast([T_map * mask_, Q_map * mask_, U_map * mask_], lmax=config.lmax, pol=True) / np.mean(mask_**2))[3:]
+            if T_map.ndim == 1 and Q_map.ndim ==1 and U_map.ndim ==1:
+                cl_cross = (hp.anafast([T_map * mask_, Q_map * mask_, U_map * mask_], lmax=config.lmax, pol=True) / np.mean(mask_**2))[3:]
+            elif T_map.ndim == 2 and Q_map.ndim ==2 and U_map.ndim ==2:
+                cl_cross = (hp.anafast([T_map[0] * mask_, Q_map[0] * mask_, U_map[0] * mask_], 
+                    map2=[T_map[1] * mask_, Q_map[1] * mask_, U_map[1] * mask_], lmax=config.lmax, pol=True) / np.mean(mask_**2))[3:]
             cl_cross[0] = cl_cross[0] / (beam_T * beam_E)
             cl_cross[1] = cl_cross[1] / (beam_E * beam_B)
             cl_cross[2] = cl_cross[2] / (beam_T * beam_B)
@@ -363,9 +457,10 @@ def _get_cls(config: Configs, compute_cls, nsim=None):
                 cl_cross /= np.mean(mask_in_maps**2)
             return np.concatenate([b_bin.bin_cell(cl), b_bin.bin_cell(cl_cross)], axis=0)
         return b_bin.bin_cell(cl)
+
     
     if 'purify' in compute_cls["path"]: # or 'maskonly' in compute_cls["path"]:
-        _log('Output maps are weighted by config mask. This will be taken into account.', verbose=config.verbose)
+        _log('Output maps have been weighted by config mask. This will be taken into account.', verbose=config.verbose)
 #        mask_in_maps = _preprocess_mask(hp.read_map(config.mask_path, field=0), config.nside)
         mask_in_maps, _ = get_masks_for_compsep(config.mask_observations, config.mask_covariance, config.nside)
         mask_in_maps /= np.max(mask_in_maps)
@@ -375,127 +470,256 @@ def _get_cls(config: Configs, compute_cls, nsim=None):
     for idx, attr in enumerate(vars(compute_cls["outputs"])):
         output_data = getattr(compute_cls["outputs"], attr)
 
-        if ndim == 2:
-            if config.spectra_comp == 'anafast':
-                getattr(cls_out, attr).append(compute_anafast_scalar(output_data, compute_cls["mask"], bls_beam[0]))
-            else:
-                getattr(cls_out, attr).append(compute_namaster_scalar(output_data, compute_cls["mask"], bls_beam[0], compute_cls["field_cls_in"]))
-        
-        else:
-            if 'QU' not in compute_cls["field_cls_in"]:
-                for field in range(out_shapes[1]):
-                    if config.spectra_comp == 'anafast':
-                        getattr(cls_out, attr).append(compute_anafast_scalar(
-                            output_data[field], compute_cls["mask"][field], bls_beam[field]))
-                    else:
-                        getattr(cls_out, attr).append(compute_namaster_scalar(
-                        output_data[field], compute_cls["mask"][field], bls_beam[field], compute_cls["field_cls_in"][field]))
-                
-                if "EETE" in config.field_cls_out or "BBTE" in config.field_cls_out:
-                    if config.spectra_comp == 'anafast':
-                        mask_ =  compute_cls["mask"][1] if np.mean(np.ceil(compute_cls["mask"][0])) > np.mean(np.ceil(compute_cls["mask"][1])) else compute_cls["mask"][0]
-                        getattr(cls_out, attr).append(compute_anafast_cross_scalars(
-                            output_data[0], output_data[1], mask_, bls_beam[0], bls_beam[1]))
-                    elif config.spectra_comp == 'namaster':                        
-                        getattr(cls_out, attr).append(compute_namaster_cross_scalars(
-                            output_data[0], output_data[1], compute_cls["mask"][0], compute_cls["mask"][1],
-                            bls_beam[0], bls_beam[1], compute_cls["field_cls_in"][0], compute_cls["field_cls_in"][1]
-                        ))
-                
-                if "BBEB" in config.field_cls_out or "BTEEB" in config.field_cls_out:
-                    field_E, field_B = (1, 2) if "T" in compute_cls["field_cls_in"] else (0, 1)
-                    if config.spectra_comp == 'anafast':
-                        mask_ =  compute_cls["mask"][field_B] if np.mean(np.ceil(compute_cls["mask"][field_E])) > np.mean(np.ceil(compute_cls["mask"][field_B])) else compute_cls["mask"][field_E]
-                        getattr(cls_out, attr).append(
-                            compute_anafast_cross_scalars(output_data[field_E], output_data[field_B], 
-                            mask_, bls_beam[field_E], bls_beam[field_B]))
-                    elif config.spectra_comp == 'namaster':
-                        getattr(cls_out, attr).append(compute_namaster_cross_scalars(
-                            output_data[field_E], output_data[field_B], compute_cls["mask"][field_E], compute_cls["mask"][field_B],
-                            bls_beam[field_E], bls_beam[field_B], compute_cls["field_cls_in"][field_E], compute_cls["field_cls_in"][field_B]
-                        ))
-
-                if "BBTB" in config.field_cls_out or "EBTB" in config.field_cls_out:
-                    field_B = 2 if "E" in compute_cls["field_cls_in"] else 1
-                    if config.spectra_comp == 'anafast':
-                        mask_ =  compute_cls["mask"][field_B] if np.mean(np.ceil(compute_cls["mask"][0])) > np.mean(np.ceil(compute_cls["mask"][field_B])) else compute_cls["mask"][0]
-                        getattr(cls_out, attr).append(compute_anafast_cross_scalars(
-                            output_data[0], output_data[field_B], mask_, bls_beam[0], bls_beam[field_B]))
-                    elif config.spectra_comp == 'namaster':
-                        getattr(cls_out, attr).append(compute_namaster_cross_scalars(
-                            output_data[0], output_data[field_B], compute_cls["mask"][0], compute_cls["mask"][field_B],
-                            bls_beam[0], bls_beam[field_B], compute_cls["field_cls_in"][0], compute_cls["field_cls_in"][field_B]
-                        ))
-            else:
-                if "T" in compute_cls["field_cls_in"]:
-                    field_Q = 1
-                    field_B = 1 if "EE" not in config.field_cls_out else 2 if "BB" in config.field_cls_out else None
-                    field_E = 1 if "EE" in config.field_cls_out else None
-                    beam_nmt = bls_beam[0]
-                    T_map, Q_map, U_map = output_data[0], output_data[1], output_data[2]
-                else:
-                    mask_ =  compute_cls["mask"][0]
-                    field_Q = 0
-                    field_B = 0 if "EE" not in config.field_cls_out else 1 if "BB" in config.field_cls_out else None
-                    field_E = 0 if "EE" in config.field_cls_out else None
-                    beam_nmt = hp.gauss_beam(np.radians(config.fwhm_out/60.), lmax=config.lmax, pol=False)
-                    if config.pixel_window_out:
-                        beam_nmt *= hp.pixwin(config.nside, lmax=config.lmax, pol=False)
-                    T_map, Q_map, U_map = np.zeros_like(output_data[0]), output_data[0], output_data[1]
-
-                get_cross = any(x in config.field_cls_out for x in ["EETE", "BBTE", "BBEB", "BTEEB", "BBTB", "EBTB"])
+        if '_x_' in attr:
+            if output_data.ndim == 2:
                 if config.spectra_comp == 'anafast':
-                    cls_s2 = compute_anafast_full_TQU(
-                        T_map, Q_map, U_map,
-                        compute_cls["mask"][0], compute_cls["mask"][field_Q],
-                        bls_beam[0], bls_beam[field_E], bls_beam[field_B], get_cross=get_cross
-                    )
-                    if "TT" in config.field_cls_out:
-                        getattr(cls_out, attr).append(cls_s2[0])
-                    if "EE" in config.field_cls_out:
-                        getattr(cls_out, attr).append(cls_s2[1])
-                    if "BB" in config.field_cls_out:
-                        getattr(cls_out, attr).append(cls_s2[2])
-                    if get_cross:
-                        if "EETE" in config.field_cls_out or "BBTE" in config.field_cls_out:
-                            getattr(cls_out, attr).append(cls_s2[3])
-                        if "BBEB" in config.field_cls_out or "BTEEB" in config.field_cls_out:
-                            getattr(cls_out, attr).append(cls_s2[4])
-                        if "BBTB" in config.field_cls_out or "EBTB" in config.field_cls_out:
-                            getattr(cls_out, attr).append(cls_s2[5])
-                elif config.spectra_comp == 'namaster':
-                    if "TT" in config.field_cls_out:
-                        f_0 = nmt.NmtField(compute_cls["mask"][0], [T_map], beam=bls_beam[0],lmax=config.lmax,lmax_mask=config.lmax)
-                        if idx==0:
-                            if mask_in_maps is not None:
-                                f_0_w = nmt.NmtField(compute_cls["mask"][0] * mask_in_maps, [T_map], beam=bls_beam[0], lmax=config.lmax, lmax_mask=config.lmax)
-                                w00 = nmt.NmtWorkspace.from_fields(f_0_w, f_0_w, b_bin)
-                            else:
-                                w00 = nmt.NmtWorkspace.from_fields(f_0, f_0, b_bin)
-                        getattr(cls_out, attr).append((nmt.compute_full_master(f_0, f_0, b_bin, workspace=w00))[0])
-                    f2 = nmt.NmtField(compute_cls["mask"][field_Q], [Q_map, U_map], purify_b=compute_cls["nmt_purify_B"], purify_e=compute_cls["nmt_purify_E"], beam=beam_nmt, lmax=config.lmax, lmax_mask=config.lmax)
-                    if idx==0:
-                        if mask_in_maps is not None:
-                            f2_w = nmt.NmtField(compute_cls["mask"][field_Q] * mask_in_maps, [Q_map, U_map], purify_b=compute_cls["nmt_purify_B"], purify_e=compute_cls["nmt_purify_E"], beam=beam_nmt, lmax=config.lmax, lmax_mask=config.lmax)
-                            w22 = nmt.NmtWorkspace.from_fields(f2_w, f2_w, b_bin)
+                    getattr(cls_out, attr).append(compute_anafast_cross_scalars(output_data[0], output_data[1], compute_cls["mask"], compute_cls["mask"], bls_beam[0], bls_beam[0]))
+                else:
+                    getattr(cls_out, attr).append(compute_namaster_cross_scalars(output_data[0], output_data[1], compute_cls["mask"], compute_cls["mask"], bls_beam[0], bls_beam[0], compute_cls["field_cls_in"], compute_cls["field_cls_in"]))
+            else:
+                if 'QU' not in compute_cls["field_cls_in"]:
+                    for field in range(output_data.shape[0]):
+                        if config.spectra_comp == 'anafast':
+                            getattr(cls_out, attr).append(compute_anafast_cross_scalars(
+                                output_data[field,0],  output_data[field,1], compute_cls["mask"][field], compute_cls["mask"][field], 
+                                bls_beam[field], bls_beam[field]))
                         else:
-                            w22 = nmt.NmtWorkspace.from_fields(f2, f2, b_bin)
-                    if "EE" in config.field_cls_out:
-                        getattr(cls_out, attr).append(w22.decouple_cell(nmt.compute_coupled_cell(f2, f2))[0])
-                    if "BB" in config.field_cls_out:
-                        getattr(cls_out, attr).append(w22.decouple_cell(nmt.compute_coupled_cell(f2, f2))[3])
-                    if ("EETE" in config.field_cls_out or "BBTE" in config.field_cls_out) or ("BBTB" in config.field_cls_out or "EBTB" in config.field_cls_out):
+                            getattr(cls_out, attr).append(compute_namaster_cross_scalars(
+                            output_data[field,0], output_data[field,1], compute_cls["mask"][field], compute_cls["mask"][field],
+                            bls_beam[field], bls_beam[field], compute_cls["field_cls_in"][field], compute_cls["field_cls_in"][field]
+                            ))
+                    
+                    if "EETE" in config.field_cls_out or "BBTE" in config.field_cls_out:
+                        if config.spectra_comp == 'anafast':
+                            mask_ =  compute_cls["mask"][1] if np.mean(np.ceil(compute_cls["mask"][0])) > np.mean(np.ceil(compute_cls["mask"][1])) else compute_cls["mask"][0]
+                            getattr(cls_out, attr).append(compute_anafast_cross_scalars(
+                                output_data[0,0], output_data[1,1], mask_, bls_beam[0], bls_beam[1]))
+                        elif config.spectra_comp == 'namaster':                        
+                            getattr(cls_out, attr).append(compute_namaster_cross_scalars(
+                                output_data[0,0], output_data[1,1], compute_cls["mask"][0], compute_cls["mask"][1],
+                                bls_beam[0], bls_beam[1], compute_cls["field_cls_in"][0], compute_cls["field_cls_in"][1]
+                            ))
+                    
+                    if "BBEB" in config.field_cls_out or "BTEEB" in config.field_cls_out:
+                        field_E, field_B = (1, 2) if "T" in compute_cls["field_cls_in"] else (0, 1)
+                        if config.spectra_comp == 'anafast':
+                            mask_ =  compute_cls["mask"][field_B] if np.mean(np.ceil(compute_cls["mask"][field_E])) > np.mean(np.ceil(compute_cls["mask"][field_B])) else compute_cls["mask"][field_E]
+                            getattr(cls_out, attr).append(
+                                compute_anafast_cross_scalars(output_data[field_E,0], output_data[field_B,1], 
+                                mask_, bls_beam[field_E], bls_beam[field_B]))
+                        elif config.spectra_comp == 'namaster':
+                            getattr(cls_out, attr).append(compute_namaster_cross_scalars(
+                                output_data[field_E,0], output_data[field_B,1], compute_cls["mask"][field_E], compute_cls["mask"][field_B],
+                                bls_beam[field_E], bls_beam[field_B], compute_cls["field_cls_in"][field_E], compute_cls["field_cls_in"][field_B]
+                            ))
+
+                    if "BBTB" in config.field_cls_out or "EBTB" in config.field_cls_out:
+                        field_B = 2 if "E" in compute_cls["field_cls_in"] else 1
+                        if config.spectra_comp == 'anafast':
+                            mask_ =  compute_cls["mask"][field_B] if np.mean(np.ceil(compute_cls["mask"][0])) > np.mean(np.ceil(compute_cls["mask"][field_B])) else compute_cls["mask"][0]
+                            getattr(cls_out, attr).append(compute_anafast_cross_scalars(
+                                output_data[0,0], output_data[field_B,1], mask_, bls_beam[0], bls_beam[field_B]))
+                        elif config.spectra_comp == 'namaster':
+                            getattr(cls_out, attr).append(compute_namaster_cross_scalars(
+                                output_data[0,0], output_data[field_B,1], compute_cls["mask"][0], compute_cls["mask"][field_B],
+                                bls_beam[0], bls_beam[field_B], compute_cls["field_cls_in"][0], compute_cls["field_cls_in"][field_B]
+                            ))
+                else:
+                    if "T" in compute_cls["field_cls_in"]:
+                        field_Q = 1
+                        field_B = 1 if "EE" not in config.field_cls_out else 2 if "BB" in config.field_cls_out else None
+                        field_E = 1 if "EE" in config.field_cls_out else None
+                        beam_nmt = bls_beam[0]
+                        T_map, Q_map, U_map = output_data[0], output_data[1], output_data[2]
+                    else:
+                        mask_ =  compute_cls["mask"][0]
+                        field_Q = 0
+                        field_B = 0 if "EE" not in config.field_cls_out else 1 if "BB" in config.field_cls_out else None
+                        field_E = 0 if "EE" in config.field_cls_out else None
+                        beam_nmt = hp.gauss_beam(np.radians(config.fwhm_out/60.), lmax=config.lmax, pol=False)
+                        if config.pixel_window_out:
+                            beam_nmt *= hp.pixwin(config.nside, lmax=config.lmax, pol=False)
+                        T_map, Q_map, U_map = np.zeros_like(output_data[0]), output_data[0], output_data[1]
+
+                    get_cross = any(x in config.field_cls_out for x in ["EETE", "BBTE", "BBEB", "BTEEB", "BBTB", "EBTB"])
+                    if config.spectra_comp == 'anafast':
+                        cls_s2 = compute_anafast_full_TQU(
+                            T_map, Q_map, U_map,
+                            compute_cls["mask"][0], compute_cls["mask"][field_Q],
+                            bls_beam[0], bls_beam[field_E], bls_beam[field_B], get_cross=get_cross
+                        )
+                        if "TT" in config.field_cls_out:
+                            getattr(cls_out, attr).append(cls_s2[0])
+                        if "EE" in config.field_cls_out:
+                            getattr(cls_out, attr).append(cls_s2[1])
+                        if "BB" in config.field_cls_out:
+                            getattr(cls_out, attr).append(cls_s2[2])
+                        if get_cross:
+                            if "EETE" in config.field_cls_out or "BBTE" in config.field_cls_out:
+                                getattr(cls_out, attr).append(cls_s2[3])
+                            if "BBEB" in config.field_cls_out or "BTEEB" in config.field_cls_out:
+                                getattr(cls_out, attr).append(cls_s2[4])
+                            if "BBTB" in config.field_cls_out or "EBTB" in config.field_cls_out:
+                                getattr(cls_out, attr).append(cls_s2[5])
+                    elif config.spectra_comp == 'namaster':
+                        if "TT" in config.field_cls_out:
+                            f_0_0 = nmt.NmtField(compute_cls["mask"][0], [T_map[0]], beam=bls_beam[0],lmax=config.lmax,lmax_mask=config.lmax)
+                            f_0_1 = nmt.NmtField(compute_cls["mask"][0], [T_map[1]], beam=bls_beam[0],lmax=config.lmax,lmax_mask=config.lmax)
+                            if idx==0:
+                                if mask_in_maps is not None:
+                                    f_0_0_w = nmt.NmtField(compute_cls["mask"][0] * mask_in_maps, [T_map[0]], beam=bls_beam[0], lmax=config.lmax, lmax_mask=config.lmax)
+                                    f_0_1_w = nmt.NmtField(compute_cls["mask"][0] * mask_in_maps, [T_map[1]], beam=bls_beam[0], lmax=config.lmax, lmax_mask=config.lmax)
+                                    w00 = nmt.NmtWorkspace.from_fields(f_0_0_w, f_0_1_w, b_bin)
+                                else:
+                                    w00 = nmt.NmtWorkspace.from_fields(f_0_0, f_0_1, b_bin)
+                            getattr(cls_out, attr).append((nmt.compute_full_master(f_0_0, f_0_1, b_bin, workspace=w00))[0])
+                        f2_0 = nmt.NmtField(compute_cls["mask"][field_Q], [Q_map[0], U_map[0]], purify_b=compute_cls["nmt_purify_B"], purify_e=compute_cls["nmt_purify_E"], beam=beam_nmt, lmax=config.lmax, lmax_mask=config.lmax)
+                        f2_1 = nmt.NmtField(compute_cls["mask"][field_Q], [Q_map[1], U_map[1]], purify_b=compute_cls["nmt_purify_B"], purify_e=compute_cls["nmt_purify_E"], beam=beam_nmt, lmax=config.lmax, lmax_mask=config.lmax)
                         if idx==0:
                             if mask_in_maps is not None:
-                                w02 = nmt.NmtWorkspace.from_fields(f_0_w, f2_w, b_bin)
+                                f2_0_w = nmt.NmtField(compute_cls["mask"][field_Q] * mask_in_maps, [Q_map[0], U_map[0]], purify_b=compute_cls["nmt_purify_B"], purify_e=compute_cls["nmt_purify_E"], beam=beam_nmt, lmax=config.lmax, lmax_mask=config.lmax)
+                                f2_1_w = nmt.NmtField(compute_cls["mask"][field_Q] * mask_in_maps, [Q_map[1], U_map[1]], purify_b=compute_cls["nmt_purify_B"], purify_e=compute_cls["nmt_purify_E"], beam=beam_nmt, lmax=config.lmax, lmax_mask=config.lmax)
+                                w22 = nmt.NmtWorkspace.from_fields(f2_0_w, f2_1_w, b_bin)
                             else:
-                                w02 = nmt.NmtWorkspace.from_fields(f_0, f2, b_bin)
+                                w22 = nmt.NmtWorkspace.from_fields(f2_0, f2_1, b_bin)
+                        if "EE" in config.field_cls_out:
+                            getattr(cls_out, attr).append(w22.decouple_cell(nmt.compute_coupled_cell(f2_0, f2_1))[0])
+                        if "BB" in config.field_cls_out:
+                            getattr(cls_out, attr).append(w22.decouple_cell(nmt.compute_coupled_cell(f2_0, f2_1))[3])
+                        if ("EETE" in config.field_cls_out or "BBTE" in config.field_cls_out) or ("BBTB" in config.field_cls_out or "EBTB" in config.field_cls_out):
+                            if idx==0:
+                                if mask_in_maps is not None:
+                                    w02 = nmt.NmtWorkspace.from_fields(f_0_0_w, f2_1_w, b_bin)
+                                else:
+                                    w02 = nmt.NmtWorkspace.from_fields(f_0_0, f2_1, b_bin)
+                        if "EETE" in config.field_cls_out or "BBTE" in config.field_cls_out:
+                            getattr(cls_out, attr).append(w02.decouple_cell(nmt.compute_coupled_cell(f_0_0, f2_1))[0])
+                        if "BBEB" in config.field_cls_out or "BTEEB" in config.field_cls_out:
+                            getattr(cls_out, attr).append(w22.decouple_cell(nmt.compute_coupled_cell(f2_0, f2_1))[1])
+                        if "BBTB" in config.field_cls_out or "EBTB" in config.field_cls_out:
+                            getattr(cls_out, attr).append(w02.decouple_cell(nmt.compute_coupled_cell(f_0_0, f2_1))[1])
+
+        else:
+            if output_data.ndim == 1:
+                if config.spectra_comp == 'anafast':
+                    getattr(cls_out, attr).append(compute_anafast_scalar(output_data, compute_cls["mask"], bls_beam[0]))
+                else:
+                    getattr(cls_out, attr).append(compute_namaster_scalar(output_data, compute_cls["mask"], bls_beam[0], compute_cls["field_cls_in"]))
+            else:
+                if 'QU' not in compute_cls["field_cls_in"]:
+                    for field in range(output_data.shape[0]):
+                        if config.spectra_comp == 'anafast':
+                            getattr(cls_out, attr).append(compute_anafast_scalar(
+                                output_data[field], compute_cls["mask"][field], bls_beam[field]))
+                        else:
+                            getattr(cls_out, attr).append(compute_namaster_scalar(
+                            output_data[field], compute_cls["mask"][field], bls_beam[field], compute_cls["field_cls_in"][field]))
+                    
                     if "EETE" in config.field_cls_out or "BBTE" in config.field_cls_out:
-                        getattr(cls_out, attr).append(w02.decouple_cell(nmt.compute_coupled_cell(f_0, f2))[0])
+                        if config.spectra_comp == 'anafast':
+                            mask_ =  compute_cls["mask"][1] if np.mean(np.ceil(compute_cls["mask"][0])) > np.mean(np.ceil(compute_cls["mask"][1])) else compute_cls["mask"][0]
+                            getattr(cls_out, attr).append(compute_anafast_cross_scalars(
+                                output_data[0], output_data[1], mask_, bls_beam[0], bls_beam[1]))
+                        elif config.spectra_comp == 'namaster':                        
+                            getattr(cls_out, attr).append(compute_namaster_cross_scalars(
+                                output_data[0], output_data[1], compute_cls["mask"][0], compute_cls["mask"][1],
+                                bls_beam[0], bls_beam[1], compute_cls["field_cls_in"][0], compute_cls["field_cls_in"][1]
+                            ))
+                    
                     if "BBEB" in config.field_cls_out or "BTEEB" in config.field_cls_out:
-                        getattr(cls_out, attr).append(w22.decouple_cell(nmt.compute_coupled_cell(f2, f2))[1])
+                        field_E, field_B = (1, 2) if "T" in compute_cls["field_cls_in"] else (0, 1)
+                        if config.spectra_comp == 'anafast':
+                            mask_ =  compute_cls["mask"][field_B] if np.mean(np.ceil(compute_cls["mask"][field_E])) > np.mean(np.ceil(compute_cls["mask"][field_B])) else compute_cls["mask"][field_E]
+                            getattr(cls_out, attr).append(
+                                compute_anafast_cross_scalars(output_data[field_E], output_data[field_B], 
+                                mask_, bls_beam[field_E], bls_beam[field_B]))
+                        elif config.spectra_comp == 'namaster':
+                            getattr(cls_out, attr).append(compute_namaster_cross_scalars(
+                                output_data[field_E], output_data[field_B], compute_cls["mask"][field_E], compute_cls["mask"][field_B],
+                                bls_beam[field_E], bls_beam[field_B], compute_cls["field_cls_in"][field_E], compute_cls["field_cls_in"][field_B]
+                            ))
+
                     if "BBTB" in config.field_cls_out or "EBTB" in config.field_cls_out:
-                        getattr(cls_out, attr).append(w02.decouple_cell(nmt.compute_coupled_cell(f_0, f2))[1])
+                        field_B = 2 if "E" in compute_cls["field_cls_in"] else 1
+                        if config.spectra_comp == 'anafast':
+                            mask_ =  compute_cls["mask"][field_B] if np.mean(np.ceil(compute_cls["mask"][0])) > np.mean(np.ceil(compute_cls["mask"][field_B])) else compute_cls["mask"][0]
+                            getattr(cls_out, attr).append(compute_anafast_cross_scalars(
+                                output_data[0], output_data[field_B], mask_, bls_beam[0], bls_beam[field_B]))
+                        elif config.spectra_comp == 'namaster':
+                            getattr(cls_out, attr).append(compute_namaster_cross_scalars(
+                                output_data[0], output_data[field_B], compute_cls["mask"][0], compute_cls["mask"][field_B],
+                                bls_beam[0], bls_beam[field_B], compute_cls["field_cls_in"][0], compute_cls["field_cls_in"][field_B]
+                            ))
+                else:
+                    if "T" in compute_cls["field_cls_in"]:
+                        field_Q = 1
+                        field_B = 1 if "EE" not in config.field_cls_out else 2 if "BB" in config.field_cls_out else None
+                        field_E = 1 if "EE" in config.field_cls_out else None
+                        beam_nmt = bls_beam[0]
+                        T_map, Q_map, U_map = output_data[0], output_data[1], output_data[2]
+                    else:
+                        mask_ =  compute_cls["mask"][0]
+                        field_Q = 0
+                        field_B = 0 if "EE" not in config.field_cls_out else 1 if "BB" in config.field_cls_out else None
+                        field_E = 0 if "EE" in config.field_cls_out else None
+                        beam_nmt = hp.gauss_beam(np.radians(config.fwhm_out/60.), lmax=config.lmax, pol=False)
+                        if config.pixel_window_out:
+                            beam_nmt *= hp.pixwin(config.nside, lmax=config.lmax, pol=False)
+                        T_map, Q_map, U_map = np.zeros_like(output_data[0]), output_data[0], output_data[1]
+
+                    get_cross = any(x in config.field_cls_out for x in ["EETE", "BBTE", "BBEB", "BTEEB", "BBTB", "EBTB"])
+                    if config.spectra_comp == 'anafast':
+                        cls_s2 = compute_anafast_full_TQU(
+                            T_map, Q_map, U_map,
+                            compute_cls["mask"][0], compute_cls["mask"][field_Q],
+                            bls_beam[0], bls_beam[field_E], bls_beam[field_B], get_cross=get_cross
+                        )
+                        if "TT" in config.field_cls_out:
+                            getattr(cls_out, attr).append(cls_s2[0])
+                        if "EE" in config.field_cls_out:
+                            getattr(cls_out, attr).append(cls_s2[1])
+                        if "BB" in config.field_cls_out:
+                            getattr(cls_out, attr).append(cls_s2[2])
+                        if get_cross:
+                            if "EETE" in config.field_cls_out or "BBTE" in config.field_cls_out:
+                                getattr(cls_out, attr).append(cls_s2[3])
+                            if "BBEB" in config.field_cls_out or "BTEEB" in config.field_cls_out:
+                                getattr(cls_out, attr).append(cls_s2[4])
+                            if "BBTB" in config.field_cls_out or "EBTB" in config.field_cls_out:
+                                getattr(cls_out, attr).append(cls_s2[5])
+                    elif config.spectra_comp == 'namaster':
+                        if "TT" in config.field_cls_out:
+                            f_0 = nmt.NmtField(compute_cls["mask"][0], [T_map], beam=bls_beam[0],lmax=config.lmax,lmax_mask=config.lmax)
+                            if idx==0:
+                                if mask_in_maps is not None:
+                                    f_0_w = nmt.NmtField(compute_cls["mask"][0] * mask_in_maps, [T_map], beam=bls_beam[0], lmax=config.lmax, lmax_mask=config.lmax)
+                                    w00 = nmt.NmtWorkspace.from_fields(f_0_w, f_0_w, b_bin)
+                                else:
+                                    w00 = nmt.NmtWorkspace.from_fields(f_0, f_0, b_bin)
+                            getattr(cls_out, attr).append((nmt.compute_full_master(f_0, f_0, b_bin, workspace=w00))[0])
+                        f2 = nmt.NmtField(compute_cls["mask"][field_Q], [Q_map, U_map], purify_b=compute_cls["nmt_purify_B"], purify_e=compute_cls["nmt_purify_E"], beam=beam_nmt, lmax=config.lmax, lmax_mask=config.lmax)
+                        if idx==0:
+                            if mask_in_maps is not None:
+                                f2_w = nmt.NmtField(compute_cls["mask"][field_Q] * mask_in_maps, [Q_map, U_map], purify_b=compute_cls["nmt_purify_B"], purify_e=compute_cls["nmt_purify_E"], beam=beam_nmt, lmax=config.lmax, lmax_mask=config.lmax)
+                                w22 = nmt.NmtWorkspace.from_fields(f2_w, f2_w, b_bin)
+                            else:
+                                w22 = nmt.NmtWorkspace.from_fields(f2, f2, b_bin)
+                        if "EE" in config.field_cls_out:
+                            getattr(cls_out, attr).append(w22.decouple_cell(nmt.compute_coupled_cell(f2, f2))[0])
+                        if "BB" in config.field_cls_out:
+                            getattr(cls_out, attr).append(w22.decouple_cell(nmt.compute_coupled_cell(f2, f2))[3])
+                        if ("EETE" in config.field_cls_out or "BBTE" in config.field_cls_out) or ("BBTB" in config.field_cls_out or "EBTB" in config.field_cls_out):
+                            if idx==0:
+                                if mask_in_maps is not None:
+                                    w02 = nmt.NmtWorkspace.from_fields(f_0_w, f2_w, b_bin)
+                                else:
+                                    w02 = nmt.NmtWorkspace.from_fields(f_0, f2, b_bin)
+                        if "EETE" in config.field_cls_out or "BBTE" in config.field_cls_out:
+                            getattr(cls_out, attr).append(w02.decouple_cell(nmt.compute_coupled_cell(f_0, f2))[0])
+                        if "BBEB" in config.field_cls_out or "BTEEB" in config.field_cls_out:
+                            getattr(cls_out, attr).append(w22.decouple_cell(nmt.compute_coupled_cell(f2, f2))[1])
+                        if "BBTB" in config.field_cls_out or "EBTB" in config.field_cls_out:
+                            getattr(cls_out, attr).append(w02.decouple_cell(nmt.compute_coupled_cell(f_0, f2))[1])
 
     for attr in vars(cls_out).keys():
         setattr(cls_out, attr, np.array(getattr(cls_out, attr)))
