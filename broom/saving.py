@@ -187,7 +187,13 @@ def _save_residuals_template(
     """
     path_out = os.path.join(config.path_outputs, compsep_run["compsep_path"])
 
-    gnilc_run = (re.search(r'(gilc_[^/]+)', compsep_run["gilc_path"])).group(1)
+    if "gilc_" in compsep_run["gilc_path"]:
+        gnilc_run = (re.search(r'(gilc_[^/]+)', compsep_run["gilc_path"])).group(1)
+    elif "gpilc_" in compsep_run["gilc_path"]:
+        gnilc_run = (re.search(r'(gpilc_[^/]+)', compsep_run["gilc_path"])).group(1)        
+    elif "gprilc_" in compsep_run["gilc_path"]:
+        gnilc_run = (re.search(r'(gprilc_[^/]+)', compsep_run["gilc_path"])).group(1)        
+    
     if "needlet" in gnilc_run:
         folder_after = (compsep_run["gilc_path"]).split(gnilc_run + "/")[1].split("/")[0]
         gnilc_run += f"_{folder_after}"
@@ -200,7 +206,7 @@ def _save_residuals_template(
             elif "split2" in attr_name:
                 label_out += "_split2"
         elif "fgds" in attr_name:
-            label_out = "fgres_templates_ideal"
+            label_out = "fgres_templates_fgds"
             if "split1" in attr_name:
                 label_out += "_split1"
             elif "split2" in attr_name:
@@ -345,8 +351,21 @@ def _get_full_path_out(config: Configs, compsep_run: Dict[str, Any]) -> str:
                 complete_path += f"_nuis_{compsep_run['nuisance'][0]}"
             else:
                 nuis_text = "_nuis_"
-                for idx, nuis in enumerate(compsep_run["nuisance"]):
-                    if idx == len(compsep_run["nuisance"]) - 1:
+                default_nuis = [
+                    "cmb", "noise"
+                ]
+                nuis_attrs = [attr for attr in default_nuis if attr in compsep_run["nuisance"]]
+                nuis_fgds = [x for x in compsep_run["nuisance"] if x not in ["cmb", "noise"]]
+                
+                if len(nuis_fgds) > 0:
+                    prefix_models = ["d", "s", "a", "co", "f", "cib", "tsz", "ksz", "rg"]
+                    for p in prefix_models:
+                        for model in nuis_fgds:
+                            if model.startswith(p):
+                                nuis_attrs.append(model)
+
+                for idx, nuis in enumerate(nuis_attrs):
+                    if idx == len(nuis_attrs) - 1:
                         nuis_text += f"{nuis}"
                     else:
                         nuis_text += f"{nuis}+"
@@ -367,6 +386,12 @@ def _get_full_path_out(config: Configs, compsep_run: Dict[str, Any]) -> str:
     if (config.leakage_correction is not None) and ("QU" in config.field_in) and (config.mask_observations is not None):
         leak_def = (config.leakage_correction).split("_")[0] + (config.leakage_correction).split("_")[1] 
         if "_recycling" in config.leakage_correction:
+            if "_inpainting" in config.leakage_correction:
+                leak_def += "_inpainting"
+            if "_iterations" in config.leakage_correction:
+                iterations = int(re.search(r'iterations(\d+)', config.leakage_correction).group(1))
+                leak_def += f'_iters{iterations}'
+        elif "_inpainting" in config.leakage_correction:
             if "_iterations" in config.leakage_correction:
                 iterations = int(re.search(r'iterations(\d+)', config.leakage_correction).group(1))
                 leak_def += f'_iters{iterations}'
@@ -515,6 +540,12 @@ def _get_full_path_nuiscov(config: Configs, compsep_run: Dict[str, Any]) -> str:
     if (config.leakage_correction is not None) and ("QU" in config.field_in) and (config.mask_observations is not None):
         leak_def = (config.leakage_correction).split("_")[0] + (config.leakage_correction).split("_")[1] 
         if "_recycling" in config.leakage_correction:
+            if "_inpainting" in config.leakage_correction:
+                leak_def += "_inpainting"
+            if "_iterations" in config.leakage_correction:
+                iterations = int(re.search(r'iterations(\d+)', config.leakage_correction).group(1))
+                leak_def += f'_iters{iterations}'
+        elif "_inpainting" in config.leakage_correction:
             if "_iterations" in config.leakage_correction:
                 iterations = int(re.search(r'iterations(\d+)', config.leakage_correction).group(1))
                 leak_def += f'_iters{iterations}'
@@ -548,7 +579,7 @@ def get_gilc_maps(
     nsim: Optional[str] = None
 ) -> SimpleNamespace:
     """
-    Load GNILC component separation results (total signal, noise residuals, and foreground residuals) of all frequency channels
+    Load GILC component separation results (total signal, noise residuals, and foreground residuals) of all frequency channels
     provided in the instrument object and for a given simulation run and field. 
 
     Parameters
@@ -698,14 +729,14 @@ def update_and_save_nuiscov_serial(
             "cmb", "noise"
         ]
         nuis_attrs = [attr for attr in default_nuis if attr in compsep_run["nuisance"]]
-        if any(x not in ["cmb", "noise"] for x in compsep_run["nuisance"]):
-            nuis_fgds = [x for x in compsep_run["nuisance"] if x not in ["cmb", "noise"]]
-
-        prefix_models = ["d", "s", "a", "co", "f", "cib", "tsz", "ksz", "rg"]
-        for p in prefix_models:
-            for model in nuis_fgds:
-                if model.startswith(p):
-                    nuis_attrs.append(model)
+        nuis_fgds = [x for x in compsep_run["nuisance"] if x not in ["cmb", "noise"]]
+        
+        if len(nuis_fgds) > 0:
+            prefix_models = ["d", "s", "a", "co", "f", "cib", "tsz", "ksz", "rg"]
+            for p in prefix_models:
+                for model in nuis_fgds:
+                    if model.startswith(p):
+                        nuis_attrs.append(model)
 
         filename = ""
         for idx, nuis in enumerate(nuis_attrs):
@@ -790,14 +821,14 @@ def load_nuiscov(
             "cmb", "noise"
         ]
         nuis_attrs = [attr for attr in default_nuis if attr in nuisance]
-        if any(x not in ["cmb", "noise"] for x in nuisance):
-            nuis_fgds = [x for x in nuisance if x not in ["cmb", "noise"]]
+        nuis_fgds = [x for x in nuisance if x not in ["cmb", "noise"]]
 
-        prefix_models = ["d", "s", "a", "co", "f", "cib", "tsz", "ksz", "rg"]
-        for p in prefix_models:
-            for model in nuis_fgds:
-                if model.startswith(p):
-                    nuis_attrs.append(model)
+        if len(nuis_fgds) > 0:
+            prefix_models = ["d", "s", "a", "co", "f", "cib", "tsz", "ksz", "rg"]
+            for p in prefix_models:
+                for model in nuis_fgds:
+                    if model.startswith(p):
+                        nuis_attrs.append(model)
 
         filename = ""
         for idx, nuis in enumerate(nuis_attrs):

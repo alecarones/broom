@@ -3,9 +3,9 @@ import healpy as hp
 import re
 import sys
 from .configurations import Configs
-from .leakage import purify_master, purify_recycling
+from .leakage import purify_master, purify_recycling, purify_inpainting
 from types import SimpleNamespace
-from .routines import _log, _get_ell_filter, _bl_from_fwhms, _bl_from_file
+from .routines import _log, _get_ell_filter, _bl_from_fwhms, _bl_from_file, taper_beam_to_zero
 from typing import Any, Optional, Union, Dict
 from types import SimpleNamespace
 import random
@@ -75,7 +75,7 @@ def _alms_from_data(
     elif data_type == "alms":
         alms = _alms_to_alms(config, data, inputs_type)
 
-    alms = _processing_alms(config, alms, bring_to_common_resolution=bring_to_common_resolution, pixel_window_in=pixel_window_in, fwhm_in=fwhm_in)    
+    alms = _processing_alms(config, alms, bring_to_common_resolution=bring_to_common_resolution, pixel_window_in=pixel_window_in, fwhm_in=fwhm_in, mask_in=mask_in if data_type=="maps" else None)   
 
     return alms
 
@@ -227,18 +227,24 @@ def _maps_to_alms_channel(config: Configs, maps, field_in, mask_in, fell, total_
 
     # Extract leakage correction iterations
     if config.leakage_correction is not None:
-        if "_recycling" in config.leakage_correction:
+        if "_recycling" in config.leakage_correction or "_inpainting" in config.leakage_correction:
             if "_iterations" in config.leakage_correction:
                 iterations = int(re.search(r'iterations(\d+)', config.leakage_correction).group(1))
             else:
                 iterations = 0
+        if "_inpainting" in config.leakage_correction:
+            try:
+                iterations_inp = int(re.search(r'inpainting(\d+)', config.leakage_correction).group(1))
+            except:
+                iterations_inp = 1000
+
 
     if maps.ndim == 1:
         return hp.almxfl(hp.map2alm(maps * mask_bin_in, lmax=config.lmax, pol=False, **kwargs), fell)
     
     else:
         if maps.shape[0] == 3:
-            if (config.leakage_correction is None) or (field_in=="TEB") or (np.mean(mask_in**2)==1.):
+            if (config.leakage_correction is None) or (field_in=="TEB") or (np.mean(mask_bin_in**2)==1.):
                 alms_out = hp.map2alm(maps * mask_bin_in, lmax=config.lmax, pol=field_in=="TQU", **kwargs)
             else:
                 alms_out = np.zeros((3, hp.Alm.getsize(config.lmax)), dtype=complex)
@@ -247,9 +253,16 @@ def _maps_to_alms_channel(config: Configs, maps, field_in, mask_in, fell, total_
 #                    alms_out[1:] = hp.map2alm(maps * mask_in, lmax=config.lmax, pol=True, **kwargs)[1:]
 #                elif "_purify" in config.leakage_correction:
                 if "_purify" in config.leakage_correction:
-                    alms_out[1:] = purify_master(maps[1:], mask_in, config.lmax,purify_E=("E" in config.leakage_correction))
+                    alms_out[1:] = purify_master(maps[1:], mask_in, config.lmax,purify_B=("B" in config.leakage_correction),purify_E=("E" in config.leakage_correction))
                 elif "_recycling" in config.leakage_correction:
-                    alms_out[1:] = purify_recycling(maps[1:], total_maps[1:], mask_bin_in, config.lmax, purify_E=("E" in config.leakage_correction), iterations=iterations, **kwargs)
+                    if "_inpainting" in config.leakage_correction:
+                        alms_out[1:] = purify_recycling(maps[1:], total_maps[1:], mask_bin_in, config.lmax,
+                            purify_B=("B" in config.leakage_correction), purify_E=("E" in config.leakage_correction), inpaint=True,
+                            iterations=iterations, iterations_inp=iterations_inp, **kwargs)
+                    else:
+                        alms_out[1:] = purify_recycling(maps[1:], total_maps[1:], mask_bin_in, config.lmax, purify_B=("B" in config.leakage_correction), purify_E=("E" in config.leakage_correction), iterations=iterations, **kwargs)
+                elif "_inpainting" in config.leakage_correction and not "_recycling" in config.leakage_correction:
+                    alms_out[1:] = purify_inpainting(maps[1:], mask_bin_in, config.lmax, purify_B=("B" in config.leakage_correction), purify_E=("E" in config.leakage_correction), iterations=iterations, iterations_inp=iterations_inp, **kwargs)
             
             for j in range(3):
                 alms_out[j] = hp.almxfl(alms_out[j], fell)
@@ -260,7 +273,7 @@ def _maps_to_alms_channel(config: Configs, maps, field_in, mask_in, fell, total_
 
             if (
             config.leakage_correction is None or
-            np.mean(mask_in ** 2) == 1. or
+            np.mean(mask_bin_in ** 2) == 1. or
             field_in == "EB" or
             (config.field_out in ["E", "QU_E"] and "E" not in config.leakage_correction) or
             (config.field_out in ["B", "QU_B"] and "B" not in config.leakage_correction)
@@ -271,14 +284,22 @@ def _maps_to_alms_channel(config: Configs, maps, field_in, mask_in, fell, total_
 #                    alms_out = hp.map2alm(np.vstack((0. * maps[0], maps)) * mask_in, lmax=config.lmax, pol=True, **kwargs)[1:]
 #                elif "_purify" in config.leakage_correction:
                 if "_purify" in config.leakage_correction:
-                    alms_out = purify_master(maps, mask_in, config.lmax, purify_E=("E" in config.leakage_correction))
+                    alms_out = purify_master(maps, mask_in, config.lmax,purify_B=("B" in config.leakage_correction), purify_E=("E" in config.leakage_correction))
                 elif "_recycling" in config.leakage_correction:
-                    alms_out = purify_recycling(
-                    maps, total_maps, mask_bin_in, config.lmax,
-                    purify_E=("E" in config.leakage_correction),
-                    iterations=iterations,
-                    **kwargs
-                    )
+                    if "_inpainting" in config.leakage_correction:
+                        alms_out = purify_recycling(maps, total_maps, mask_bin_in, config.lmax,
+                            purify_B=("B" in config.leakage_correction), purify_E=("E" in config.leakage_correction), inpaint=True,
+                            iterations=iterations, iterations_inp=iterations_inp, **kwargs)
+                    else:
+                        alms_out = purify_recycling(
+                        maps, total_maps, mask_bin_in, config.lmax,
+                        purify_B=("B" in config.leakage_correction),
+                        purify_E=("E" in config.leakage_correction),
+                        iterations=iterations,
+                        **kwargs
+                        )
+                elif "_inpainting" in config.leakage_correction and not "_recycling" in config.leakage_correction:
+                    alms_out = purify_inpainting(maps, mask_bin_in, config.lmax, purify_B=("B" in config.leakage_correction), purify_E=("E" in config.leakage_correction), iterations=iterations, iterations_inp=iterations_inp, **kwargs)
 
             if is_single_field:
                 idx = 0 if config.field_out in ["E", "QU_E"] else 1
@@ -360,7 +381,8 @@ def _processing_alms(
     alms: SimpleNamespace,
     bring_to_common_resolution: bool = True,
     pixel_window_in: bool = False,
-    fwhm_in: Optional[float] = None
+    fwhm_in: Optional[float] = None,
+    mask_in: Optional[np.ndarray] = None
 ) -> SimpleNamespace:
     """
     Preprocess Alm coefficients including:
@@ -380,6 +402,9 @@ def _processing_alms(
         fwhm_in : float, optional
             If bring_to_common_resolution is True, fwhm_in will not be used.
             If bring_to_common_resolution is False and fwhm_in is provided, it will be used to correct for the input common beam.
+        mask_in : np.ndarray, optional
+            Input mask to be applied in case of partial-sky observations. 
+            Should be provided if input alms need to be brought to a different higher resolution, as the beam correction will be applied to masked alms. Default is None.
 
     Returns
     -------
@@ -388,7 +413,7 @@ def _processing_alms(
     """
     if bring_to_common_resolution:
         _log("Bringing inputs to common resolution", verbose=config.verbose)
-        alms = _bring_to_common_resolution(config, alms)
+        alms = _bring_to_common_resolution(config, alms, mask_in=mask_in)
     else:
         _log("Inputs are assumed to be at common angular resolution", verbose=config.verbose)
         if fwhm_in is not None and fwhm_in != config.fwhm_out:
@@ -401,7 +426,8 @@ def _processing_alms(
 
 def _bring_to_common_resolution(
     config: Configs,
-    alms: SimpleNamespace
+    alms: SimpleNamespace,
+    mask_in: Optional[np.ndarray] = None
     ) -> SimpleNamespace:
     """
     Brings each Alm channel to the target resolution.
@@ -412,6 +438,8 @@ def _bring_to_common_resolution(
             Configuration object including instrument, lmax, and output resolution (fwhm_out).
         alms : SimpleNamespace
             Namespace with Alm arrays of shape (n_channels, (n_fields), n_alms).
+        mask_in : np.ndarray, optional
+            Input mask to be applied in case of partial-sky observations.
 
     Returns
     -------
@@ -447,6 +475,25 @@ def _bring_to_common_resolution(
                 config.instrument.beams,
                 config.lmax
             )
+        
+        threshold = 25.
+        if mask_in is not None and (np.ceil(mask_in).mean() < 1.):
+            if config.instrument.beams != "file_lm":
+                if np.any(bl[:,0] > threshold):
+                    ell_0 = np.argmin(np.abs(bl[:,0]-threshold))
+                    ell_1 = ell_0 + 50
+                    W = taper_beam_to_zero(np.arange(config.lmax+1), ell_0, ell_1)
+                    for k in range(bl.shape[1]):
+                        bl[:,k] = bl[:,k] * W
+            else:
+                cond = np.real(bl[:,0]) > threshold
+                if np.any(cond):
+                    ell, _ = hp.Alm.getlm(lmax)
+                    ell_0 = np.min(ell[cond])
+                    ell_1 = ell_0 + 50
+                    W = taper_beam_to_zero(np.arange(config.lmax+1), ell_0, ell_1)
+                    for k in range(bl.shape[1]):
+                        bl[:,k] = hp.almxfl(bl[:,k], W)
 
         for attr_name in vars(alms):
             alm = getattr(alms, attr_name)[i]

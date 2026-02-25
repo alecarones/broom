@@ -1166,8 +1166,7 @@ def get_nuisance_data(config: Configs, nuisance_comps, nuisance_path: str = None
                 config.foreground_models = [model]
                 config.generate_input_foregrounds = not os.path.exists(config.fgds_path + f"_{''.join(config.foreground_models)}.npy")
                 nuis_fgds_data = get_input_data(config)
-                attr = [name for name in vars(nuis_fgds_data) if name != 'fgds'][0]
-                setattr(nuisance_data, model, getattr(nuis_fgds_data, attr))
+                setattr(nuisance_data, model, getattr(nuis_fgds_data, 'fgds'))
             del nuis_fgds_data
 
     if hasattr(nuisance_data, 'fgds'):

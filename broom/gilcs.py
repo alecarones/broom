@@ -2,7 +2,7 @@ import numpy as np
 import healpy as hp
 import sys
 from .configurations import Configs
-from .routines import _EB_to_QU, _E_to_QU, _B_to_QU, obj_to_array, array_to_obj, _log, _get_bandwidths
+from .routines import _EB_to_QU, _E_to_QU, _B_to_QU, obj_to_array, array_to_obj, _log, _get_bandwidths, get_fields_from_alms
 from .saving import _save_compsep_products, _get_full_path_out, save_ilc_weights, _get_full_path_nuiscov, update_and_save_nuiscov_serial, load_nuiscov
 from .needlets import _get_nside_lmax_from_b_ell, _get_needlet_windows_, _needlet_filtering, _get_good_channels_nl
 from .masking import _downgrade_mask
@@ -319,16 +319,7 @@ def _gilc(config: Configs, input_alms: np.ndarray, compsep_run: Dict[str, Any], 
             Shape will be (n_channels_out, (n_fields), npix, n_components).
     """
     # Determine fields based on input shape and desired output
-    if input_alms.ndim == 4:
-        if input_alms.shape[1] == 3:
-            fields_ilc = ["T", "E", "B"]
-        elif input_alms.shape[1] == 2:
-            fields_ilc = ["E", "B"]
-    elif input_alms.ndim == 3:
-        if config.field_out in ["T", "E", "B"]:
-            fields_ilc = [config.field_out]
-        elif config.field_out in ["QU_E", "QU_B"]:
-            fields_ilc = [config.field_out[-1]]
+    fields_ilc = get_fields_from_alms(input_alms, config.field_out)
 
     if input_alms.ndim == 4:
         output_maps = np.zeros((len(compsep_run["channels_out"]), input_alms.shape[1], 12 * config.nside**2, input_alms.shape[-1]))
@@ -408,6 +399,8 @@ def _fgd_diagnostic(config: Configs, input_alms: np.ndarray, compsep_run: Dict[s
             Output diagnostic maps.
             Shape will be ((n_fields), npix) if domain is "pixel", or ((n_fields), n_bands, npix) if domain is "needlet".
     """
+    fields_ilc = get_fields_from_alms(input_alms, config.field_out)
+            
     if input_alms.ndim == 4:
         if compsep_run["domain"]=="needlet":
             nls_number = _get_needlet_windows_(compsep_run["needlet_config"], config.lmax).shape[0]
@@ -416,10 +409,14 @@ def _fgd_diagnostic(config: Configs, input_alms: np.ndarray, compsep_run: Dict[s
             output_maps = np.zeros((input_alms.shape[1], 12 * config.nside**2))
 
         for i in range(input_alms.shape[1]):
+            compsep_run["field"] = fields_ilc[i]
             output_maps[i] = _fgd_diagnostic_scalar(config, input_alms[:, i], compsep_run)
 
     elif input_alms.ndim == 3:
+        compsep_run["field"] = fields_ilc[0]
         output_maps = _fgd_diagnostic_scalar(config, input_alms, compsep_run)
+
+    del compsep_run["field"]
 
     return output_maps
 
@@ -801,7 +798,7 @@ def _fgd_diagnostic_needlet(config: Configs, input_alms: np.ndarray, compsep_run
         
     output_maps = np.zeros((b_ell.shape[0], 12 * config.nside**2))
     for j in range(b_ell.shape[0]):
-        output_maps[j] = _fgd_diagnostic_needlet_j(config, input_alms, compsep_run, b_ell[j], noise_debias=compsep_run["cov_noise_debias"][j])
+        output_maps[j] = _fgd_diagnostic_needlet_j(config, input_alms, compsep_run, b_ell[j], noise_debias=compsep_run["cov_noise_debias"][j], nl_scale=j)
     
     if "mask" in compsep_run:
         output_maps[:,compsep_run["mask"] == 0.] = 0.
@@ -947,7 +944,8 @@ def _nuiscov_needlet_j(config: Configs, nuis_alms: np.ndarray, compsep_run: dict
     return None
 
 def _fgd_diagnostic_needlet_j(config: Configs, input_alms: np.ndarray,
-                               compsep_run: dict, b_ell: np.ndarray, noise_debias: Optional[float] = 0.
+                            compsep_run: dict, b_ell: np.ndarray, noise_debias: Optional[float] = 0., 
+                            nl_scale: Optional[int] = None
                             ) -> np.ndarray:
     """
     Compute diagnostic map of foreground complexity for a specific needlet band.
@@ -965,6 +963,9 @@ def _fgd_diagnostic_needlet_j(config: Configs, input_alms: np.ndarray,
         noise_debias: float, optional
             Noise debiasing factor. If set to a non-zero value, it will subtract a 'noise_debias' fraction of
             noise covariance from the input and nuisance covariance matrices.
+        nl_scale : int, optional
+            Needlet scale index corresponding to the current run. 
+            Used for loading the appropriate nuisance and/or noise covariance, if needed.
     
     Returns
     -------
@@ -1000,7 +1001,7 @@ def _fgd_diagnostic_needlet_j(config: Configs, input_alms: np.ndarray,
             for c in range(input_alms.shape[-1])
         ]).T
 
-    output_maps_nl = _get_diagnostic_maps(config, input_maps_nl, compsep_run, b_ell, noise_debias=noise_debias, mask=mask)
+    output_maps_nl = _get_diagnostic_maps(config, input_maps_nl, compsep_run, b_ell, noise_debias=noise_debias, mask=mask, nl_scale=nl_scale)
     del input_maps_nl
     
     if hp.get_nside(output_maps_nl) < config.nside:
@@ -1178,6 +1179,7 @@ def _get_diagnostic_maps(
     b_ell: np.ndarray,
     noise_debias: Optional[float] = 0.,
     mask: Optional[np.ndarray] = None,
+    nl_scale: Optional[int] = None,
 ) -> np.ndarray:
     """
     Get diagnostic maps of foreground complexity for provided scalar field either in pixel or needlet domain.
@@ -1198,6 +1200,9 @@ def _get_diagnostic_maps(
         mask: np.ndarray, optional
             Optional mask to be applied to the input maps. Shape should be (npix,).
             If non-binary, it will be applied as a weight during covariance computation.
+        nl_scale : int, optional
+            Needlet scale index corresponding to the provided input maps. 
+            Used to load proper nuisance and/or noise covariance for diagnostic map computation in needlet domain, if needed.
     
     Returns
     -------

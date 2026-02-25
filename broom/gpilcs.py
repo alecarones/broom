@@ -307,6 +307,17 @@ def _fgd_P_diagnostic(config: Configs, input_alms: np.ndarray, compsep_run: Dict
             Foreground diagnostic maps. Shape will depend on the input alms and compsep_run settings.
     """
 
+    if input_alms.ndim == 4:
+        if input_alms.shape[1] != 2:
+            raise ValueError("input_alms must have shape (nfreq, 2, nalm, ncomps) for gpilc.")
+        compsep_run["field"] = "QU"
+
+    elif input_alms.ndim == 3:
+        if config.field_out in ["E", "QU_E"]:
+            compsep_run["field"] = "QU_E"
+        elif config.field_out in ["B", "QU_B"]:
+            compsep_run["field"] = "QU_B"
+
     if compsep_run["domain"] == "pixel":
         return _fgd_P_diagnostic_pixel(config, input_alms, compsep_run)
     elif compsep_run["domain"] == "needlet":
@@ -823,7 +834,7 @@ def _fgd_P_diagnostic_needlet(
     
     for j in range(b_ell.shape[0]):
         output_maps[j] = _fgd_P_diagnostic_needlet_j(config, input_alms, compsep_run, b_ell[j], 
-                                                      noise_debias=compsep_run["cov_noise_debias"][j])
+                                                      noise_debias=compsep_run["cov_noise_debias"][j], nl_scale=j)
     
     if "mask" in compsep_run:
         output_maps[:,compsep_run["mask"] == 0.] = 0.
@@ -835,7 +846,8 @@ def _fgd_P_diagnostic_needlet_j(
     input_alms: np.ndarray,
     compsep_run: dict,
     b_ell: np.ndarray,
-    noise_debias: Optional[float] = 0.0
+    noise_debias: Optional[float] = 0.0,
+    nl_scale: Optional[int] = None
 ) -> np.ndarray:
     """
     Perform diagnostic of foreground complexity in polarization intensity P for a single needlet band.
@@ -854,6 +866,9 @@ def _fgd_P_diagnostic_needlet_j(
         noise_debias: float, optional
             Noise debiasing factor. If set to a non-zero value, it will subtract a 'noise_debias' fraction of
             noise covariance from the input and nuisance covariance matrices.
+        nl_scale : int, optional
+            Needlet scale index corresponding to the current diagnostic run. 
+            Used for loading nuisance and/or noise covariance with proper label, if needed.
     
     Returns
     -------
@@ -888,7 +903,7 @@ def _fgd_P_diagnostic_needlet_j(
                                                 input_alms_j[1, :, c]]),
                                                 nside_, lmax=lmax_, pol=True)[1:]
 
-    output_maps_nl = _fgd_P_diagnostic_maps(config, input_maps_nl, compsep_run, b_ell, noise_debias=noise_debias)
+    output_maps_nl = _fgd_P_diagnostic_maps(config, input_maps_nl, compsep_run, b_ell, noise_debias=noise_debias, nl_scale=nl_scale)
     del input_maps_nl
     del compsep_run['good_channels']
 
@@ -1063,7 +1078,8 @@ def _fgd_P_diagnostic_maps(
     input_maps: np.ndarray,
     compsep_run: dict,
     b_ell: np.ndarray,
-    noise_debias: Optional[float] = 0.0
+    noise_debias: Optional[float] = 0.0,
+    nl_scale: Optional[int] = None
 ) -> np.ndarray:
     """
     Perform diagnostic of foreground complexity in polarization intensity P.
@@ -1083,6 +1099,9 @@ def _fgd_P_diagnostic_maps(
         noise_debias: float, optional
             Noise debiasing factor. If set to a non-zero value, it will subtract a 'noise_debias' fraction of
             noise covariance from the input and nuisance covariance matrices.
+        nl_scale : int, optional
+            Needlet scale index corresponding to the current diagnostic run. 
+            Used for loading nuisance and/or noise covariance with proper label, if needed.
     
     Returns
     -------

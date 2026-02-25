@@ -96,12 +96,12 @@ This package relies on several scientific Python libraries:
 
 
 from .compsep import (
-    component_separation, estimate_residuals, _combine_products, _load_outputs
+    component_separation, estimate_residuals, _combine_products, _load_outputs, combine_with_weights, get_nuisance_covariance
 )
-from .simulations import _get_data_foregrounds_, _get_data_simulations_, _get_noise_simulation, _get_cmb_simulation, _get_full_simulations
+from .simulations import _get_foregrounds_, _get_noise_, _get_cmb_, get_input_data
 from .configurations import Configs, get_params
 from .spectra import _compute_spectra, _compute_spectra_, _load_cls
-from .clusters import get_and_save_real_tracers_B
+from .clusters import get_mcilc_tracers
 
 
 __version__ = "0.1.5"

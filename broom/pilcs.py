@@ -452,7 +452,7 @@ def _pilc_maps(
             else:
                 path_noicov = _get_full_path_nuiscov(config, compsep_run)
                 cov_n = (load_nuiscov(config, path_noicov, compsep_run,
-                                    hp.npix2nside(input_maps.shape[-2]), nl_scale=nl_scale, include_noise=True, include_cmb=False)).T
+                                    hp.npix2nside(input_maps.shape[-2]), "noise", nl_scale=nl_scale)).T
             cov = cov - noise_debias * cov_n
             del cov_n
 

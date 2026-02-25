@@ -1,6 +1,7 @@
 import warnings
 from functools import partialmethod
 from typing import Optional, Tuple
+from pathlib import Path
 
 import numpy as np
 import healpy as hp
@@ -19,7 +20,7 @@ from .pilcs import pilc
 from .gpilcs import gpilc, fgd_P_diagnostic, compute_and_update_nuisance_P_covariance
 from .combine import _combine_
 from .masking import get_masks_for_compsep
-from .saving import _save_compsep_products, get_gilc_maps, _save_residuals_template, _save_combination
+from .saving import _save_compsep_products, get_gilc_maps, _save_residuals_template, _save_combination, _get_full_path_out
 from .seds import _standardize_cilc
 from .needlets import _get_needlet_windows_
 from typing import Dict, Any, Union
@@ -273,8 +274,7 @@ def get_nuisance_covariance(config, nuisance_path: str = None, **kwargs):
             - lmax (int): Maximum multipole of the output covariance.
             - nuisance_covariance (list): List of dictionaries with settings for each nuisance covariance case to be computed. It should contain:
                 - type (str): Method for covariance computation, either "scalar" or "P_scalar".
-                - include_cmb (bool): Whether to include CMB in the nuisance simulations.
-                - include_noise (bool): Whether to include noise in the nuisance simulations.
+                - nuisance (str or list): Nuisance components to be included in the covariance estimation, e.g. "noise", "cmb", "fgd". If not provided, it will include noise and CMB by default.
                 - Other method-specific parameters.
 
         nuisance_path : str, optional
@@ -347,10 +347,10 @@ def nuisance_covariance_serial(config: Configs, nsim: Optional[Union[int, str]],
                 if comp not in nuisance_comps:
                     nuisance_comps.append(comp)
 
-    if include_cmb or include_noise:
+    if len(nuisance_comps) > 0:
         nuisance_data = get_nuisance_data(config, nuisance_comps, nsim=nsim, nuisance_path=nuisance_path)
     else:
-        raise ValueError("At least one of 'include_cmb' or 'include_noise' must be set to True in the nuisance covariance configuration.")
+        raise ValueError("At least one nuisance component must be specified in the configuration for nuisance covariance estimation.")
 
     config = _check_data_and_config(config, nuisance_data, compsep_check=False)
     config = _check_fields(config, nuisance_data)
@@ -410,40 +410,8 @@ def nuisance_covariance_serial(config: Configs, nsim: Optional[Union[int, str]],
 
     return None
 
-def itf(data, temp_idxs, ilc_bias, mask_in):
-    if not hasattr(data, 'total'):
-        raise ValueError("Data must have 'total' attribute for ITF computation.")
 
-    templates = SimpleNamespace()
-    n_freqs = data.total.shape[0]
-
-    for key in vars(data).keys():
-        setattr(templates, key, [])
-        for idxs in temp_idxs:
-            getattr(templates, key).append(getattr(data, key)[idxs[0]] - getattr(data, key)[idxs[1]])
-        setattr(templates, key, np.array(getattr(templates, key)))
-
-    all_idxs = []
-    for idxs in temp_idxs:
-        all_idxs.append(idxs[0])
-        all_idxs.append(idxs[1])
-    all_indxs = np.unique(np.array(all_idxs))
-
-    data_itf = SimpleNamespace()
-    for key in vars(data).keys():
-        setattr(data_itf, key, [])
-        for i in 
-
-
-    compsep_run = {'ilc_bias': ilc_bias, 'reduce_ilc_bias': False, 'cov_noise_debias': 0., 'mask': mask_in}
-    cov = get_ilc_cov(templates.total)
-    v = np.einsum('ic,ij->jc', data.total, templates.total)  # shape (n_templates, n_alms)
-
-
-
-
-
-def estimate_residuals(config: Configs, nsim: Optional[Union[int, str]] = None, **kwargs) -> Optional[SimpleNamespace]:  
+def estimate_residuals(config: Configs, nsim: Optional[Union[int, str]] = None, gilc_outputs: SimpleNamespace = None, **kwargs) -> Optional[SimpleNamespace]:  
     """
     Estimate residual foregrounds from component-separated maps.
 
@@ -469,17 +437,18 @@ def estimate_residuals(config: Configs, nsim: Optional[Union[int, str]] = None, 
             - return_compsep_products (bool): Whether to return the residuals estimate. Default: False.
             - save_compsep_products (bool): Whether to save the residuals estimate. Default: True.
             - verbose (bool): Whether to print information about the residuals estimate. Default: False.
-
         nsim : int | str | None
             Simulation number or identifier.
-
+        gilc_outputs : SimpleNamespace, optional
+            If provided, it should contain the GILC outputs to be used as foreground tracers in the residual estimation. 
+            If None, the GILC outputs will be loaded from disk based on the paths specified in `compsep_residuals`.
+            Default: None.
         **kwargs
             Additional keyword arguments for internal helper functions.
 
     Returns
     -------
-        SimpleNamespace or None
-            Residual products if `config.return_compsep_products` is True, otherwise None.
+        SimpleNamespace Residual products if `config.return_compsep_products` is True, otherwise None.
     """
 
     # Initializing nsim
@@ -511,71 +480,194 @@ def estimate_residuals(config: Configs, nsim: Optional[Union[int, str]] = None, 
 
     nside_in_in = config.nside_in
     leak_corr_in = config.leakage_correction
+
+    load_gilc_outputs = gilc_outputs is None
+
+    if not load_gilc_outputs:
+        idx_gilc = []
+        idx_gilc_biased = []
+        n_f_diag = 0
+        for i in range(len(config.compsep)):
+            if config.compsep[i]["method"] in ["fgd_diagnostic", "fgd_P_diagnostic"]:
+                n_f_diag += 1
+            elif config.compsep[i]["method"] in ["gilc", "gpilc", "gprilc"]:
+                idx_gilc.append(i-n_f_diag)
+                idx_gilc_biased.append(i)
+                if config.compsep[i]["channels_out"] != [k for k in range(len(config.instrument.frequency))]:
+                    raise ValueError(f"Component separation method {config.compsep[i]['method']} requires the output channels to be the same as the number of frequencies in the instrument. Found {config.compsep[i]['channels_out']} and {len(config.instrument.frequency)} respectively.")
+        n_runs = len(idx_gilc)
+        if (n_runs > 1) and (len(config.compsep_residuals) > 1):
+            if n_runs != len(config.compsep_residuals):
+                raise ValueError(f"Number of runs in outputs ({n_runs}) and number of component separation methods in config ({len(config.compsep_residuals)}) must match, if they are both greater than 1.")
+        idx_cs = 0
     
     # Starting loop for estimation of foreground residuals for the requested cases
-    for compsep_run in config.compsep_residuals:
-        delete_field_in = "field_in" not in compsep_run
+    if load_gilc_outputs or (n_runs == 1) or (len(config.compsep_residuals) > 1):
+        for compsep_run in config.compsep_residuals:
+            delete_field_in = "field_in" not in compsep_run
 
-        compsep_run = _standardize_residuals_config(compsep_run, config, nsim = nsim)
-        
-        config.nside_in = compsep_run["nside"]
-        config.leakage_correction = compsep_run.get("leakage_correction", leak_corr_in)
+            compsep_run = _standardize_residuals_config(compsep_run, config, nsim = nsim, load_outputs = load_gilc_outputs)
+            
+            config.nside_in = compsep_run["nside"]
+            config.leakage_correction = compsep_run.get("leakage_correction", leak_corr_in)
 
-        if "leakage_correction" in compsep_run:
-            if "recycling" in compsep_run["leakage_correction"] and ("output_total" not in compsep_run["gilc_components"] or ("output_total_split1" not in compsep_run["gilc_components"] and "output_total_split2" not in compsep_run["gilc_components"])):
-                raise ValueError("For recycling leakage correction, 'output_total' or both 'output_total_split1' and 'output_total_split2' must be included in 'gilc_components'.")
+            if "leakage_correction" in compsep_run:
+                if "recycling" in compsep_run["leakage_correction"] and ("output_total" not in compsep_run["gilc_components"] or ("output_total_split1" not in compsep_run["gilc_components"] and "output_total_split2" not in compsep_run["gilc_components"])):
+                    raise ValueError("For recycling leakage correction, 'output_total' or both 'output_total_split1' and 'output_total_split2' must be included in 'gilc_components'.")
 
+            mask_obs, _ = get_masks_for_compsep(config.mask_observations, config.mask_covariance, config.nside_in)
+            _, mask_cov = get_masks_for_compsep(mask_obs, config.mask_covariance, config.nside)
+
+            if load_gilc_outputs:
+                data = get_gilc_maps(config, compsep_run, nsim=nsim)
+            else:
+                compsep_run["gilc_path"] = str(Path(_get_full_path_out(config, config.compsep[idx_gilc_biased[idx_cs]])).relative_to(config.path_outputs))
+
+                data = SimpleNamespace()
+                if "gilc_components" not in compsep_run:
+                    compsep_run["gilc_components"] = []
+                    for component in vars(gilc_outputs).keys():
+                        if component != "m":
+                            if "total" in component:
+                                compsep_run["gilc_components"].append("output_" + component)
+                            else:
+                                compsep_run["gilc_components"].append(component + "_residuals")
+                            setattr(data, component, getattr(gilc_outputs, component)[idx_gilc[idx_cs]])
+                else:
+                    for component in compsep_run["gilc_components"]:
+                        if "total" in component:
+                            setattr(data, component.split("output_")[1], getattr(gilc_outputs, component.split("output_")[1])[idx_gilc[idx_cs]])
+                        else:
+                            setattr(data, component.split("_residuals")[0], getattr(gilc_outputs, component.split("_residuals")[0])[idx_gilc[idx_cs]])
+                if n_runs > 1:
+                    idx_cs += 1
+
+
+            attr = random.choice(list(vars(data).keys()))
+            
+            if (getattr(data, attr).ndim > 2) and (config.field_out != compsep_run["field_in"]):
+                compsep_run["field_in_cs"] = _get_field_in_cs(compsep_run["field_in"], config.field_out)
+                data = _slice_data(data, compsep_run["field_in"], compsep_run["field_in_cs"])
+            else:
+                compsep_run["field_in_cs"] = compsep_run["field_in"]
+
+            if config.return_compsep_products:
+                for attr in vars(data):
+                    if not hasattr(outputs, attr):
+                        setattr(outputs, attr, [])
+            
+            preprocess_args = dict(data_type="maps",
+                bring_to_common_resolution=False,
+                pixel_window_in=compsep_run["pixel_window_out"],
+                fwhm_in=compsep_run["fwhm_out"],
+                **kwargs
+            )
+
+    #        if mask is not None:
+    #            if (config.mask_type == "observed_patch"):
+    #                 preprocess_args["mask_in"] = _preprocess_mask(mask, config.nside_in)
+            if mask_obs is not None:
+                preprocess_args["mask_in"] = mask_obs
+
+            input_alms = _alms_from_data(config, data, compsep_run["field_in_cs"], 'weights', **preprocess_args)
+            
+    #        if mask is not None:
+    #            compsep_run["mask"] = _preprocess_mask(mask, config.nside)
+            if mask_cov is not None:
+                compsep_run["mask"] = mask_cov
+
+            if config.return_compsep_products or config.save_compsep_products:
+                prod, compsep_run = _combine_(config, input_alms, compsep_run, **kwargs)
+                
+                if config.save_compsep_products:
+                    _save_residuals_template(config, prod, compsep_run, nsim=nsim)
+
+                if config.return_compsep_products:
+                    for attr in vars(prod).keys():
+                        getattr(outputs, attr).append(getattr(prod, attr))
+
+            compsep_run.pop("mask", None)
+            if delete_field_in:
+                del compsep_run["field_in"]
+    else:
         mask_obs, _ = get_masks_for_compsep(config.mask_observations, config.mask_covariance, config.nside_in)
         _, mask_cov = get_masks_for_compsep(mask_obs, config.mask_covariance, config.nside)
 
-        data = get_gilc_maps(config, compsep_run, nsim=nsim)
-
-        attr = random.choice(list(vars(data).keys()))
-        
-        if (getattr(data, attr).ndim > 2) and (config.field_out != compsep_run["field_in"]):
-            compsep_run["field_in_cs"] = _get_field_in_cs(compsep_run["field_in"], config.field_out)
-            data = _slice_data(data, compsep_run["field_in"], compsep_run["field_in_cs"])
-        else:
-            compsep_run["field_in_cs"] = compsep_run["field_in"]
-
-        if config.return_compsep_products:
-            for attr in vars(data):
-                if not hasattr(outputs, attr):
-                    setattr(outputs, attr, [])
-        
-        preprocess_args = dict(data_type="maps",
-            bring_to_common_resolution=False,
-            pixel_window_in=compsep_run["pixel_window_out"],
-            fwhm_in=compsep_run["fwhm_out"],
-            **kwargs
-        )
-
-#        if mask is not None:
-#            if (config.mask_type == "observed_patch"):
-#                 preprocess_args["mask_in"] = _preprocess_mask(mask, config.nside_in)
-        if mask_obs is not None:
-            preprocess_args["mask_in"] = mask_obs
-
-        input_alms = _alms_from_data(config, data, compsep_run["field_in_cs"], 'weights', **preprocess_args)
-        
-#        if mask is not None:
-#            compsep_run["mask"] = _preprocess_mask(mask, config.nside)
-        if mask_cov is not None:
-            compsep_run["mask"] = mask_cov
-
-        if config.return_compsep_products or config.save_compsep_products:
-            prod, compsep_run = _combine_(config, input_alms, compsep_run, **kwargs)
+        for _ in range(n_runs):
+            compsep_run = _standardize_residuals_config(config.compsep_residuals[0], config, nsim = nsim, load_outputs = load_gilc_outputs)
             
-            if config.save_compsep_products:
-                _save_residuals_template(config, prod, compsep_run, nsim=nsim)
+            config.nside_in = compsep_run["nside"]
+            config.leakage_correction = compsep_run.get("leakage_correction", leak_corr_in)
+
+            if "leakage_correction" in compsep_run:
+                if "recycling" in compsep_run["leakage_correction"] and ("output_total" not in compsep_run["gilc_components"] or ("output_total_split1" not in compsep_run["gilc_components"] and "output_total_split2" not in compsep_run["gilc_components"])):
+                    raise ValueError("For recycling leakage correction, 'output_total' or both 'output_total_split1' and 'output_total_split2' must be included in 'gilc_components'.")
+
+            compsep_run["gilc_path"] = str(Path(_get_full_path_out(config, config.compsep[idx_gilc_biased[idx_cs]])).relative_to(config.path_outputs))
+
+            data = SimpleNamespace()
+            if "gilc_components" not in compsep_run:
+                compsep_run["gilc_components"] = []
+                for component in vars(gilc_outputs).keys():
+                    if component != "m":
+                        if "total" in component:
+                            compsep_run["gilc_components"].append("output_" + component)
+                        else:
+                            compsep_run["gilc_components"].append(component + "_residuals")
+                        setattr(data, component, getattr(gilc_outputs, component)[idx_gilc[idx_cs]])
+            else:
+                for component in compsep_run["gilc_components"]:
+                    if "total" in component:
+                        setattr(data, component.split("output_")[1], getattr(gilc_outputs, component.split("output_")[1])[idx_gilc[idx_cs]])
+                    else:
+                        setattr(data, component.split("_residuals")[0], getattr(gilc_outputs, component.split("_residuals")[0])[idx_gilc[idx_cs]])
+            if n_runs > 1:
+                idx_cs += 1
+
+            attr = random.choice(list(vars(data).keys()))
+            
+            if (getattr(data, attr).ndim > 2) and (config.field_out != compsep_run["field_in"]):
+                compsep_run["field_in_cs"] = _get_field_in_cs(compsep_run["field_in"], config.field_out)
+                data = _slice_data(data, compsep_run["field_in"], compsep_run["field_in_cs"])
+            else:
+                compsep_run["field_in_cs"] = compsep_run["field_in"]
 
             if config.return_compsep_products:
-                for attr in vars(prod).keys():
-                    getattr(outputs, attr).append(getattr(prod, attr))
+                for attr in vars(data):
+                    if not hasattr(outputs, attr):
+                        setattr(outputs, attr, [])
+            
+            preprocess_args = dict(data_type="maps",
+                bring_to_common_resolution=False,
+                pixel_window_in=compsep_run["pixel_window_out"],
+                fwhm_in=compsep_run["fwhm_out"],
+                **kwargs
+            )
 
-        compsep_run.pop("mask", None)
-        if delete_field_in:
-            del compsep_run["field_in"]
+    #        if mask is not None:
+    #            if (config.mask_type == "observed_patch"):
+    #                 preprocess_args["mask_in"] = _preprocess_mask(mask, config.nside_in)
+            if mask_obs is not None:
+                preprocess_args["mask_in"] = mask_obs
+
+            input_alms = _alms_from_data(config, data, compsep_run["field_in_cs"], 'weights', **preprocess_args)
+            
+    #        if mask is not None:
+    #            compsep_run["mask"] = _preprocess_mask(mask, config.nside)
+            if mask_cov is not None:
+                compsep_run["mask"] = mask_cov
+
+            if config.return_compsep_products or config.save_compsep_products:
+                prod, compsep_run = _combine_(config, input_alms, compsep_run, **kwargs)
+                
+                if config.save_compsep_products:
+                    _save_residuals_template(config, prod, compsep_run, nsim=nsim)
+
+                if config.return_compsep_products:
+                    for attr in vars(prod).keys():
+                        getattr(outputs, attr).append(getattr(prod, attr))
+
+            compsep_run.pop("mask", None)
 
     del mask_obs, mask_cov
     config.nside_in = nside_in_in
@@ -662,8 +754,8 @@ def combine_with_weights(config: Configs, data: SimpleNamespace, nsim: Optional[
     preprocess_args["mask_in"] = np.copy(mask_obs) if mask_obs is not None else None
 
     if config.leakage_correction is not None:
-        if "recycling" in config.leakage_correction and not hasattr(data, "total"):
-            raise ValueError("For recycling leakage correction, 'total' attribute must be included in data.")
+        if "recycling" in config.leakage_correction and (not hasattr(data, "total") and (not hasattr(data, "total_split1") or not hasattr(data, "total_split2"))):
+            raise ValueError("For recycling leakage correction, 'data' must have either 'total' or both 'total_split1' and 'total_split2' attributes.")
 
     # Computing alms from input data
     input_alms = _alms_from_data(config, data, config.field_in_cs, 'compsep', **preprocess_args)
@@ -718,8 +810,8 @@ def combine_with_weights(config: Configs, data: SimpleNamespace, nsim: Optional[
     delattr(config, "field_in_cs")
 
     if config.return_compsep_products:
-        for attr in vars(outputs).keys():
-            setattr(outputs, attr, np.array(getattr(outputs, attr)))
+#        for attr in vars(outputs).keys():
+#            setattr(outputs, attr, np.array(getattr(outputs, attr)))
         return outputs
     return None
 
@@ -899,7 +991,7 @@ def _standardize_nuiscov_config(nuis_case: Dict[str, Any]) -> Dict[str, Any]:
     return nuis_case
 
 
-def _standardize_residuals_config(compsep_run: Dict[str, Any], config: Configs, nsim: Optional[Union[int, str]] = None) -> Dict[str, Any]:
+def _standardize_residuals_config(compsep_run: Dict[str, Any], config: Configs, nsim: Optional[Union[int, str]] = None, load_outputs: bool = True) -> Dict[str, Any]:
     """
     Standardize and validate the residuals estimation configuration dictionary.
 
@@ -914,21 +1006,34 @@ def _standardize_residuals_config(compsep_run: Dict[str, Any], config: Configs, 
         nsim : int | str | None
             Simulation number or identifier.
 
+        load_outputs : bool
+            Whether the GILC outputs to be used as foreground tracers in the residual estimation are provided as an argument to the function or need to be loaded from disk based on the paths specified in `compsep_residuals`.
+
     Returns
     -------
         dict
             Updated and validated residuals estimation configuration dictionary.
     """
 
-    compsep_run.setdefault("field_in", config.field_out)
-    compsep_run.setdefault("gilc_components", ["output_total", "noise_residuals"])
-    compsep_run.setdefault("nside", config.nside)
-    compsep_run.setdefault("fwhm_out", config.fwhm_out)
-    compsep_run.setdefault("lmax", config.lmax)
-    compsep_run.setdefault("pixel_window_out", config.pixel_window_out)
+    if load_outputs:
+        compsep_run.setdefault("field_in", config.field_out)
+        compsep_run.setdefault("gilc_components", ["output_total", "noise_residuals"])
+        compsep_run.setdefault("nside", config.nside)
+        compsep_run.setdefault("fwhm_out", config.fwhm_out)
+        compsep_run.setdefault("lmax", config.lmax)
+        compsep_run.setdefault("pixel_window_out", config.pixel_window_out)
+        if "gilc_path" not in compsep_run:
+            raise ValueError("For residuals estimation, 'gilc_path' must be provided in 'compsep_residuals' configuration.")
+        if "gilc_" not in compsep_run["gilc_path"] and "gpilc_" not in compsep_run["gilc_path"] and "gprilc_" not in compsep_run["gilc_path"]:
+            raise ValueError("Chosen foreground tracers for residuals estimation are not GILC-based. Only GILC-based foreground tracers are supported for residuals estimation.")
 
-    if "gilc_path" not in compsep_run:
-        raise ValueError("For residuals estimation, 'gilc_path' must be provided in 'compsep_residuals' configuration.")
+    else:
+        compsep_run["field_in"] = config.field_out
+        compsep_run["nside"] = config.nside
+        compsep_run["fwhm_out"] = config.fwhm_out
+        compsep_run["lmax"] = config.lmax
+        compsep_run["pixel_window_out"] = config.pixel_window_out
+
     if "compsep_path" not in compsep_run:
         raise ValueError("For residuals estimation, 'compsep_path' must be provided in 'compsep_residuals' configuration.")
 
@@ -936,8 +1041,6 @@ def _standardize_residuals_config(compsep_run: Dict[str, Any], config: Configs, 
         raise ValueError("Chosen component separation method for residuals estimation is not ILC-based. Only ILC-based methods are supported for residuals estimation.")
     if "gilc_" in compsep_run["compsep_path"] or "gpilc_" in compsep_run["compsep_path"] or "gprilc_" in compsep_run["compsep_path"]:
         raise ValueError("Chosen component separation method for residuals estimation is GILC-based. Residuals estimation from GILC-based methods is not supported.")
-    if "gilc_" not in compsep_run["gilc_path"] and "gpilc_" not in compsep_run["gilc_path"] and "gprilc_" not in compsep_run["gilc_path"]:
-        raise ValueError("Chosen foreground tracers for residuals estimation are not GILC-based. Only GILC-based foreground tracers are supported for residuals estimation.")
     compsep_run["method"] = "ilc"
 
     domain = compsep_run["compsep_path"].split('ilc_')[1].split('_bias')[0]

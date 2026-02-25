@@ -218,6 +218,45 @@ def  _get_beam_from_file(beam_file: str, lmax: int, symmetric_beam: bool = True)
         bl[idx_lmax,:] = bl_file[idx_lmax_file,:]
     return bl
 
+def taper_beam_to_zero(l, ell0, ell1):
+    """
+    Taper function to zero between ell0 and ell1 for beams.
+    - for ell <= ell0: unchanged (W=1)
+    - for ell0 < ell <= ell1: smoothly tapered
+    - for ell > ell1: zero
+
+    Parameters
+    ----------
+    l : ndarray
+        array of multipole moments
+    ell0 : int
+        multipole below which the beam is unchanged
+    ell1 : int
+        multipole above which the beam is set to zero
+    
+    Returns
+    ----------
+    taper_window : ndarray
+        multiplicative window to be applied to bl (1 for ell<=ell0, 0 for ell>ell1)
+    """
+    if ell1 <= ell0:
+        raise ValueError("ell1 must be > ell0")
+
+    # window initialization
+    W = np.zeros_like(l, dtype=float)
+    mask_lo = l <= ell0
+    mask_mid = (l > ell0) & (l <= ell1)
+    mask_hi = l > ell1
+
+    W[mask_lo] = 1.0
+    W[mask_hi] = 0.0
+
+    if np.any(mask_mid):
+        phase = (l[mask_mid] - ell0) / (ell1 - ell0)   # in (0,1]
+        W[mask_mid] = 0.5 * (1.0 + np.cos(np.pi * phase))
+
+    return W
+
 def _get_bandwidths(config: Configs, good_channels: np.ndarray) -> Optional[Union[np.ndarray, List[str]]]:
     """
     Retrieves the bandwidths for the specified channels based on the configuration.
@@ -594,7 +633,7 @@ def obj_out_to_array(obj: SimpleNamespace) -> np.ndarray:
     default_attributes = [
         "output_total","output_total_split1","output_total_split2", "noise_residuals", "noise_split1_residuals", "noise_split2_residuals", "fgds_residuals",
         "output_cmb", "fgres_templates", "fgres_templates_noise",
-        "fgres_templates_ideal"
+        "fgres_templates_fgds"
     ]
 
     obj_attributes = list(vars(obj).keys())
@@ -912,6 +951,32 @@ def get_prefix(model, prefixes):
             return p
     return None
 
+def get_fields_from_alms(input_alms: np.ndarray, field_out: str) -> List[str]:
+    """
+    Determine the fields present in the input alms based on their shape and the configuration parameters.
+
+    Parameters
+    ----------
+        input_alms: np.ndarray
+            Input alms array, which can have different shapes depending on the fields included.
+        field_out: str
+            Desired output field type (e.g., "T", "E", "B", "EB", "QU_E", "QU_B").
+    
+    Returns
+        List[str]
+            List of field identifiers (e.g., "T", "E", "B") corresponding to the input alms.
+    """
+
+    if input_alms.ndim == 4:
+        if input_alms.shape[1] == 3:
+            return ["T", "E", "B"]
+        elif input_alms.shape[1] == 2:
+            return ["E", "B"]
+    elif input_alms.ndim == 3:
+        if field_out in ["T", "E", "B"]:
+            return [field_out]
+        elif field_out in ["QU_E", "QU_B"]:
+            return [field_out[-1]]
 
 __all__ = [
     name

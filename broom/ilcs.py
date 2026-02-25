@@ -2,7 +2,7 @@ import numpy as np
 import healpy as hp
 from .configurations import Configs
 from .routines import _get_local_cov, _EB_to_QU, _E_to_QU, _B_to_QU,\
-                      obj_to_array, array_to_obj, _get_bandwidths
+                      obj_to_array, array_to_obj, _get_bandwidths, get_fields_from_alms
 from .saving import _get_full_path_out, save_patches, save_ilc_weights, _get_full_path_nuiscov, load_nuiscov
 from .needlets import  _get_nside_lmax_from_b_ell, _get_needlet_windows_, _needlet_filtering, _get_good_channels_nl 
 from .seds import _get_CMB_SED, _get_SEDs, _standardize_cilc
@@ -209,16 +209,7 @@ def _ilc(
             Output separated maps.
     """
     # Determine fields based on input shape and desired output
-    if input_alms.ndim == 4:
-        if input_alms.shape[1] == 3:
-            fields_ilc = ["T", "E", "B"]
-        elif input_alms.shape[1] == 2:
-            fields_ilc = ["E", "B"]
-    elif input_alms.ndim == 3:
-        if config.field_out in ["T", "E", "B"]:
-            fields_ilc = [config.field_out]
-        elif config.field_out in ["QU_E", "QU_B"]:
-            fields_ilc = [config.field_out[-1]]
+    fields_ilc = get_fields_from_alms(input_alms, config.field_out)
 
     # Allocate output array and run ILC compsep per field if needed
     if input_alms.ndim == 4:
@@ -538,7 +529,7 @@ def _ilc_maps(config: Configs, input_maps: np.ndarray, compsep_run: Dict,
             else:
                 path_noicov = _get_full_path_nuiscov(config, compsep_run)
                 cov_n = (load_nuiscov(config, path_noicov, compsep_run,
-                                    hp.npix2nside(input_maps.shape[-2]), nl_scale=nl_scale, include_noise=True, include_cmb=False)).T
+                                    hp.npix2nside(input_maps.shape[-2]), "noise", nl_scale=nl_scale)).T
             cov = cov - noise_debias * cov_n
             del cov_n
 

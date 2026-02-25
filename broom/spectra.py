@@ -1,4 +1,5 @@
 import healpy as hp
+import re
 import numpy as np
 import os 
 import fnmatch
@@ -7,7 +8,7 @@ from .routines import obj_out_to_array, _slice_outputs, _format_nsim, _log
 from .configurations import Configs
 from types import SimpleNamespace
 from typing import Optional, Union, Dict, Any
-from .saving import save_spectra, _save_mask
+from .saving import save_spectra, _save_mask, _get_full_path_out
 try:
     import pymaster as nmt
 except ImportError:
@@ -23,7 +24,7 @@ def _compute_spectra(config: Configs) -> Optional[SimpleNamespace]:
     ----------
         config : Configs
             Configuration object containing parameters for spectra computation. It should include:
-            - nsim_start: Starting simulation number.
+            - nsim_start: Scomponenttarting simulation number.
             - nsims: Number of simulations to compute spectra for.
             - compute_spectra: List of dictionaries containing parameters for spectra computation, including:
                 - path_method: Path to the component separation outputs.
@@ -74,6 +75,8 @@ def _compute_spectra(config: Configs) -> Optional[SimpleNamespace]:
 
 def _compute_spectra_(
     config: Configs, 
+    outputs: Optional[SimpleNamespace] = None,
+    outputs_type: Optional[str] = None,
     nsim: Optional[Union[int, str]] = None
 ) -> Optional[SimpleNamespace]:
     """
@@ -83,7 +86,12 @@ def _compute_spectra_(
     ----------
         config : Configs
             Configuration object containing parameters for spectra computation. See `_compute_spectra` for details.
-
+        outputs : SimpleNamespace, optional
+            Object containing the outputs of component separation for a single simulation. If None, it will be loaded from disk based on 
+            the paths specified in the compute_spectra dictionaries in config.
+        outputs_type : str, optional
+            Type of outputs provided in the outputs argument, either 'compsep', 'residuals_estimate' or 'compsep_propagate'.
+            If None, it will be inferred from the lenght of the outputs object, if possible.
         nsim : int or str, optional
             Simulation number to compute spectra for. If an integer, it will be zero-padded to 5 digits.
             Default is None, which means it will look for outputs with no label regarding simulation number.
@@ -103,23 +111,94 @@ def _compute_spectra_(
 
     cls_out_ = SimpleNamespace() if config.return_spectra else None
 
-    for compute_cls in config.compute_spectra:
-        compute_cls = _standardize_compute_cls(config, compute_cls)
-        if config.return_spectra:
-            cls_out = _cls_from_config(config, compute_cls, nsim=nsim)
-            for attr, value in vars(cls_out).items():
-                if not hasattr(cls_out_, attr):
-                    setattr(cls_out_, attr, [])
-                getattr(cls_out_, attr).append(value)
+    load_outputs = outputs is None
+
+    if not load_outputs:
+        if outputs_type is not None:
+            if outputs_type not in ['compsep', 'residuals_estimate', 'compsep_propagate']:
+                raise ValueError('outputs_type must be either "compsep", "residuals_estimate" or "compsep_propagate"')
         else:
-            _cls_from_config(config, compute_cls, nsim=nsim)
+            outputs_type = 'compsep' if hasattr(config, 'compsep') and config.compsep is not None and len(config.compsep) > 0 else None
+            if outputs_type is None:
+                outputs_type = 'residuals_estimate' if hasattr(config, 'compsep_residuals') and config.compsep_residuals is not None and len(config.compsep_residuals) > 0 else None
+                if outputs_type is None:
+                    outputs_type = 'compsep_propagate' if hasattr(config, 'compsep_propagate') and config.compsep_propagate is not None and len(config.compsep_propagate) > 0 else None
+                    if outputs_type is None:
+                        raise ValueError('Could not infer outputs_type from config. Please provide outputs_type argument and make sure config contains either compsep, compsep_residuals or compsep_propagate attribute with non-empty list of dictionaries.')
+
+        if outputs_type == 'compsep':
+            if not hasattr(config, 'compsep') or config.compsep is None or len(config.compsep) == 0:
+                raise ValueError('If outputs_type is "compsep", config must contain a non-empty compsep attribute.')
+            idx_runs = []
+            for i in range(len(config.compsep)):
+                if config.compsep[i]["method"] not in ["fgd_diagnostic", "fgd_P_diagnostic"]:
+                    idx_runs.append(i)
+        elif outputs_type == 'residuals_estimate':
+            if not hasattr(config, 'compsep_residuals') or config.compsep_residuals is None or len(config.compsep_residuals) == 0:
+                raise ValueError('If outputs_type is "residuals_estimate", config must contain a non-empty compsep_residuals attribute.')
+            idx_runs = range(len(config.compsep_residuals))
+        elif outputs_type == 'compsep_propagate':
+            if not hasattr(config, 'compsep_propagate') or config.compsep_propagate is None or len(config.compsep_propagate) == 0:
+                raise ValueError('If outputs_type is "compsep_propagate", config must contain a non-empty compsep_propagate attribute.')
+            idx_runs = range(len(config.compsep_propagate))
+    
+        n_runs = len(idx_runs)
+        if (n_runs > 1) and (len(config.compute_spectra) > 1):
+            if n_runs != len(config.compute_spectra):
+                raise ValueError(f"If number of runs in outputs ({n_runs}) and of compute_spectra dictionaries in config ({len(config.compute_spectra)}) are larger than 1, they must match.")
+        idx_cs = 0
+        
+    if load_outputs or (n_runs == 1) or (len(config.compute_spectra) > 1):
+        for compute_cls in config.compute_spectra:
+            compute_cls = _standardize_compute_cls(config, compute_cls, load_outputs=load_outputs)
+            if not load_outputs:
+                compute_cls["outputs_type"] = outputs_type
+
+            if config.return_spectra:
+                if load_outputs:
+                    cls_out = _cls_from_config(config, compute_cls, nsim=nsim, outputs=outputs)
+                else:
+                    cls_out = _cls_from_config(config, compute_cls, nsim=nsim, outputs=outputs, idx_out=idx_runs[idx_cs], idx_cs=idx_cs)
+                    if n_runs > 1:
+                        idx_cs += 1
+                for attr, value in vars(cls_out).items():
+                    if not hasattr(cls_out_, attr):
+                        setattr(cls_out_, attr, [])
+                    getattr(cls_out_, attr).append(value)
+            else:
+                if load_outputs:
+                    _cls_from_config(config, compute_cls, nsim=nsim, outputs=outputs)
+                else:
+                    _cls_from_config(config, compute_cls, nsim=nsim, outputs=outputs, idx_out=idx_runs[idx_cs], idx_cs=idx_cs)
+                    if n_runs > 1:
+                        idx_cs += 1
+            compute_cls.pop("outputs_type", None)
+    else:
+        delete_components = "components_for_cls" not in config.compute_spectra[0] or config.compute_spectra[0]["components_for_cls"] is None
+        for _ in range(n_runs):
+            compute_cls = _standardize_compute_cls(config, config.compute_spectra[0], load_outputs=load_outputs)
+            compute_cls["outputs_type"] = outputs_type 
+
+            if config.return_spectra:
+                cls_out = _cls_from_config(config, compute_cls, nsim=nsim, outputs=outputs, idx_out=idx_runs[idx_cs], idx_cs=idx_cs)
+                for attr, value in vars(cls_out).items():
+                    if not hasattr(cls_out_, attr):
+                        setattr(cls_out_, attr, [])
+                    getattr(cls_out_, attr).append(value)
+            else:
+                _cls_from_config(config, compute_cls, nsim=nsim, outputs=outputs, idx_out=idx_runs[idx_cs], idx_cs=idx_cs)
+            idx_cs += 1
+
+            compute_cls.pop("outputs_type", None)
+            if delete_components:
+                compute_cls.pop("components_for_cls", None)
 
     if config.return_spectra:
         for attr in vars(cls_out_):
             setattr(cls_out_, attr, np.array(getattr(cls_out_, attr)))
         return cls_out_
 
-def _standardize_compute_cls(config: Configs, compute_cls: Dict[str, Any]) -> Dict[str, Any]:
+def _standardize_compute_cls(config: Configs, compute_cls: Dict[str, Any], load_outputs: bool = True) -> Dict[str, Any]:
     """
     Standardize the compute_cls dictionary to ensure it contains all necessary fields and has the correct structure.
 
@@ -129,21 +208,23 @@ def _standardize_compute_cls(config: Configs, compute_cls: Dict[str, Any]) -> Di
             Configuration object containing parameters for spectra computation. See `_compute_spectra` for details.
         compute_cls : dict
             Dictionary containing parameters for spectra computation. See `_compute_spectra` for details.
-    
+        load_outputs : bool
+            Whether the outputs of component separation need to be loaded from disk. 
+
     Returns
     -------
         compute_cls : dict
             Standardized dictionary containing parameters for spectra computation.
     """
-
-    if 'path_method' not in compute_cls:
-        raise ValueError('compute_cls must contain a "path_method" field')
-
-    compute_cls.setdefault('field_out', config.field_out)
-
-    if "components_for_cls" not in compute_cls:
-        raise ValueError('compute_cls must contain a "components_for_cls" field')
-
+    if load_outputs:
+        if 'path_method' not in compute_cls:
+            raise ValueError('compute_cls must contain a "path_method" field, since outputs need to be loaded from disk.')
+        if "components_for_cls" not in compute_cls:
+            raise ValueError('compute_cls must contain a "components_for_cls" field')
+        compute_cls.setdefault('field_out', config.field_out)
+    else:
+        compute_cls["field_out"] = config.field_out
+        
     compute_cls.setdefault("mask_type", None)
     compute_cls.setdefault("apodize_mask", None)
 
@@ -164,7 +245,10 @@ def _standardize_compute_cls(config: Configs, compute_cls: Dict[str, Any]) -> Di
 def _cls_from_config(
     config: Configs,
     compute_cls: Dict[str, Any],
-    nsim: Optional[str] = None
+    nsim: Optional[str] = None,
+    outputs: Optional[SimpleNamespace] = None,
+    idx_out: Optional[int] = None,
+    idx_cs: Optional[int] = None
 ) -> Optional[SimpleNamespace]:
     """
     Compute the spectra from outputs of component separation based on the configuration and compute_cls dictionary.
@@ -177,6 +261,13 @@ def _cls_from_config(
             Dictionary containing parameters for spectra computation. See `_compute_spectra` for details.
         nsim : str, optional
             Simulation number. Used to load the correct outputs. If None, it will look for outputs with no label regarding simulation number.
+        outputs : SimpleNamespace, optional
+            Object containing the outputs of component separation for a single simulation. If None, it will be loaded from disk based on 
+            the paths specified in the compute_cls dictionary in config.
+        idx_out : int, optional
+            Index of the output to use from the configuration object, if outputs is provided. This is relevant when outputs contains multiple runs of component separation.
+        idx_cs : int, optional
+            Index of the component separation run to use from the outputs object, if outputs is provided and contains multiple runs. This is relevant when outputs contains multiple runs of component separation.
     
     Returns
     -------
@@ -186,108 +277,347 @@ def _cls_from_config(
     """
     from .compsep import _load_outputs_
 
-    compute_cls["outputs"] = SimpleNamespace()
-
-    if "path_outputs" in compute_cls:
-        compute_cls["path"] = os.path.join(compute_cls["path_outputs"], compute_cls["path_method"])
-    else:
-        compute_cls["path"] = os.path.join(config.path_outputs, compute_cls["path_method"])
+    compute_cls["outputs"] = SimpleNamespace()  
 
     _check_fields_for_cls(compute_cls["field_out"],config.field_cls_out)
     compute_cls["field_cls_in"] = _get_fields_in_for_cls(compute_cls["field_out"],config.field_cls_out)
     
-    for component in compute_cls["components_for_cls"]:
-        if isinstance(component, str):
-            if "gilc_" in compute_cls["path"] or "gpilc_" in compute_cls["path"] or "gprilc_" in compute_cls["path"]:
-                component_name = '_'.join(component.split('_')[:-1])
-                if nsim is not None:
-                    filename = os.path.join(
-                        compute_cls["path"],
-                        f"{component_name}/{nsim}/{compute_cls['field_out']}_{component_name}_{component.split('_')[-1]}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}"
-                    )
-                else:
-                    filename = os.path.join(
-                        compute_cls["path"],
-                        f"{component_name}/{compute_cls['field_out']}_{component_name}_{component.split('_')[-1]}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}"
-                    )
-                component_name = component
-            else:
-                component_name = component.split('/')[0] if '/' in component else component
-                filename = os.path.join(
-                    compute_cls["path"],
-                    f"{component}/{compute_cls['field_out']}_{component_name}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}"
-                )
+    if outputs is None:
+        if "path_outputs" in compute_cls:
+            compute_cls["path"] = os.path.join(compute_cls["path_outputs"], compute_cls["path_method"])
+        else:
+            compute_cls["path"] = os.path.join(config.path_outputs, compute_cls["path_method"])
 
-            setattr(
-                compute_cls["outputs"],
-                component_name,
-                _load_outputs_(filename, compute_cls["field_out"], nsim=nsim)
-            )
-
-        elif isinstance(component, list):
-            if len(component)==2:
-                filenames = []
-                for idx, component_ in enumerate(component):
-                    if "gilc_" in compute_cls["path"] or "gpilc_" in compute_cls["path"] or "gprilc_" in compute_cls["path"]:
-                        component_name_ = '_'.join(component_.split('_')[:-1])
-                        if nsim is not None:
-                            filenames.append(os.path.join(
-                                compute_cls["path"],
-                                f"{component_name_}/{nsim}/{compute_cls['field_out']}_{component_name_}_{component_.split('_')[-1]}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}"
-                            ))
-                        else:
-                            filenames.append(os.path.join(
-                                compute_cls["path"],
-                                f"{component_name_}/{compute_cls['field_out']}_{component_name_}_{component_.split('_')[-1]}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}"
-                            ))
-                        if idx == 0:
-                            component_name = component_
-                        elif idx == 1:
-                            component_name += f"_x_{component_}"
-                    else:
-                        component_name_ = component_.split('/')[0] if '/' in component_ else component_
-                        filenames.append(os.path.join(
+        for component in compute_cls["components_for_cls"]:
+            if isinstance(component, str):
+                if "gilc_" in compute_cls["path"] or "gpilc_" in compute_cls["path"] or "gprilc_" in compute_cls["path"]:
+                    component_name = '_'.join(component.split('_')[:-1])
+                    if nsim is not None:
+                        filename = os.path.join(
                             compute_cls["path"],
-                            f"{component_}/{compute_cls['field_out']}_{component_name_}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}"
-                        ))
-                        if idx == 0:
-                            component_name = component_name_
-                        elif idx == 1:
-                            component_name += f"_x_{component_name_}"
+                            f"{component_name}/{nsim}/{compute_cls['field_out']}_{component_name}_{component.split('_')[-1]}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}"
+                        )
+                    else:
+                        filename = os.path.join(
+                            compute_cls["path"],
+                            f"{component_name}/{compute_cls['field_out']}_{component_name}_{component.split('_')[-1]}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}"
+                        )
+                    component_name = component
+                else:
+                    component_name = component.split('/')[0] if '/' in component else component
+                    filename = os.path.join(
+                        compute_cls["path"],
+                        f"{component}/{compute_cls['field_out']}_{component_name}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}"
+                    )
 
                 setattr(
                     compute_cls["outputs"],
                     component_name,
-                    [])
-                
-                for filename in filenames:
-                    getattr(
-                        compute_cls["outputs"],
-                        component_name
-                    ).append(_load_outputs_(filename, compute_cls["field_out"], nsim=nsim))
+                    _load_outputs_(filename, compute_cls["field_out"], nsim=nsim)
+                )
 
-                setattr(compute_cls["outputs"], component_name, np.array(getattr(
-                    compute_cls["outputs"],
-                    component_name
-                )))
+            elif isinstance(component, list):
+                if len(component)==2:
+                    filenames = []
+                    for idx, component_ in enumerate(component):
+                        if "gilc_" in compute_cls["path"] or "gpilc_" in compute_cls["path"] or "gprilc_" in compute_cls["path"]:
+                            component_name_ = '_'.join(component_.split('_')[:-1])
+                            if nsim is not None:
+                                filenames.append(os.path.join(
+                                    compute_cls["path"],
+                                    f"{component_name_}/{nsim}/{compute_cls['field_out']}_{component_name_}_{component_.split('_')[-1]}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}"
+                                ))
+                            else:
+                                filenames.append(os.path.join(
+                                    compute_cls["path"],
+                                    f"{component_name_}/{compute_cls['field_out']}_{component_name_}_{component_.split('_')[-1]}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}"
+                                ))
+                            if idx == 0:
+                                component_name = component_
+                            elif idx == 1:
+                                component_name += f"_x_{component_}"
+                        else:
+                            component_name_ = component_.split('/')[0] if '/' in component_ else component_
+                            filenames.append(os.path.join(
+                                compute_cls["path"],
+                                f"{component_}/{compute_cls['field_out']}_{component_name_}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}"
+                            ))
+                            if idx == 0:
+                                component_name = component_name_
+                            elif idx == 1:
+                                component_name += f"_x_{component_name_}"
 
-                if getattr(
-                    compute_cls["outputs"],
-                    component_name
-                ).ndim == 3:
                     setattr(
                         compute_cls["outputs"],
                         component_name,
-                        np.transpose(getattr(
+                        [])
+                    
+                    for filename in filenames:
+                        getattr(
                             compute_cls["outputs"],
                             component_name
-                        ), (1,0,2)
-                    ))
+                        ).append(_load_outputs_(filename, compute_cls["field_out"], nsim=nsim))
+
+                    setattr(compute_cls["outputs"], component_name, np.array(getattr(
+                        compute_cls["outputs"],
+                        component_name
+                    )))
+
+                    if getattr(
+                        compute_cls["outputs"],
+                        component_name
+                    ).ndim == 3:
+                        setattr(
+                            compute_cls["outputs"],
+                            component_name,
+                            np.transpose(getattr(
+                                compute_cls["outputs"],
+                                component_name
+                            ), (1,0,2)
+                        ))
+                else:
+                    raise ValueError("Components as list must contain exactly two elements for cross-spectra.")
             else:
-                raise ValueError("Components as list must contain exactly two elements for cross-spectra.")
+                raise TypeError("Components for cls must be either str or list of two str.")
+    
+    else:
+        if "components_for_cls" not in compute_cls:
+            all_components = True
+            compute_cls["components_for_cls"] = []
         else:
-            raise TypeError("Components for cls must be either str or list of two str.")
-        
+            all_components = False
+
+        if compute_cls["outputs_type"] == 'compsep':
+            compute_cls["path"] = _get_full_path_out(config, config.compsep[idx_out])
+
+        elif compute_cls["outputs_type"] == 'residuals_estimate':
+            compute_cls["path"] = os.path.join(config.path_outputs, config.compsep_residuals[idx_out]["compsep_path"])
+
+            if "gilc_" in config.compsep_residuals[idx_out]["gilc_path"]:
+                gnilc_run = (re.search(r'(gilc_[^/]+)', config.compsep_residuals[idx_out]["gilc_path"])).group(1)
+            elif "gpilc_" in config.compsep_residuals[idx_out]["gilc_path"]:
+                gnilc_run = (re.search(r'(gpilc_[^/]+)', config.compsep_residuals[idx_out]["gilc_path"])).group(1)        
+            elif "gprilc_" in config.compsep_residuals[idx_out]["gilc_path"]:
+                gnilc_run = (re.search(r'(gprilc_[^/]+)', config.compsep_residuals[idx_out]["gilc_path"])).group(1)        
+            if "needlet" in gnilc_run:
+                folder_after = (config.compsep_residuals[idx_out]["gilc_path"]).split(gnilc_run + "/")[1].split("/")[0]
+                gnilc_run += f"_{folder_after}"
+
+        elif compute_cls["outputs_type"] == 'compsep_propagate':
+            compute_cls["path"] = os.path.join(config.path_outputs, config.compsep_propagate[idx_out]["compsep_path"])
+
+
+        if all_components:
+            for component, array in vars(outputs).items():
+                if compute_cls["outputs_type"] == 'compsep':
+                    if "total" in component:
+                        component_name = f"output_{component}"
+                    elif "cmb" in component:
+                        if config.compsep[idx_out]["component_out"] == "cmb":
+                            component_name = f"output_{component}"
+                        else:
+                            component_name = f"{component}_residuals"
+                    elif "tsz" in component:
+                        if config.compsep[idx_out]["component_out"] == "tsz":
+                            component_name = f"output_{component}"
+                        else:
+                            component_name = f"{component}_residuals"
+                    else:
+                        component_name = f"{component}_residuals"
+                elif compute_cls["outputs_type"] == 'compsep_propagate':
+                    component_name = f"propagated_{component}"
+                elif compute_cls["outputs_type"] == 'residuals_estimate':
+                    if "total" in component:
+                        component_name = f"fgres_templates"
+                        if "split" in component:
+                            component_name += f"_{component.split('total_')[1]}"
+                    elif component == "fgds":
+                        component_name = f"fgres_templates_fgds"
+                    else:
+                        component_name = f"fgres_templates_{component}"
+                    component_name += f"/{gnilc_run}"
+
+                array = np.array(array[idx_cs])
+
+                if compute_cls["outputs_type"] == 'compsep':
+                    if config.compsep[idx_out]["method"] in ["gilc", "gpilc", "gprilc"]:
+                        for idx_f in range(array.shape[0]):
+                            component_name_ = f"{component_name}_{config.instrument.channels_tags[config.compsep[idx_out]['channels_out'][idx_f]]}"
+                            compute_cls["components_for_cls"].append(component_name_)
+                            setattr(compute_cls["outputs"], component_name_, array[idx_f])
+                    else:
+                        compute_cls["components_for_cls"].append(component_name)
+                        setattr(compute_cls["outputs"], component_name, array)
+                elif compute_cls["outputs_type"] == 'compsep_propagate':
+                    if "gilc_" in config.compsep_propagate[idx_out]["compsep_path"] or "gpilc_" in config.compsep_propagate[idx_out]["compsep_path"] or "gprilc_" in config.compsep_propagate[idx_out]["compsep_path"]:
+                        for idx_f in range(array.shape[0]):
+                            component_name_ = f"{component_name}_{config.instrument.channels_tags[config.compsep_propagate[idx_out]['channels_out'][idx_f]]}"
+                            compute_cls["components_for_cls"].append(component_name_)
+                            setattr(compute_cls["outputs"], component_name_, array[idx_f])
+                    else:
+                        compute_cls["components_for_cls"].append(component_name)
+                        setattr(compute_cls["outputs"], component_name, array)
+                elif compute_cls["outputs_type"] == 'residuals_estimate':
+                    compute_cls["components_for_cls"].append(component_name)
+                    setattr(compute_cls["outputs"], component_name.split('/')[0] if '/' in component_name else component_name, array)
+        else:
+            for component in compute_cls["components_for_cls"]:
+                if isinstance(component, str):
+                    if compute_cls["outputs_type"] == 'compsep':
+                        if "total" in component:
+                            component_name = "total"
+                            if "split1" in component:
+                                component_name += "_split1"
+                            elif "split2" in component:
+                                component_name += "_split2"
+                        elif "cmb" in component:
+                            component_name = f"cmb"
+                        elif "tsz" in component:
+                            component_name = f"tsz"
+                        else:
+                            component_name = component.split('_residuals')[0]
+                    elif compute_cls["outputs_type"] == 'compsep_propagate':
+                        component_name = component.split('propagated_')[1]
+                        if "gilc_" in config.compsep_propagate[idx_out]["compsep_path"] or "gpilc_" in config.compsep_propagate[idx_out]["compsep_path"] or "gprilc_" in config.compsep_propagate[idx_out]["compsep_path"]:
+                            if component.split('_')[-1] in config.instrument.channels_tags:
+                                component_name = component_name.split(f"_{component_name.split('_')[-1]}")[0]
+                    elif compute_cls["outputs_type"] == 'residuals_estimate':
+                        idx_component = compute_cls["components_for_cls"].index(component)
+                        if "/" in component:
+                            component = component.split('/')[0]
+                        if component == "fgres_templates":
+                            component_name = "total"
+                        elif component == "fgres_templates_fgds":
+                            component_name = "fgds"
+                        elif "fgres_templates_split" in component:
+                            component_name = f"total_{component.split('fgres_templates_')[1]}"
+                        else:
+                            component_name = component.split('fgres_templates_')[1]
+
+                    array = np.array(getattr(outputs, component_name)[idx_cs])
+
+                    if compute_cls["outputs_type"] == 'compsep':
+                        if config.compsep[idx_out]["method"] in ["gilc", "gpilc", "gprilc"]:
+                            if component.split('_')[-1] in config.instrument.channels_tags:
+                                idx_f = config.instrument.channels_tags.index(component.split('_')[-1])
+                                if idx_f in config.compsep[idx_out]['channels_out']:
+                                    setattr(compute_cls["outputs"], component, array[config.compsep[idx_out]['channels_out'].index(idx_f)])
+                                else:
+                                    raise ValueError(f"Channel {component.split('_')[-1]} not found in channels_out of config.compsep[{idx_out}].")
+                            else:
+                                raise ValueError(f"Component {component} in compute_cls['components_for_cls'] is not in the correct format for method {config.compsep[idx_out]['method']}.")
+#                                for idx_f in range(array.shape[0]):
+#                                    component_name = f"{component}_{config.instrument.channels_tags[config.compsep[idx_out]['channels_out'][idx_f]]}"
+#                                    setattr(compute_cls["outputs"], component_name, array[idx_f])
+                        else:
+                            setattr(compute_cls["outputs"], component, array)
+                    elif compute_cls["outputs_type"] == 'compsep_propagate':
+                        if "gilc_" in config.compsep_propagate[idx_out]["compsep_path"] or "gpilc_" in config.compsep_propagate[idx_out]["compsep_path"] or "gprilc_" in config.compsep_propagate[idx_out]["compsep_path"]:
+                            if component.split('_')[-1] in config.instrument.channels_tags:
+                                idx_f = config.instrument.channels_tags.index(component.split('_')[-1])
+                                if idx_f in config.compsep_propagate[idx_out]['channels_out']:
+                                    setattr(compute_cls["outputs"], component, array[config.compsep_propagate[idx_out]['channels_out'].index(idx_f)])
+                                else:
+                                    raise ValueError(f"Channel {component.split('_')[-1]} not found in channels_out of config.compsep_propagate[{idx_out}].")
+                            else:
+                                raise ValueError(f"Component {component} in compute_cls['components_for_cls'] is not in the correct format for method {config.compsep_propagate[idx_out]['method']}.")
+#                            else:
+#                                for idx_f in range(array.shape[0]):
+#                                    component_name = f"{component}_{config.instrument.channels_tags[config.compsep_propagate[idx_out]['channels_out'][idx_f]]}"
+#                                    setattr(compute_cls["outputs"], component_name, array[idx_f])
+                        else:
+                            setattr(compute_cls["outputs"], component, array)
+                    elif compute_cls["outputs_type"] == 'residuals_estimate':
+                        compute_cls["components_for_cls"][idx_component] = f"{component}/{gnilc_run}"
+                        setattr(compute_cls["outputs"], f"{component}", array)
+
+                elif isinstance(component, list):
+                    if len(component)==2:
+                        if '/' in component[0]:
+                            component[0] = component[0].split('/')[0]
+                        if '/' in component[1]:
+                            component[1] = component[1].split('/')[0]
+
+                        component_name = f"{component[0]}_x_{component[1]}"
+                        setattr(
+                            compute_cls["outputs"],
+                            component_name,
+                            []
+                        )
+
+                        for component_ in component:
+                            if compute_cls["outputs_type"] == 'compsep':
+                                if "total" in component_:
+                                    component_name_ = "total"
+                                    if "split1" in component_:
+                                        component_name_ += "_split1"
+                                    elif "split2" in component_:
+                                        component_name_ += "_split2"
+                                elif "cmb" in component_:
+                                    component_name_ = f"cmb"
+                                elif "tsz" in component_:
+                                    component_name_ = f"tsz"
+                                else:
+                                    component_name_ = component_.split('_residuals')[0]
+                            elif compute_cls["outputs_type"] == 'compsep_propagate':
+                                component_name_ = component_.split('propagated_')[1]
+                                if "gilc_" in config.compsep_propagate[idx_out]["compsep_path"] or "gpilc_" in config.compsep_propagate[idx_out]["compsep_path"] or "gprilc_" in config.compsep_propagate[idx_out]["compsep_path"]:
+                                    if component_.split('_')[-1] in config.instrument.channels_tags:
+                                        component_name_ = component_name_.split(f"_{component_name_.split('_')[-1]}")[0]
+                            elif compute_cls["outputs_type"] == 'residuals_estimate':
+                                if component_ == "fgres_templates":
+                                    component_name_ = "total"
+                                elif component_ == "fgres_templates_fgds":
+                                    component_name_ = "fgds"
+                                elif "fgres_templates_split" in component_:
+                                    component_name_ = f"total_{component_.split('fgres_templates_')[1]}"
+                                else:
+                                    component_name_ = component_.split('fgres_templates_')[1]
+                                
+                            array = np.array(getattr(outputs, component_name_)[idx_cs])
+
+                            if compute_cls["outputs_type"] == 'compsep':
+                                if config.compsep[idx_out]["method"] in ["gilc", "gpilc", "gprilc"]:
+                                    if component_.split('_')[-1] in config.instrument.channels_tags:
+                                        idx_f = config.instrument.channels_tags.index(component_.split('_')[-1])
+                                        if idx_f in config.compsep[idx_out]['channels_out']:
+                                            getattr(compute_cls["outputs"], component_name).append(array[config.compsep[idx_out]['channels_out'].index(idx_f)])
+                                        else:
+                                            raise ValueError(f"Channel {component_.split('_')[-1]} not found in channels_out of config.compsep[{idx_out}].")
+                                    else:
+                                        raise ValueError(f"Component {component_} in compute_cls['components_for_cls'] is not in the correct format for method {config.compsep[idx_out]['method']}.")
+                                else:
+                                    getattr(compute_cls["outputs"], component_name).append(array)
+                            elif compute_cls["outputs_type"] == 'compsep_propagate':
+                                if "gilc_" in config.compsep_propagate[idx_out]["compsep_path"] or "gpilc_" in config.compsep_propagate[idx_out]["compsep_path"] or "gprilc_" in config.compsep_propagate[idx_out]["compsep_path"]:
+                                    if component_.split('_')[-1] in config.instrument.channels_tags:
+                                        idx_f = config.instrument.channels_tags.index(component_.split('_')[-1])
+                                        if idx_f in config.compsep_propagate[idx_out]['channels_out']:
+                                            getattr(compute_cls["outputs"], component_name).append(array[config.compsep_propagate[idx_out]['channels_out'].index(idx_f)])
+                                        else:
+                                            raise ValueError(f"Channel {component_.split('_')[-1]} not found in channels_out of config.compsep_propagate[{idx_out}].")
+                                    else:
+                                        raise ValueError(f"Component {component_} in compute_cls['components_for_cls'] is not in the correct format for method {config.compsep_propagate[idx_out]['method']}.")
+                                else:
+                                    getattr(compute_cls["outputs"], component_name).append(array)
+                            elif compute_cls["outputs_type"] == 'residuals_estimate':
+                                getattr(compute_cls["outputs"], component_name).append(array)
+
+                        setattr(compute_cls["outputs"], component_name, np.array(getattr(compute_cls["outputs"], component_name)))
+                        if getattr(
+                            compute_cls["outputs"],
+                            component_name
+                        ).ndim == 3:
+                            setattr(
+                                compute_cls["outputs"],
+                                component_name,
+                                np.transpose(getattr(
+                                    compute_cls["outputs"],
+                                    component_name
+                                ), (1,0,2)
+                            ))
+                    else:
+                        raise ValueError("Elements in components_for_cls as list must either be strings or lists of two strings for cross-spectra.")
 
     #if (config.field_out in ["TQU", "TEB"]) and (config.field_cls_out not in ["TE", "TB", "TEB"]):
     if len(compute_cls['field_out']) > 1:
@@ -380,7 +710,13 @@ def _get_cls(config: Configs, compute_cls, nsim=None):
     """
     from .masking import get_masks_for_compsep
 
-    b_bin = nmt.NmtBin.from_lmax_linear(config.lmax, nlb=config.delta_ell,is_Dell=config.return_Dell)
+    if config.ell_min_bpws is not None:
+        ell_ini = np.array(config.ell_min_bpws)
+        ell_end = ell_ini[1:]
+        ell_end = np.append(ell_end, config.lmax+1)
+        b_bin = nmt.NmtBin.from_edges(ell_ini, ell_end, is_Dell=config.return_Dell)  
+    else:
+        b_bin = nmt.NmtBin.from_lmax_linear(config.lmax, nlb=config.delta_ell,is_Dell=config.return_Dell)
 
     bls_beam = get_bls(config.nside, config.fwhm_out, config.lmax, config.field_cls_out, pixel_window_out=config.pixel_window_out)
     
@@ -577,8 +913,11 @@ def _get_cls(config: Configs, compute_cls, nsim=None):
                         f2_1 = nmt.NmtField(compute_cls["mask"][field_Q], [Q_map[1], U_map[1]], purify_b=compute_cls["nmt_purify_B"], purify_e=compute_cls["nmt_purify_E"], beam=beam_nmt, lmax=config.lmax, lmax_mask=config.lmax)
                         if idx==0:
                             if mask_in_maps is not None:
-                                f2_0_w = nmt.NmtField(compute_cls["mask"][field_Q] * mask_in_maps, [Q_map[0], U_map[0]], purify_b=compute_cls["nmt_purify_B"], purify_e=compute_cls["nmt_purify_E"], beam=beam_nmt, lmax=config.lmax, lmax_mask=config.lmax)
-                                f2_1_w = nmt.NmtField(compute_cls["mask"][field_Q] * mask_in_maps, [Q_map[1], U_map[1]], purify_b=compute_cls["nmt_purify_B"], purify_e=compute_cls["nmt_purify_E"], beam=beam_nmt, lmax=config.lmax, lmax_mask=config.lmax)
+#                                f2_0_w = nmt.NmtField(compute_cls["mask"][field_Q] * mask_in_maps, [Q_map[0], U_map[0]], purify_b=compute_cls["nmt_purify_B"], purify_e=compute_cls["nmt_purify_E"], beam=beam_nmt, lmax=config.lmax, lmax_mask=config.lmax)
+#                                f2_1_w = nmt.NmtField(compute_cls["mask"][field_Q] * mask_in_maps, [Q_map[1], U_map[1]], purify_b=compute_cls["nmt_purify_B"], purify_e=compute_cls["nmt_purify_E"], beam=beam_nmt, lmax=config.lmax, lmax_mask=config.lmax)
+                                pureE = "EBpurify" in compute_cls["path"] or "Epurify" in compute_cls["path"]
+                                f2_0_w = nmt.NmtField(compute_cls["mask"][field_Q] * mask_in_maps, [Q_map[0], U_map[0]], purify_b= ("Bpurify" in compute_cls["path"]), purify_e=pureE, beam=beam_nmt, lmax=config.lmax, lmax_mask=config.lmax)
+                                f2_1_w = nmt.NmtField(compute_cls["mask"][field_Q] * mask_in_maps, [Q_map[1], U_map[1]], purify_b= ("Bpurify" in compute_cls["path"]), purify_e=pureE, beam=beam_nmt, lmax=config.lmax, lmax_mask=config.lmax)
                                 w22 = nmt.NmtWorkspace.from_fields(f2_0_w, f2_1_w, b_bin)
                             else:
                                 w22 = nmt.NmtWorkspace.from_fields(f2_0, f2_1, b_bin)
@@ -700,7 +1039,9 @@ def _get_cls(config: Configs, compute_cls, nsim=None):
                         f2 = nmt.NmtField(compute_cls["mask"][field_Q], [Q_map, U_map], purify_b=compute_cls["nmt_purify_B"], purify_e=compute_cls["nmt_purify_E"], beam=beam_nmt, lmax=config.lmax, lmax_mask=config.lmax)
                         if idx==0:
                             if mask_in_maps is not None:
-                                f2_w = nmt.NmtField(compute_cls["mask"][field_Q] * mask_in_maps, [Q_map, U_map], purify_b=compute_cls["nmt_purify_B"], purify_e=compute_cls["nmt_purify_E"], beam=beam_nmt, lmax=config.lmax, lmax_mask=config.lmax)
+#                                f2_w = nmt.NmtField(compute_cls["mask"][field_Q] * mask_in_maps, [Q_map, U_map], purify_b=compute_cls["nmt_purify_B"], purify_e=compute_cls["nmt_purify_E"], beam=beam_nmt, lmax=config.lmax, lmax_mask=config.lmax)
+                                pureE = "EBpurify" in compute_cls["path"] or "Epurify" in compute_cls["path"]
+                                f2_w = nmt.NmtField(compute_cls["mask"][field_Q] * mask_in_maps, [Q_map, U_map], purify_b= ("Bpurify" in compute_cls["path"]), purify_e=pureE, beam=beam_nmt, lmax=config.lmax, lmax_mask=config.lmax)
                                 w22 = nmt.NmtWorkspace.from_fields(f2_w, f2_w, b_bin)
                             else:
                                 w22 = nmt.NmtWorkspace.from_fields(f2, f2, b_bin)

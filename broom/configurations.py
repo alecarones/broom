@@ -225,7 +225,7 @@ class Configs:
 
         self.lmin = self.config.get("lmin")
         if self.lmin is None:
-            self.lmin = 1
+            self.lmin = 2
         self.lmax = self.config.get("lmax") or 2 * self.nside
         self.nside_in = self.config.get("nside_in") or self.nside
         self.lmin_in = self.config.get("lmin_in")
@@ -351,6 +351,7 @@ class Configs:
         self._validate_paths()
 
         self.compute_spectra = self.config.get("compute_spectra") or ""
+        self.ell_min_bpws = self.config.get("ell_min_bpws")
         self.delta_ell = self.config.get("delta_ell") or 1
         self.spectra_comp = self.config.get("spectra_comp") or "anafast"
         self.return_Dell = self.config.get("return_Dell", False)
