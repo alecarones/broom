@@ -100,8 +100,8 @@ from .compsep import (
 )
 from .simulations import _get_foregrounds_, _get_noise_, _get_cmb_, get_input_data
 from .configurations import Configs, get_params
-from .spectra import _compute_spectra, _compute_spectra_, _load_cls
+from .spectra import _compute_spectra, _compute_spectra_, _load_cls, BBin
 from .clusters import get_mcilc_tracers
 
 
-__version__ = "0.1.5"
+__version__ = "0.2.0"

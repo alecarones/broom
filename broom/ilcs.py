@@ -91,6 +91,9 @@ def ilc(config: Configs, input_alms: SimpleNamespace, compsep_run: Dict, **kwarg
             if not hasattr(input_alms, "fgds"):
                 raise ValueError("The input_alms object must have 'fgds' attribute for ideal tracer in MC-ILC.")
             compsep_run["fgds_idx"] = input_attrs.index('fgds')
+        elif compsep_run["mc_type"] in ["cea_real", "rp_real"]:
+            if config.field_out not in ["B", "QU_B"]:
+                raise ValueError("The 'cea_real' and 'rp_real' MC-ILC types are currently only implemented for B-mode reconstruction. The requested output field in config.field_out must be either 'B' or 'QU_B'.")
 
     if hasattr(input_alms, "total"):
         compsep_run["from_splits"] = False

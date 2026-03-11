@@ -737,7 +737,9 @@ def combine_with_weights(config: Configs, data: SimpleNamespace, nsim: Optional[
     config = _check_data_and_config(config, data, compsep_check=False)
     config = _check_fields(config, data)
 
-    if (data.total.ndim > 2) and (config.field_out != config.field_in):
+    attr_rand = random.choice(list(vars(data).keys()))
+
+    if (getattr(data, attr_rand).ndim > 2) and (config.field_out != config.field_in):
         config.field_in_cs = _get_field_in_cs(config.field_in, config.field_out)
         data = _slice_data(data, config.field_in, config.field_in_cs)
     else:
@@ -935,8 +937,10 @@ def _standardize_compsep_config(compsep_run: Dict[str, Any], lmax: int, save_pro
         if compsep_run["component_out"] in ['0d', '1bd', '1Td', '2bd', '2Td', '2bdTd', '2Tdbd']:
             compsep_run.setdefault("beta_d_out", 1.54)
             compsep_run.setdefault("T_d_out", 20.0)
+            compsep_run.setdefault("nu_ref_d_out", 353.0)
         elif compsep_run["component_out"] in ['0s', '1bs', '2bs']:
             compsep_run.setdefault("beta_s_out", -3.0)
+            compsep_run.setdefault("nu_ref_s_out", 30.0)
         
     return compsep_run
     

@@ -714,17 +714,24 @@ def _get_cls(config: Configs, compute_cls, nsim=None):
         ell_ini = np.array(config.ell_min_bpws)
         ell_end = ell_ini[1:]
         ell_end = np.append(ell_end, config.lmax+1)
-        b_bin = nmt.NmtBin.from_edges(ell_ini, ell_end, is_Dell=config.return_Dell)  
-    else:
-        b_bin = nmt.NmtBin.from_lmax_linear(config.lmax, nlb=config.delta_ell,is_Dell=config.return_Dell)
+
+    if config.spectra_comp == 'namaster':
+        if config.ell_min_bpws is not None:
+            b_bin = nmt.NmtBin.from_edges(ell_ini, ell_end, is_Dell=config.return_Dell)  
+        else:
+            b_bin = nmt.NmtBin.from_lmax_linear(config.lmax, nlb=config.delta_ell,is_Dell=config.return_Dell)
+        wspaces = {}
+    elif config.spectra_comp == 'anafast':
+        if config.ell_min_bpws is not None:
+            b_bin = BBin.from_edges(ell_ini, ell_end, is_Dell=config.return_Dell)  
+        else:
+            b_bin = BBin.from_lmax_linear(config.lmax, nlb=config.delta_ell,is_Dell=config.return_Dell)
 
     bls_beam = get_bls(config.nside, config.fwhm_out, config.lmax, config.field_cls_out, pixel_window_out=config.pixel_window_out)
     
     cls_out = SimpleNamespace()
     for attr in vars(compute_cls["outputs"]):
         setattr(cls_out, attr, [])
-
-    wspaces = {}
 
 #    ndim = obj_out_to_array(compute_cls["outputs"]).ndim
 #    out_shapes = obj_out_to_array(compute_cls["outputs"]).shape
@@ -1252,6 +1259,113 @@ def _load_cls(path: str, components:list, field_cls_out: str, mask_folder: str,
         loaded_cls.append(hp.read_cl(filename))
 
     return np.array(loaded_cls)
+
+class BBin:
+    """Class for binning power spectra into bands of ell values."""
+
+    def __init__(self, ell_bins, lmax, is_Dell=False, w_ell=None):
+        """
+        ell_bins : list of arrays
+            Each element contains the ell values in that band.
+        is_Dell : bool
+            If True, bin Dell instead of Cl.
+        """
+        self.ell_bins = ell_bins
+        self.n_bands = len(ell_bins)
+        self.lmax = lmax
+        self.is_Dell = is_Dell
+        if w_ell is not None:
+            self.w_ell = w_ell
+        else:
+            self.w_ell = np.ones(lmax + 1)
+
+    # --------------------------
+    # Constructors
+    # --------------------------
+
+    @classmethod
+    def from_edges(bin_class, ell_ini, ell_end, is_Dell=False):
+        """
+        Create bins from lower/upper edges.
+        
+        ell_ini, ell_end : arrays of same length
+            Each pair defines one band: ell_ini[i] <= ell < ell_end[i]
+        """
+        ell_bins = []
+        for lo, hi in zip(ell_ini, ell_end):
+            ell_bins.append(np.arange(lo, hi))
+        return bin_class(ell_bins, lmax=ell_end[-1]-1, is_Dell=is_Dell)
+
+    @classmethod
+    def from_lmax_linear(bin_class, lmax, nlb, is_Dell=False):
+        """
+        Create linear bins of width nlb up to lmax.
+        
+        lmax : int
+        nlb  : bin width (delta_ell)
+        """
+        ell_bins = []
+        for lo in range(2, lmax + 1, nlb):
+            hi = min(lo + nlb - 1, lmax)
+            ell_bins.append(np.arange(lo, hi + 1))
+        return bin_class(ell_bins, lmax=lmax, is_Dell=is_Dell)
+
+    # --------------------------
+    # Binning function
+    # --------------------------
+
+    def bin_cell(self, cl):
+        """
+        Bin power spectra.
+
+        Accepts:
+        - cl shape (lmax+1,)
+        - cl shape (n_fields, lmax+1)
+
+        Returns:
+        - if input was 1D: shape (n_bands,)
+        - if input was 2D: shape (n_fields, n_bands)
+        """
+        cl = np.asarray(cl)
+
+        was_1d = (cl.ndim == 1)
+        if was_1d:
+            cl = cl[None, :]  # -> (1, lmax+1)
+        elif cl.ndim != 2:
+            raise ValueError(f"cl must be 1D or 2D, got shape {cl.shape}")
+
+        n_fields, lmax_plus_1 = cl.shape
+        cl_binned = np.zeros((n_fields, self.n_bands), dtype=cl.dtype)
+
+        for ib, ell_vals in enumerate(self.ell_bins):
+            ell_vals = np.asarray(ell_vals)
+            ell_vals = ell_vals[ell_vals < lmax_plus_1]  # safety
+
+            if ell_vals.size == 0:
+                continue
+
+            if self.is_Dell:
+                factor = ell_vals * (ell_vals + 1) / (2.0 * np.pi)  # (n_ell,)
+                band_values = cl[:, ell_vals] * factor[None, :]     # broadcast
+            else:
+                band_values = cl[:, ell_vals]
+
+            cl_binned[:, ib] = np.sum(band_values * self.w_ell[ell_vals][None, :], axis=1) / np.sum(self.w_ell[ell_vals])
+
+        return cl_binned[0] if was_1d else cl_binned
+
+    def get_effective_ells(self):
+        """
+        Get effective ell values for each band.
+
+        Returns:
+        - effective_ells: array of shape (n_bands,)
+        """
+        effective_ells = np.zeros(self.n_bands)
+        for ib, ell_vals in enumerate(self.ell_bins):
+            ell_vals = np.asarray(ell_vals)
+            effective_ells[ib] = np.sum(ell_vals * self.w_ell[ell_vals]) / np.sum(self.w_ell[ell_vals])
+        return effective_ells
 
 __all__ = [
     name
