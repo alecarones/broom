@@ -337,9 +337,10 @@ def _get_local_cov(
     fwhm_stat = get_fwhm_for_cov(lmax, n_pixels, n_channels, ilc_bias, fwhm_out, b_ell=b_ell)
 
 #    nside_cov = hp.npix2nside(n_pixels) if mask is not None else int(np.min([hp.npix2nside(n_pixels), 128]))
-    pixs_per_fwhm = 6. #if domain == "needlet" else 60.
-    nside_cov = nside_from_fwhm(fwhm_stat, unit="rad", pixs_per_fwhm = pixs_per_fwhm)
-    nside_cov = int(np.min([hp.npix2nside(n_pixels), nside_cov]))
+    #pixs_per_fwhm = 24. #if domain == "needlet" else 60.
+    #nside_cov = nside_from_fwhm(fwhm_stat, unit="rad", pixs_per_fwhm = pixs_per_fwhm)
+    #nside_cov = int(np.min([hp.npix2nside(n_pixels), nside_cov, 128]))
+    nside_cov = int(np.min([hp.npix2nside(n_pixels), 128]))
 
     cov = np.zeros((n_channels, n_channels, 12 * nside_cov ** 2))
 
@@ -349,9 +350,12 @@ def _get_local_cov(
             map2 = (input_maps_2[k] if input_maps_2 is not None else input_maps[k])
             map2 = map2 * mask if mask is not None else map2
 
-            cov[i,k] = cov_map = _get_local_cov_(
+            cov[i,k] = _get_local_cov_(
                 map1, map2, fwhm_stat, nside_cov, reduce_bias=reduce_bias, variance=variance
             )
+            #cov[i,k] = _get_local_cov_old(
+            #    map1, map2, fwhm_stat, nside_cov, reduce_bias=reduce_bias
+            #)
 
     for i in range(n_channels):
         for k in range(i):
@@ -460,9 +464,11 @@ def _get_local_cov_(
     npix = map1.size
     nside = hp.get_nside(map1)
     if nside_covar is None:
-        nside_covar = nside_from_fwhm(fwhm_stat, unit="rad", pixs_per_fwhm = 3.)
-        nside_covar = int(np.min([nside, nside_covar]))
-    lmax_stat = 2 * nside_covar #3 * nside_out - 1 # 
+#        nside_covar = nside_from_fwhm(fwhm_stat, unit="rad", pixs_per_fwhm = 3.)
+#        nside_covar = int(np.min([nside, nside_covar]))
+        nside_covar = nside
+    nside_out = max(1, nside // 4)
+    lmax_stat = 2 * nside_out #2 * nside_out # 
 
     if variance:
         map1 -= hp.smoothing(map1, fwhm=fwhm_stat, lmax=lmax_stat, pol=False, verbose=False)
@@ -470,8 +476,10 @@ def _get_local_cov_(
 
     product_map = map1 * map2
     # Compute alm
-    if 2 * nside_covar < nside:
-        product_map = hp.ud_grade(product_map, nside_out = 2 * nside_covar, order_in = 'RING', order_out = 'RING')
+    #if nside_covar < nside:
+        #product_map = hp.ud_grade(product_map, nside_out = 2 * nside_covar, order_in = 'RING', order_out = 'RING')
+    #if nside_covar < int(nside //4):
+    product_map = hp.ud_grade(product_map, nside_out = nside_out, order_in = 'RING', order_out = 'RING')
     alm_s = hp.map2alm(product_map, lmax=lmax_stat, iter=1, use_weights=True)# iter=0?
 
     # Get beam for smoothing covariance

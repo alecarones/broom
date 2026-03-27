@@ -490,11 +490,14 @@ def _get_full_path_out(config: Configs, compsep_run: Dict[str, Any]) -> str:
         complete_path = os.path.join(complete_path, text_)
 
     if compsep_run["method"] in ["mcilc","mc_ilc","mc_cilc"]:
-        text_ = compsep_run["mc_type"]
-        for freq_tracer in compsep_run["channels_tracers"]:
-            text_ += f"_{config.instrument.channels_tags[freq_tracer]}"
-        text_ += f"_{compsep_run['n_patches']}patches"
-        complete_path = os.path.join(complete_path, text_)
+        if not "path_patches" in compsep_run:
+            text_ = compsep_run["mc_type"]
+            for freq_tracer in compsep_run["channels_tracers"]:
+                text_ += f"_{config.instrument.channels_tags[freq_tracer]}"
+            text_ += f"_{compsep_run['n_patches']}patches"
+        else:
+            text_ = os.path.basename(compsep_run["path_patches"])
+        complete_path = os.path.join(complete_path, text_)        
 
     if compsep_run["method"] not in ["fgd_diagnostic","fgd_P_diagnostic", "gilc", "gpilc", "gprilc"]:
         comp_out = compsep_run["component_out"]
@@ -683,6 +686,8 @@ def save_ilc_weights(
             based on the component separation method and configuration.
     """
     path_w = os.path.join(compsep_run["path_out"], "weights")
+    if compsep_run["nsim"] is not None:
+        path_w = os.path.join(path_w, f"{compsep_run['nsim']}")
     os.makedirs(path_w, exist_ok=True)
     filename = os.path.join(path_w, f"weights_{compsep_run['field']}_{config.fwhm_out}acm_ns{nside_}_lmax{config.lmax}")
     if nl_scale is not None:
@@ -934,21 +939,21 @@ def save_spectra(
                     os.makedirs(os.path.join(path_spectra, component_name, nsim), exist_ok=True)
                     filename = os.path.join(
                         path_spectra,
-                        f"{component_name}/{nsim}/{pre_filename}_{config.field_cls_out}_{component}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}{post_filename}.fits"
+                        f"{component_name}/{nsim}/{pre_filename}_{''.join(config.field_cls_out)}_{component}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}{post_filename}.fits"
                     )
                 else:
                     os.makedirs(os.path.join(path_spectra, component_name), exist_ok=True)
                     filename = os.path.join(
                         path_spectra,
-                        f"{component_name}/{pre_filename}_{config.field_cls_out}_{component}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}{post_filename}.fits"
+                        f"{component_name}/{pre_filename}_{''.join(config.field_cls_out)}_{component}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}{post_filename}.fits"
                     )
-                hp.write_cl(filename, getattr(cls_out, component), overwrite=True)
+                hp.write_cl(filename, getattr(cls_out, component.replace(".", "p")), overwrite=True)
             else:
                 component_name = component.split('/')[0] if '/' in component else component
                 os.makedirs(os.path.join(path_spectra, component), exist_ok=True)
                 filename = os.path.join(
                     path_spectra,
-                    f"{component}/{pre_filename}_{config.field_cls_out}_{component_name}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}{post_filename}.fits"
+                    f"{component}/{pre_filename}_{''.join(config.field_cls_out)}_{component_name}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}{post_filename}.fits"
                 )
                 hp.write_cl(filename, getattr(cls_out, component_name), overwrite=True)
         elif isinstance(component, list):
@@ -964,15 +969,15 @@ def save_spectra(
                     os.makedirs(os.path.join(path_spectra, component_name_, nsim), exist_ok=True)
                     filename = os.path.join(
                         path_spectra,
-                        f"{component_name_}/{nsim}/{pre_filename}_{config.field_cls_out}_{component_name}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}{post_filename}.fits"
+                        f"{component_name_}/{nsim}/{pre_filename}_{''.join(config.field_cls_out)}_{component_name}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}{post_filename}.fits"
                     )
                 else:
                     os.makedirs(os.path.join(path_spectra, component_name_), exist_ok=True)
                     filename = os.path.join(
                         path_spectra,
-                        f"{component_name_}/{pre_filename}_{config.field_cls_out}_{component_name}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}{post_filename}.fits"
+                        f"{component_name_}/{pre_filename}_{''.join(config.field_cls_out)}_{component_name}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}{post_filename}.fits"
                     )
-                hp.write_cl(filename, getattr(cls_out, component_name), overwrite=True)
+                hp.write_cl(filename, getattr(cls_out, component_name.replace(".", "p")), overwrite=True)
             else:
                 component_name = component[0].split('/')[0] if '/' in component[0] else component[0]
                 component_name += f"_x_{component[1].split('/')[0] if '/' in component[1] else component[1]}"
@@ -986,7 +991,7 @@ def save_spectra(
                 os.makedirs(os.path.join(path_spectra, second_path), exist_ok=True)
                 filename = os.path.join(
                     path_spectra,
-                    f"{second_path}/{pre_filename}_{config.field_cls_out}_{component_name}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}{post_filename}.fits"
+                    f"{second_path}/{pre_filename}_{''.join(config.field_cls_out)}_{component_name}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}{post_filename}.fits"
                 )
                 hp.write_cl(filename, getattr(cls_out, component_name), overwrite=True)
                 
@@ -1042,7 +1047,7 @@ def get_path_spectra(config: Configs, compute_cls: Dict[str, Any]) -> str:
 #    if compute_cls["mask_type"] is None and config.mask_observations is None and config.mask_covariance is None:
     if mask_name != 'fullsky':
         if compute_cls["apodize_mask"] is not None:
-            mask_name += f"_apo{compute_cls['apodize_mask']}_{compute_cls['smooth_mask']}deg"
+            mask_name += f"_apo{compute_cls['apodize_mask']}_{compute_cls['apodize_scale']}deg"
 
     return os.path.join(path_spectra, mask_name)
     
@@ -1076,7 +1081,7 @@ def _save_mask(mask: np.ndarray,
 
     os.makedirs(path_mask, exist_ok=True)
     
-    filename = f"mask_{config.field_cls_out}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}{post_filename}.fits"
+    filename = f"mask_{''.join(config.field_cls_out)}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}{post_filename}.fits"
     
     hp.write_map(os.path.join(path_mask, filename), mask, overwrite=True)
 

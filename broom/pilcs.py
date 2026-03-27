@@ -429,7 +429,7 @@ def _pilc_maps(
     if compsep_run["method"] in ["cpilc", "cprilc"]:
         _assign_component_constraints(nl_scale)
     elif compsep_run["method"] in ["c_pilc", "c_prilc"] and nl_scale in compsep_run.get("special_nls", []):
-        scale_idx = compsep_run["special_nls"] == nl_scale
+        scale_idx = np.where(np.array(compsep_run["special_nls"]) == nl_scale)[0][0]        
         _assign_component_constraints(scale_idx)
 
     if compsep_run["from_splits"]:

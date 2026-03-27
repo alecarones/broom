@@ -2,6 +2,7 @@ import warnings
 from functools import partialmethod
 from typing import Optional, Tuple
 from pathlib import Path
+import glob
 
 import numpy as np
 import healpy as hp
@@ -206,6 +207,7 @@ def component_separation(config: Configs, data: SimpleNamespace, nsim: Optional[
         # Initialize attributes of `outputs` with empty lists
             for attr in vars(data):
                 setattr(outputs, attr, [])
+        setattr(outputs, 'settings', [])
         
     _log(f"Running component separation for simulation {nsim}." if nsim is not None else f"Running component separation.", verbose=config.verbose)
 
@@ -242,6 +244,10 @@ def component_separation(config: Configs, data: SimpleNamespace, nsim: Optional[
         
         compsep_run.pop("mask", None)
         del compsep_run["nsim"]
+
+        if config.return_compsep_products:
+            getattr(outputs, 'settings').append(compsep_run)
+            
     
     del mask_obs, mask_cov
 
@@ -473,6 +479,8 @@ def estimate_residuals(config: Configs, nsim: Optional[Union[int, str]] = None, 
     _log(f"Running foregrounds residuals estimation for simulation {nsim}." if nsim is not None else f"Running component separation.", verbose=config.verbose)
 
     outputs = SimpleNamespace() if config.return_compsep_products else None
+    if config.return_compsep_products:
+        setattr(outputs, 'settings', [])
 
     # Setting field_out if not provided
     if not config.field_out:
@@ -484,17 +492,20 @@ def estimate_residuals(config: Configs, nsim: Optional[Union[int, str]] = None, 
     load_gilc_outputs = gilc_outputs is None
 
     if not load_gilc_outputs:
+        outputs_configs = getattr(gilc_outputs, "settings")
+        if not any(outputs_configs[i]["method"] in ["gilc", "gpilc", "gprilc"] for i in range(len(outputs_configs))):
+            raise ValueError("Provided GILC outputs do not contain any of the methods that can be used as foreground tracers for residual estimation (gilc, gpilc, gprilc). Please provide GILC outputs containing at least one of these methods or set 'gilc_outputs' to None to load them from disk based on the paths specified in 'compsep_residuals'.")
         idx_gilc = []
         idx_gilc_biased = []
         n_f_diag = 0
-        for i in range(len(config.compsep)):
-            if config.compsep[i]["method"] in ["fgd_diagnostic", "fgd_P_diagnostic"]:
+        for i in range(len(outputs_configs)):
+            if outputs_configs[i]["method"] in ["fgd_diagnostic", "fgd_P_diagnostic"]:
                 n_f_diag += 1
-            elif config.compsep[i]["method"] in ["gilc", "gpilc", "gprilc"]:
+            elif outputs_configs[i]["method"] in ["gilc", "gpilc", "gprilc"]:
                 idx_gilc.append(i-n_f_diag)
                 idx_gilc_biased.append(i)
-                if config.compsep[i]["channels_out"] != [k for k in range(len(config.instrument.frequency))]:
-                    raise ValueError(f"Component separation method {config.compsep[i]['method']} requires the output channels to be the same as the number of frequencies in the instrument. Found {config.compsep[i]['channels_out']} and {len(config.instrument.frequency)} respectively.")
+                if outputs_configs[i]["channels_out"] != [k for k in range(len(config.instrument.frequency))]:
+                    raise ValueError(f"Component separation method {outputs_configs[i]['method']} requires the output channels to be the same as the number of frequencies in the instrument. Found {config.compsep[i]['channels_out']} and {len(config.instrument.frequency)} respectively.")
         n_runs = len(idx_gilc)
         if (n_runs > 1) and (len(config.compsep_residuals) > 1):
             if n_runs != len(config.compsep_residuals):
@@ -521,13 +532,13 @@ def estimate_residuals(config: Configs, nsim: Optional[Union[int, str]] = None, 
             if load_gilc_outputs:
                 data = get_gilc_maps(config, compsep_run, nsim=nsim)
             else:
-                compsep_run["gilc_path"] = str(Path(_get_full_path_out(config, config.compsep[idx_gilc_biased[idx_cs]])).relative_to(config.path_outputs))
+                compsep_run["gilc_path"] = str(Path(_get_full_path_out(config, outputs_configs[idx_gilc_biased[idx_cs]])).relative_to(config.path_outputs))
 
                 data = SimpleNamespace()
                 if "gilc_components" not in compsep_run:
                     compsep_run["gilc_components"] = []
                     for component in vars(gilc_outputs).keys():
-                        if component != "m":
+                        if component not in ["m", "settings"]:
                             if "total" in component:
                                 compsep_run["gilc_components"].append("output_" + component)
                             else:
@@ -587,6 +598,9 @@ def estimate_residuals(config: Configs, nsim: Optional[Union[int, str]] = None, 
                         getattr(outputs, attr).append(getattr(prod, attr))
 
             compsep_run.pop("mask", None)
+            if config.return_compsep_products:
+                getattr(outputs, 'settings').append(compsep_run)
+
             if delete_field_in:
                 del compsep_run["field_in"]
     else:
@@ -603,13 +617,13 @@ def estimate_residuals(config: Configs, nsim: Optional[Union[int, str]] = None, 
                 if "recycling" in compsep_run["leakage_correction"] and ("output_total" not in compsep_run["gilc_components"] or ("output_total_split1" not in compsep_run["gilc_components"] and "output_total_split2" not in compsep_run["gilc_components"])):
                     raise ValueError("For recycling leakage correction, 'output_total' or both 'output_total_split1' and 'output_total_split2' must be included in 'gilc_components'.")
 
-            compsep_run["gilc_path"] = str(Path(_get_full_path_out(config, config.compsep[idx_gilc_biased[idx_cs]])).relative_to(config.path_outputs))
+            compsep_run["gilc_path"] = str(Path(_get_full_path_out(config, outputs_configs[idx_gilc_biased[idx_cs]])).relative_to(config.path_outputs))
 
             data = SimpleNamespace()
             if "gilc_components" not in compsep_run:
                 compsep_run["gilc_components"] = []
                 for component in vars(gilc_outputs).keys():
-                    if component != "m":
+                    if component not in ["m", "settings"]:
                         if "total" in component:
                             compsep_run["gilc_components"].append("output_" + component)
                         else:
@@ -668,14 +682,16 @@ def estimate_residuals(config: Configs, nsim: Optional[Union[int, str]] = None, 
                         getattr(outputs, attr).append(getattr(prod, attr))
 
             compsep_run.pop("mask", None)
+            if config.return_compsep_products:
+                getattr(outputs, 'settings').append(compsep_run)
 
     del mask_obs, mask_cov
     config.nside_in = nside_in_in
     config.leakage_correction = leak_corr_in
 
     if config.return_compsep_products:
-        for attr in vars(outputs).keys():
-            setattr(outputs, attr, np.array(getattr(outputs, attr)))
+        #for attr in vars(outputs).keys():
+        #    setattr(outputs, attr, np.array(getattr(outputs, attr)))
         return outputs
     return None
 
@@ -697,7 +713,7 @@ def combine_with_weights(config: Configs, data: SimpleNamespace, nsim: Optional[
             - compsep (Dict[str, Any]): List of dictionaries containing the configuration for each component separation method to be run.
             - mask_observations (str): Path to HEALPix mask fits file, if any. Default: None. 
                 It is used to exclude unobserved regions in the alm computation.
-            - mask_covariance (str): Full path to mask used to weight adn/or exclude pixels in component separation. Default: None.
+            - mask_covariance (str): Full path to mask used to weight and/or exclude pixels in component separation. Default: None.
             - leakage_correction (str): Whether to apply EB-leakage correction on input data if 'mask_observations' is provided. Default: None.
             - bring_to_common_resolution (bool): Whether to bring the data to a common angular resolution (correcting for input beams). If False, the data will be used as is. Default: True.
             - pixel_window_in (bool): Whether pixel window is included in the input data. Default: False.
@@ -732,6 +748,8 @@ def combine_with_weights(config: Configs, data: SimpleNamespace, nsim: Optional[
     nside_in_in = config.nside_in
 
     outputs = SimpleNamespace() if config.return_compsep_products else None
+    if config.return_compsep_products:
+        setattr(outputs, 'settings', [])
 
     # Validation of config parameters and data format
     config = _check_data_and_config(config, data, compsep_check=False)
@@ -806,6 +824,8 @@ def combine_with_weights(config: Configs, data: SimpleNamespace, nsim: Optional[
                     getattr(outputs, attr).append(getattr(prod, attr))
 
         compsep_run.pop("mask", None)
+        if config.return_compsep_products:
+            getattr(outputs, 'settings').append(compsep_run)
 
     del mask_obs, mask_cov
     config.nside_in = nside_in_in
@@ -897,23 +917,28 @@ def _standardize_compsep_config(compsep_run: Dict[str, Any], lmax: int, save_pro
         compsep_run['constraints'] = merge_dicts(compsep_run['constraints'])
     
     if compsep_run["method"] in ["mcilc", "mc_ilc", "mc_cilc"]:
-        compsep_run.setdefault("mc_type", "cea_real")
-        if compsep_run["mc_type"] not in ["cea_ideal","cea_real","rp_ideal","rp_real"]:
-            raise ValueError("Invalid value for mc_type. It must be 'cea_ideal', 'cea_real', 'rp_ideal' or 'rp_real'.")
+        if "path_patches" not in compsep_run:
+            compsep_run.setdefault("mc_type", "cea_real")
+            if compsep_run["mc_type"] not in ["cea_ideal","cea_real","rp_ideal","rp_real"]:
+                raise ValueError("Invalid value for mc_type. It must be 'cea_ideal', 'cea_real', 'rp_ideal' or 'rp_real'.")
 
-        if "real" in compsep_run["mc_type"]:
-            if "path_tracers" not in compsep_run or not isinstance(compsep_run["path_tracers"], str):
-                raise ValueError("Path to tracers ('path_tracers') must be provided and a string for methods 'mcilc' and 'mc_ilc'.")
-            compsep_run["path_tracers"] = compsep_run["path_tracers"] if compsep_run["path_tracers"].endswith('/') else compsep_run["path_tracers"] + '/'
+            if "real" in compsep_run["mc_type"]:
+                if "path_tracers" not in compsep_run or not isinstance(compsep_run["path_tracers"], str):
+                    raise ValueError("Path to tracers ('path_tracers') must be provided for methods 'mcilc', 'mc_ilc' and 'mc_cilc' when using as 'mc_type' 'cea_real' or 'rp_real'.")
+                compsep_run["path_tracers"] = compsep_run["path_tracers"] if compsep_run["path_tracers"].endswith('/') else compsep_run["path_tracers"] + '/'
 
-        if "channels_tracers" not in compsep_run:
-            raise ValueError("channels_tracers must be provided for methods 'mcilc' and 'mc_ilc'. It must be a list of two integers corresponding to the indices of the channels you want to use for the tracer.")
-        if (not isinstance(compsep_run["channels_tracers"], list)) or (len(compsep_run["channels_tracers"]) != 2):
-            raise ValueError("channels_tracers must be a list of two integers corresponding to the indices of the channels you want to use for the tracer.")
+            if "channels_tracers" not in compsep_run:
+                raise ValueError("channels_tracers must be provided for methods 'mcilc' and 'mc_ilc'. It must be a list of two integers corresponding to the indices of the channels you want to use for the tracer.")
+            if (not isinstance(compsep_run["channels_tracers"], list)) or (len(compsep_run["channels_tracers"]) != 2):
+                raise ValueError("channels_tracers must be a list of two integers corresponding to the indices of the channels you want to use for the tracer.")
 
+            compsep_run.setdefault("n_patches", 50)
+            compsep_run.setdefault("save_patches", False)
+        else:
+            if not isinstance(compsep_run["path_patches"], str):
+                raise ValueError("path_patches must be a string corresponding to the path where the patches for the MC estimation are saved.")
+                            
         compsep_run.setdefault("reduce_mcilc_bias", True)
-        compsep_run.setdefault("n_patches", 50)
-        compsep_run.setdefault("save_patches", False)
                                     
     compsep_run.setdefault("save_weights", save_products)
 
@@ -1272,27 +1297,70 @@ def _load_outputs(path: str, components:list, field_out: str,
 
     Returns
     -------
-        np.ndarray
+        list of np.ndarray
             Loaded HEALPix map(s) for the specified components.
         
     """
 
     loaded_outputs = []
 
+    if nsim is not None:
+        nsim = _format_nsim(nsim)
+
     if isinstance(components, str):
         components = [components]
     if not isinstance(components, list):
-        raise ValueError("components must be a string or a list of strings.")
+        raise ValueError("components must be a string or a string or a list of strings.")
+
+    if "gilc_" in path or "gpilc_" in path or "gprilc_" in path:
+        if (not all(comp.split('_')[-1] in ["residuals", "total"] for comp in components)) and (not all(comp.split('_')[-1] not in ["residuals", "total"] for comp in components)):
+            raise ValueError("When loading outputs from GILC-based component separation runs, the components either all refer to any frequency channel (e.g ['output_total_40.0GHz','noise_residuals_100.0GHz']) or all must be general(e.g ['output_total','noise_residuals']). In the latter case results for all frequency channels will be loaded and returned. Mixed cases are not allowed.")
 
     for component in components:
-        component_name = component.split('/')[0] if '/' in component else component
-        filename = os.path.join(
-            path,
-            f"{component}/{field_out}_{component_name}_{fwhm_out}acm_ns{nside}_lmax{lmax}"
-        )
-        loaded_outputs.append(_load_outputs_(filename, field_out, nsim=nsim))
+        if "gilc_" in path or "gpilc_" in path or "gprilc_" in path:
+            if component.split('_')[-1] in ["residuals", "total"]:
+                pattern = os.path.join(path,f"{component}")
+                if nsim is not None:
+                    pattern = os.path.join(pattern, nsim)
+                pattern = os.path.join(pattern, f"{field_out}_{component}_*_{fwhm_out}acm_ns{nside}_lmax{lmax}")
+                if nsim is not None:
+                    pattern += f"_{nsim}.fits"
+                else:
+                    pattern += ".fits"
+                filenames = glob.glob(pattern)
+                if not filenames:
+                    raise FileNotFoundError(f"No files found for pattern: {pattern}")
+                else:
+                    if nsim is not None:
+                        loaded_outputs.append([_load_outputs_(filename.split(f"_{nsim}.fits")[0], field_out, nsim=nsim) for filename in filenames])
+                    else:
+                        loaded_outputs.append([_load_outputs_(filename.split(".fits")[0], field_out) for filename in filenames])
+            else:
+                component_name = "_".join(component.split('_')[:-1])
+                filename = os.path.join(path,f"{component_name}")
+                if nsim is not None:
+                    filename = os.path.join(filename, nsim)
+                filename = os.path.join(filename, f"{field_out}_{component}_{fwhm_out}acm_ns{nside}_lmax{lmax}")
+                loaded_outputs.append(_load_outputs_(filename, field_out, nsim=nsim))
+        elif "diagnostic" in path:
+            if "_nl" in component:
+                component_name = component.split('_nl')[0]
+            else:
+                component_name = component
+            filename = os.path.join(path, f"{component_name}")
+            if nsim is not None:
+                filename = os.path.join(filename, nsim)
+            filename = os.path.join(filename, f"{field_out}_{component}_{fwhm_out}acm_ns{nside}_lmax{lmax}")
+            loaded_outputs.append(_load_outputs_(filename, field_out, nsim=nsim))
+        else:
+            component_name = component.split('/')[0] if '/' in component else component
+            filename = os.path.join(
+                path,
+                f"{component}/{field_out}_{component_name}_{fwhm_out}acm_ns{nside}_lmax{lmax}"
+            )
+            loaded_outputs.append(_load_outputs_(filename, field_out, nsim=nsim))
 
-    return np.array(loaded_outputs)
+    return loaded_outputs
 
 
 def _load_outputs_(filename: str, fields: str, nsim: Optional[str] = None) -> np.ndarray:
@@ -1323,6 +1391,8 @@ def _load_outputs_(filename: str, fields: str, nsim: Optional[str] = None) -> np
 
     if nsim is not None:
         filename += f"_{nsim}.fits"
+    else:
+        filename += ".fits"
         
     if fields in ["TEB", "TQU"]:
         return hp.read_map(filename, field=[0,1,2])
@@ -1385,12 +1455,27 @@ def _combine_products(config: Configs, nsim=None):
         if config.return_compsep_products:
             outputs_recomb = SimpleNamespace()
 
+        if not (all("gilc_" in path or "gpilc_" in path or "gprilc_" in path for path in combine_run["paths_fields_in"]) or all("gilc_" not in path and "gpilc_" not in path and "gprilc_" not in path for path in combine_run["paths_fields_in"])):
+            raise ValueError("When combining outputs from GILC-based component separation runs, the paths in 'paths_fields_in' either all refer to GILC-based runs or all not. Mixed cases are not allowed.")
+
+        if all("gilc_" in path or "gpilc_" in path or "gprilc_" in path for path in combine_run["paths_fields_in"]):
+            from_gilc = True
+        else:
+            from_gilc = False
+
         for component in combine_run["components"]:
             if config.save_compsep_products:
-                os.makedirs(os.path.join(config.path_outputs, combine_run["path_out"], component), exist_ok=True)
+                if not from_gilc:
+                    os.makedirs(os.path.join(config.path_outputs, combine_run["path_out"], component), exist_ok=True)
+                else:
+                    if component.split('_')[-1] in ["residuals", "total"]:
+                        os.makedirs(os.path.join(config.path_outputs, combine_run["path_out"], component), exist_ok=True)
+                    else:
+                        os.makedirs(os.path.join(config.path_outputs, combine_run["path_out"], "_".join(component.split('_')[:-1])), exist_ok=True)
         
             outputs = None
-            component_name = component.split('/')[0] if '/' in component else component
+            if not from_gilc:
+                component_name = component.split('/')[0] if '/' in component else component                
 
             for field_in, path in zip(combine_run["fields_in"], combine_run["paths_fields_in"]):
                 path_in = os.path.join(config.path_outputs, path)

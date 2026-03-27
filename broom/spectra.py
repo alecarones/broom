@@ -7,7 +7,7 @@ import sys
 from .routines import obj_out_to_array, _slice_outputs, _format_nsim, _log
 from .configurations import Configs
 from types import SimpleNamespace
-from typing import Optional, Union, Dict, Any
+from typing import Optional, Union, Dict, Any, List
 from .saving import save_spectra, _save_mask, _get_full_path_out
 try:
     import pymaster as nmt
@@ -32,7 +32,7 @@ def _compute_spectra(config: Configs) -> Optional[SimpleNamespace]:
                 - components_for_cls: List of components to compute spectra for.
                 - mask_type: Type of mask to apply (e.g., 'GAL*+fgres', 'GAL*0', 'GAL97', 'GAL99', 'fgres', 'config+fgres', 'config').
                 - apodize_mask: Type of apodization to apply to the mask (e.g., 'gaussian', 'C1'). If None, no apodization is applied.
-                - smooth_mask: Apodization scale for the mask in degrees. Default is 5 degrees.
+                - apodize_scale: Apodization scale for the mask in degrees. Default is 5 degrees.
                 - nmt_purify_B: Whether to purify B modes when using NaMaster. Default is True.
                 - nmt_purify_E: Whether to purify E modes when using NaMaster. Default is False.
                 - smooth_tracer: Smoothing scale for the tracer in degrees, used when mask_type contains 'fgres'. Default is 3 degrees.
@@ -40,6 +40,8 @@ def _compute_spectra(config: Configs) -> Optional[SimpleNamespace]:
             - spectra_comp: Method to compute the spectra, either 'anafast' or 'namaster'.
             - return_Dell: Whether to return the spectra as D_ell or C_ell. Default is False (returns C_ell).
             - field_cls_out: Fields of the spectra to compute. 
+                            List which can include any of 'TT', 'EE', 'BB', 'TE', 'TB', 'EB'. 
+                            If a single string is provided, it will be converted to a list with one element. 
             - save_spectra: Whether to save the computed spectra to files. Default is True.
             - path_outputs: Path where computed spectra will be saved.
             - return_spectra: Whether to return the computed spectra as a SimpleNamespace object. Default is True.
@@ -76,7 +78,6 @@ def _compute_spectra(config: Configs) -> Optional[SimpleNamespace]:
 def _compute_spectra_(
     config: Configs, 
     outputs: Optional[SimpleNamespace] = None,
-    outputs_type: Optional[str] = None,
     nsim: Optional[Union[int, str]] = None
 ) -> Optional[SimpleNamespace]:
     """
@@ -89,9 +90,6 @@ def _compute_spectra_(
         outputs : SimpleNamespace, optional
             Object containing the outputs of component separation for a single simulation. If None, it will be loaded from disk based on 
             the paths specified in the compute_spectra dictionaries in config.
-        outputs_type : str, optional
-            Type of outputs provided in the outputs argument, either 'compsep', 'residuals_estimate' or 'compsep_propagate'.
-            If None, it will be inferred from the lenght of the outputs object, if possible.
         nsim : int or str, optional
             Simulation number to compute spectra for. If an integer, it will be zero-padded to 5 digits.
             Default is None, which means it will look for outputs with no label regarding simulation number.
@@ -106,6 +104,11 @@ def _compute_spectra_(
 
     nsim = _format_nsim(nsim)
 
+    if not hasattr(config, 'field_cls_out'):
+        raise ValueError('config must contain a "field_cls_out" attribute specifying the fields of the spectra to compute. It can be either a string or a list of strings, with any of "TT", "EE", "BB", "TE", "TB", "EB".')
+    if config.field_cls_out is None:
+        raise ValueError('config.field_cls_out cannot be None. It must specify the fields of the spectra to compute. It can be either a string or a list of strings, with any of "TT", "EE", "BB", "TE", "TB", "EB".')
+
     if config.spectra_comp not in ['anafast','namaster']:
         raise ValueError('spectra_comp must be either "anafast" or "namaster"')
 
@@ -114,33 +117,30 @@ def _compute_spectra_(
     load_outputs = outputs is None
 
     if not load_outputs:
-        if outputs_type is not None:
-            if outputs_type not in ['compsep', 'residuals_estimate', 'compsep_propagate']:
-                raise ValueError('outputs_type must be either "compsep", "residuals_estimate" or "compsep_propagate"')
-        else:
-            outputs_type = 'compsep' if hasattr(config, 'compsep') and config.compsep is not None and len(config.compsep) > 0 else None
-            if outputs_type is None:
-                outputs_type = 'residuals_estimate' if hasattr(config, 'compsep_residuals') and config.compsep_residuals is not None and len(config.compsep_residuals) > 0 else None
-                if outputs_type is None:
-                    outputs_type = 'compsep_propagate' if hasattr(config, 'compsep_propagate') and config.compsep_propagate is not None and len(config.compsep_propagate) > 0 else None
-                    if outputs_type is None:
-                        raise ValueError('Could not infer outputs_type from config. Please provide outputs_type argument and make sure config contains either compsep, compsep_residuals or compsep_propagate attribute with non-empty list of dictionaries.')
+        outputs_type = None
+
+        if not hasattr(outputs, 'settings'):
+            raise ValueError('If outputs are provided, they must contain a "settings" attribute with the used configuration settings. This is necessary to infer the type of outputs and how to use them for spectra computation. Please make sure the provided outputs are coming from one among the following functions: component_separation, estimate_residuals or combine_with_weights.')
+        if len(outputs.settings) == 0:
+            raise ValueError('If outputs are provided, the "settings" attribute must be a non-empty list containing the configuration settings used for the component separation runs. This is necessary to infer the type of outputs and how to use them for spectra computation. Please make sure the provided outputs are coming from one among the following functions: component_separation, estimate_residuals or combine_with_weights, which should have a "settings" attribute with the used configuration settings.')
+
+        if all(('method' in outputs.settings[i]) for i in range(len(outputs.settings))):
+            outputs_type = 'compsep' 
+        if all(('gilc_components' in outputs.settings[i]) for i in range(len(outputs.settings))):
+            outputs_type = 'residuals_estimate'
+        elif all(('compsep_path' in outputs.settings[i]) for i in range(len(outputs.settings))):
+            outputs_type = 'compsep_propagate' 
+            
+        if outputs_type is None:
+            raise ValueError('Could not infer outputs_type from outputs.settings. Please make sure the provided outputs are coming from one among the following functions: component_separation, estimate_residuals or combine_with_weights, which should have a "settings" attribute with the used configuration settings.')
 
         if outputs_type == 'compsep':
-            if not hasattr(config, 'compsep') or config.compsep is None or len(config.compsep) == 0:
-                raise ValueError('If outputs_type is "compsep", config must contain a non-empty compsep attribute.')
             idx_runs = []
-            for i in range(len(config.compsep)):
-                if config.compsep[i]["method"] not in ["fgd_diagnostic", "fgd_P_diagnostic"]:
+            for i in range(len(outputs.settings)):
+                if outputs.settings[i]["method"] not in ["fgd_diagnostic", "fgd_P_diagnostic"]:
                     idx_runs.append(i)
-        elif outputs_type == 'residuals_estimate':
-            if not hasattr(config, 'compsep_residuals') or config.compsep_residuals is None or len(config.compsep_residuals) == 0:
-                raise ValueError('If outputs_type is "residuals_estimate", config must contain a non-empty compsep_residuals attribute.')
-            idx_runs = range(len(config.compsep_residuals))
-        elif outputs_type == 'compsep_propagate':
-            if not hasattr(config, 'compsep_propagate') or config.compsep_propagate is None or len(config.compsep_propagate) == 0:
-                raise ValueError('If outputs_type is "compsep_propagate", config must contain a non-empty compsep_propagate attribute.')
-            idx_runs = range(len(config.compsep_propagate))
+        else:
+            idx_runs = range(len(outputs.settings))
     
         n_runs = len(idx_runs)
         if (n_runs > 1) and (len(config.compute_spectra) > 1):
@@ -229,7 +229,7 @@ def _standardize_compute_cls(config: Configs, compute_cls: Dict[str, Any], load_
     compute_cls.setdefault("apodize_mask", None)
 
     if compute_cls["apodize_mask"] is not None:
-        compute_cls.setdefault("smooth_mask", 5.)
+        compute_cls.setdefault("apodize_scale", 5.)
 
     if compute_cls["mask_type"] is not None and "fgres" in compute_cls["mask_type"]:
         compute_cls.setdefault("smooth_tracer", 3.0)
@@ -279,6 +279,21 @@ def _cls_from_config(
 
     compute_cls["outputs"] = SimpleNamespace()  
 
+    ordered_cls = ["TT", "EE", "BB", "TE", "TB", "EB"]
+
+    if isinstance(config.field_cls_out, str):
+        if config.field_cls_out not in ordered_cls:
+            raise ValueError(f"field_cls_out must be one of {ordered_cls} if it is a string.")
+        else:
+            config.field_cls_out = [config.field_cls_out]
+    elif isinstance(config.field_cls_out, list):
+        for field_cls_ in config.field_cls_out:
+            if field_cls_ not in ordered_cls:
+                raise ValueError(f"All elements of field_cls_out must be one of {ordered_cls}.")
+        
+        config.field_cls_out = sorted(config.field_cls_out, key=lambda x: ordered_cls.index(x))
+
+
     _check_fields_for_cls(compute_cls["field_out"],config.field_cls_out)
     compute_cls["field_cls_in"] = _get_fields_in_for_cls(compute_cls["field_out"],config.field_cls_out)
     
@@ -302,7 +317,7 @@ def _cls_from_config(
                             compute_cls["path"],
                             f"{component_name}/{compute_cls['field_out']}_{component_name}_{component.split('_')[-1]}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}"
                         )
-                    component_name = component
+                    component_name = component.replace(".", "p")
                 else:
                     component_name = component.split('/')[0] if '/' in component else component
                     filename = os.path.join(
@@ -333,9 +348,9 @@ def _cls_from_config(
                                     f"{component_name_}/{compute_cls['field_out']}_{component_name_}_{component_.split('_')[-1]}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}"
                                 ))
                             if idx == 0:
-                                component_name = component_
+                                component_name = component_.replace(".", "p")
                             elif idx == 1:
-                                component_name += f"_x_{component_}"
+                                component_name += f"_x_{component_.replace('.', 'p')}"
                         else:
                             component_name_ = component_.split('/')[0] if '/' in component_ else component_
                             filenames.append(os.path.join(
@@ -388,37 +403,46 @@ def _cls_from_config(
             all_components = False
 
         if compute_cls["outputs_type"] == 'compsep':
-            compute_cls["path"] = _get_full_path_out(config, config.compsep[idx_out])
+            compute_cls["path"] = _get_full_path_out(config, outputs.settings[idx_out])
 
         elif compute_cls["outputs_type"] == 'residuals_estimate':
-            compute_cls["path"] = os.path.join(config.path_outputs, config.compsep_residuals[idx_out]["compsep_path"])
+            if not ('compsep_path' in outputs.settings[idx_out]) or not ('gilc_path' in outputs.settings[idx_out]):
+                raise ValueError('For outputs of type "residuals_estimate", outputs.settings must contain both "compsep_path" and "gilc_path" attributes. Please make sure the provided outputs are coming from the estimate_residuals function, which should have a "settings" attribute with the used configuration settings including "compsep_path" and "gilc_path".')
 
-            if "gilc_" in config.compsep_residuals[idx_out]["gilc_path"]:
-                gnilc_run = (re.search(r'(gilc_[^/]+)', config.compsep_residuals[idx_out]["gilc_path"])).group(1)
-            elif "gpilc_" in config.compsep_residuals[idx_out]["gilc_path"]:
-                gnilc_run = (re.search(r'(gpilc_[^/]+)', config.compsep_residuals[idx_out]["gilc_path"])).group(1)        
-            elif "gprilc_" in config.compsep_residuals[idx_out]["gilc_path"]:
-                gnilc_run = (re.search(r'(gprilc_[^/]+)', config.compsep_residuals[idx_out]["gilc_path"])).group(1)        
+            compute_cls["path"] = os.path.join(config.path_outputs, outputs.settings[idx_out]["compsep_path"])
+
+            if "gilc_" in outputs.settings[idx_out]["gilc_path"]:
+                gnilc_run = (re.search(r'(gilc_[^/]+)', outputs.settings[idx_out]["gilc_path"])).group(1)
+            elif "gpilc_" in outputs.settings[idx_out]["gilc_path"]:
+                gnilc_run = (re.search(r'(gpilc_[^/]+)', outputs.settings[idx_out]["gilc_path"])).group(1)        
+            elif "gprilc_" in outputs.settings[idx_out]["gilc_path"]:
+                gnilc_run = (re.search(r'(gprilc_[^/]+)', outputs.settings[idx_out]["gilc_path"])).group(1)        
             if "needlet" in gnilc_run:
-                folder_after = (config.compsep_residuals[idx_out]["gilc_path"]).split(gnilc_run + "/")[1].split("/")[0]
+                folder_after = (outputs.settings[idx_out]["gilc_path"]).split(gnilc_run + "/")[1].split("/")[0]
                 gnilc_run += f"_{folder_after}"
 
         elif compute_cls["outputs_type"] == 'compsep_propagate':
-            compute_cls["path"] = os.path.join(config.path_outputs, config.compsep_propagate[idx_out]["compsep_path"])
+            if not ('compsep_path' in outputs.settings[idx_out]):
+                raise ValueError('For outputs of type "compsep_propagate", outputs.settings must contain a "compsep_path" attribute. Please make sure the provided outputs are coming from the combine_with_weights function, which should have a "settings" attribute with the used configuration settings including "compsep_path".')
+
+            compute_cls["path"] = os.path.join(config.path_outputs, outputs.settings[idx_out]["compsep_path"])
 
 
         if all_components:
             for component, array in vars(outputs).items():
+                if component in ["settings", "m"]:
+                    continue
+
                 if compute_cls["outputs_type"] == 'compsep':
                     if "total" in component:
                         component_name = f"output_{component}"
                     elif "cmb" in component:
-                        if config.compsep[idx_out]["component_out"] == "cmb":
+                        if outputs.settings[idx_out]["component_out"] == "cmb":
                             component_name = f"output_{component}"
                         else:
                             component_name = f"{component}_residuals"
                     elif "tsz" in component:
-                        if config.compsep[idx_out]["component_out"] == "tsz":
+                        if outputs.settings[idx_out]["component_out"] == "tsz":
                             component_name = f"output_{component}"
                         else:
                             component_name = f"{component}_residuals"
@@ -440,20 +464,20 @@ def _cls_from_config(
                 array = np.array(array[idx_cs])
 
                 if compute_cls["outputs_type"] == 'compsep':
-                    if config.compsep[idx_out]["method"] in ["gilc", "gpilc", "gprilc"]:
+                    if outputs.settings[idx_out]["method"] in ["gilc", "gpilc", "gprilc"]:
                         for idx_f in range(array.shape[0]):
-                            component_name_ = f"{component_name}_{config.instrument.channels_tags[config.compsep[idx_out]['channels_out'][idx_f]]}"
+                            component_name_ = f"{component_name}_{config.instrument.channels_tags[outputs.settings[idx_out]['channels_out'][idx_f]]}"
                             compute_cls["components_for_cls"].append(component_name_)
-                            setattr(compute_cls["outputs"], component_name_, array[idx_f])
+                            setattr(compute_cls["outputs"], component_name_.replace(".", "p"), array[idx_f])
                     else:
                         compute_cls["components_for_cls"].append(component_name)
                         setattr(compute_cls["outputs"], component_name, array)
                 elif compute_cls["outputs_type"] == 'compsep_propagate':
-                    if "gilc_" in config.compsep_propagate[idx_out]["compsep_path"] or "gpilc_" in config.compsep_propagate[idx_out]["compsep_path"] or "gprilc_" in config.compsep_propagate[idx_out]["compsep_path"]:
+                    if "gilc_" in outputs.settings[idx_out]["compsep_path"] or "gpilc_" in outputs.settings[idx_out]["compsep_path"] or "gprilc_" in outputs.settings[idx_out]["compsep_path"]:
                         for idx_f in range(array.shape[0]):
-                            component_name_ = f"{component_name}_{config.instrument.channels_tags[config.compsep_propagate[idx_out]['channels_out'][idx_f]]}"
+                            component_name_ = f"{component_name}_{config.instrument.channels_tags[outputs.settings[idx_out]['channels_out'][idx_f]]}"
                             compute_cls["components_for_cls"].append(component_name_)
-                            setattr(compute_cls["outputs"], component_name_, array[idx_f])
+                            setattr(compute_cls["outputs"], component_name_.replace(".", "p"), array[idx_f])
                     else:
                         compute_cls["components_for_cls"].append(component_name)
                         setattr(compute_cls["outputs"], component_name, array)
@@ -478,7 +502,7 @@ def _cls_from_config(
                             component_name = component.split('_residuals')[0]
                     elif compute_cls["outputs_type"] == 'compsep_propagate':
                         component_name = component.split('propagated_')[1]
-                        if "gilc_" in config.compsep_propagate[idx_out]["compsep_path"] or "gpilc_" in config.compsep_propagate[idx_out]["compsep_path"] or "gprilc_" in config.compsep_propagate[idx_out]["compsep_path"]:
+                        if "gilc_" in outputs.settings[idx_out]["compsep_path"] or "gpilc_" in outputs.settings[idx_out]["compsep_path"] or "gprilc_" in outputs.settings[idx_out]["compsep_path"]:
                             if component.split('_')[-1] in config.instrument.channels_tags:
                                 component_name = component_name.split(f"_{component_name.split('_')[-1]}")[0]
                     elif compute_cls["outputs_type"] == 'residuals_estimate':
@@ -497,30 +521,30 @@ def _cls_from_config(
                     array = np.array(getattr(outputs, component_name)[idx_cs])
 
                     if compute_cls["outputs_type"] == 'compsep':
-                        if config.compsep[idx_out]["method"] in ["gilc", "gpilc", "gprilc"]:
+                        if outputs.settings[idx_out]["method"] in ["gilc", "gpilc", "gprilc"]:
                             if component.split('_')[-1] in config.instrument.channels_tags:
                                 idx_f = config.instrument.channels_tags.index(component.split('_')[-1])
-                                if idx_f in config.compsep[idx_out]['channels_out']:
-                                    setattr(compute_cls["outputs"], component, array[config.compsep[idx_out]['channels_out'].index(idx_f)])
+                                if idx_f in outputs.settings[idx_out]['channels_out']:
+                                    setattr(compute_cls["outputs"], component.replace(".", "p"), array[outputs.settings[idx_out]['channels_out'].index(idx_f)])
                                 else:
-                                    raise ValueError(f"Channel {component.split('_')[-1]} not found in channels_out of config.compsep[{idx_out}].")
+                                    raise ValueError(f"Channel {component.split('_')[-1]} not found in channels_out of outputs.settings[{idx_out}].")
                             else:
-                                raise ValueError(f"Component {component} in compute_cls['components_for_cls'] is not in the correct format for method {config.compsep[idx_out]['method']}.")
+                                raise ValueError(f"Component {component} in compute_cls['components_for_cls'] is not in the correct format for method {outputs.settings[idx_out]['method']}.")
 #                                for idx_f in range(array.shape[0]):
 #                                    component_name = f"{component}_{config.instrument.channels_tags[config.compsep[idx_out]['channels_out'][idx_f]]}"
 #                                    setattr(compute_cls["outputs"], component_name, array[idx_f])
                         else:
                             setattr(compute_cls["outputs"], component, array)
                     elif compute_cls["outputs_type"] == 'compsep_propagate':
-                        if "gilc_" in config.compsep_propagate[idx_out]["compsep_path"] or "gpilc_" in config.compsep_propagate[idx_out]["compsep_path"] or "gprilc_" in config.compsep_propagate[idx_out]["compsep_path"]:
+                        if "gilc_" in outputs.settings[idx_out]["compsep_path"] or "gpilc_" in outputs.settings[idx_out]["compsep_path"] or "gprilc_" in outputs.settings[idx_out]["compsep_path"]:
                             if component.split('_')[-1] in config.instrument.channels_tags:
                                 idx_f = config.instrument.channels_tags.index(component.split('_')[-1])
-                                if idx_f in config.compsep_propagate[idx_out]['channels_out']:
-                                    setattr(compute_cls["outputs"], component, array[config.compsep_propagate[idx_out]['channels_out'].index(idx_f)])
+                                if idx_f in outputs.settings[idx_out]['channels_out']:
+                                    setattr(compute_cls["outputs"], component.replace(".", "p"), array[outputs.settings[idx_out]['channels_out'].index(idx_f)])
                                 else:
-                                    raise ValueError(f"Channel {component.split('_')[-1]} not found in channels_out of config.compsep_propagate[{idx_out}].")
+                                    raise ValueError(f"Channel {component.split('_')[-1]} not found in channels_out of outputs.settings[{idx_out}].")
                             else:
-                                raise ValueError(f"Component {component} in compute_cls['components_for_cls'] is not in the correct format for method {config.compsep_propagate[idx_out]['method']}.")
+                                raise ValueError(f"Component {component} in compute_cls['components_for_cls'] should end with a channel tag for the chosen propagation")
 #                            else:
 #                                for idx_f in range(array.shape[0]):
 #                                    component_name = f"{component}_{config.instrument.channels_tags[config.compsep_propagate[idx_out]['channels_out'][idx_f]]}"
@@ -538,7 +562,7 @@ def _cls_from_config(
                         if '/' in component[1]:
                             component[1] = component[1].split('/')[0]
 
-                        component_name = f"{component[0]}_x_{component[1]}"
+                        component_name = f"{component[0].replace('.', 'p')}_x_{component[1].replace('.', 'p')}"
                         setattr(
                             compute_cls["outputs"],
                             component_name,
@@ -561,7 +585,7 @@ def _cls_from_config(
                                     component_name_ = component_.split('_residuals')[0]
                             elif compute_cls["outputs_type"] == 'compsep_propagate':
                                 component_name_ = component_.split('propagated_')[1]
-                                if "gilc_" in config.compsep_propagate[idx_out]["compsep_path"] or "gpilc_" in config.compsep_propagate[idx_out]["compsep_path"] or "gprilc_" in config.compsep_propagate[idx_out]["compsep_path"]:
+                                if "gilc_" in outputs.settings[idx_out]["compsep_path"] or "gpilc_" in outputs.settings[idx_out]["compsep_path"] or "gprilc_" in outputs.settings[idx_out]["compsep_path"]:
                                     if component_.split('_')[-1] in config.instrument.channels_tags:
                                         component_name_ = component_name_.split(f"_{component_name_.split('_')[-1]}")[0]
                             elif compute_cls["outputs_type"] == 'residuals_estimate':
@@ -577,27 +601,27 @@ def _cls_from_config(
                             array = np.array(getattr(outputs, component_name_)[idx_cs])
 
                             if compute_cls["outputs_type"] == 'compsep':
-                                if config.compsep[idx_out]["method"] in ["gilc", "gpilc", "gprilc"]:
+                                if outputs.settings[idx_out]["method"] in ["gilc", "gpilc", "gprilc"]:
                                     if component_.split('_')[-1] in config.instrument.channels_tags:
                                         idx_f = config.instrument.channels_tags.index(component_.split('_')[-1])
-                                        if idx_f in config.compsep[idx_out]['channels_out']:
-                                            getattr(compute_cls["outputs"], component_name).append(array[config.compsep[idx_out]['channels_out'].index(idx_f)])
+                                        if idx_f in outputs.settings[idx_out]['channels_out']:
+                                            getattr(compute_cls["outputs"], component_name).append(array[outputs.settings[idx_out]['channels_out'].index(idx_f)])
                                         else:
-                                            raise ValueError(f"Channel {component_.split('_')[-1]} not found in channels_out of config.compsep[{idx_out}].")
+                                            raise ValueError(f"Channel {component_.split('_')[-1]} not found in channels_out of outputs.settings[{idx_out}].")
                                     else:
-                                        raise ValueError(f"Component {component_} in compute_cls['components_for_cls'] is not in the correct format for method {config.compsep[idx_out]['method']}.")
+                                        raise ValueError(f"Component {component_} in compute_cls['components_for_cls'] should end with a channel tag for {outputs.settings[idx_out]['method']}")
                                 else:
                                     getattr(compute_cls["outputs"], component_name).append(array)
                             elif compute_cls["outputs_type"] == 'compsep_propagate':
-                                if "gilc_" in config.compsep_propagate[idx_out]["compsep_path"] or "gpilc_" in config.compsep_propagate[idx_out]["compsep_path"] or "gprilc_" in config.compsep_propagate[idx_out]["compsep_path"]:
+                                if "gilc_" in outputs.settings[idx_out]["compsep_path"] or "gpilc_" in outputs.settings[idx_out]["compsep_path"] or "gprilc_" in outputs.settings[idx_out]["compsep_path"]:
                                     if component_.split('_')[-1] in config.instrument.channels_tags:
                                         idx_f = config.instrument.channels_tags.index(component_.split('_')[-1])
-                                        if idx_f in config.compsep_propagate[idx_out]['channels_out']:
-                                            getattr(compute_cls["outputs"], component_name).append(array[config.compsep_propagate[idx_out]['channels_out'].index(idx_f)])
+                                        if idx_f in outputs.settings[idx_out]['channels_out']:
+                                            getattr(compute_cls["outputs"], component_name).append(array[outputs.settings[idx_out]['channels_out'].index(idx_f)])
                                         else:
-                                            raise ValueError(f"Channel {component_.split('_')[-1]} not found in channels_out of config.compsep_propagate[{idx_out}].")
+                                            raise ValueError(f"Channel {component_.split('_')[-1]} not found in channels_out of outputs.settings[{idx_out}].")
                                     else:
-                                        raise ValueError(f"Component {component_} in compute_cls['components_for_cls'] is not in the correct format for method {config.compsep_propagate[idx_out]['method']}.")
+                                        raise ValueError(f"Component {component_} in compute_cls['components_for_cls'] should end with a channel tag for the chosen propagation")
                                 else:
                                     getattr(compute_cls["outputs"], component_name).append(array)
                             elif compute_cls["outputs_type"] == 'residuals_estimate':
@@ -682,7 +706,7 @@ def _cls_from_maps(
             compute_cls["mask"] = _smooth_masks(
                 compute_cls["mask"],
                 compute_cls["apodize_mask"],
-                compute_cls["smooth_mask"]
+                compute_cls["apodize_scale"]
             )
 
     cls_out = _get_cls(config, compute_cls, nsim=nsim)
@@ -810,6 +834,27 @@ def _get_cls(config: Configs, compute_cls, nsim=None):
     else:
         mask_in_maps = None
 
+    if any(x in ["TT", "EE", "BB"] for x in config.field_cls_out):
+        fields_auto = []
+        if "TT" in config.field_cls_out:
+            fields_auto.append(0)
+        if "EE" in config.field_cls_out:
+            if any(x in ["TT", "TE", "TB"] for x in config.field_cls_out):
+                fields_auto.append(1)
+            else:
+                fields_auto.append(0)
+        if "BB" in config.field_cls_out:
+            if any(x in ["TT", "TE", "TB"] for x in config.field_cls_out):
+                if any(x in ["EE", "EB", "TE"] for x in config.field_cls_out):
+                    fields_auto.append(2)
+                else:
+                    fields_auto.append(1)
+            elif any(x in ["EE", "EB"] for x in config.field_cls_out):
+                fields_auto.append(1)
+            else:
+                fields_auto.append(0)
+    
+
     for idx, attr in enumerate(vars(compute_cls["outputs"])):
         output_data = getattr(compute_cls["outputs"], attr)
 
@@ -821,18 +866,19 @@ def _get_cls(config: Configs, compute_cls, nsim=None):
                     getattr(cls_out, attr).append(compute_namaster_cross_scalars(output_data[0], output_data[1], compute_cls["mask"], compute_cls["mask"], bls_beam[0], bls_beam[0], compute_cls["field_cls_in"], compute_cls["field_cls_in"]))
             else:
                 if 'QU' not in compute_cls["field_cls_in"]:
-                    for field in range(output_data.shape[0]):
-                        if config.spectra_comp == 'anafast':
-                            getattr(cls_out, attr).append(compute_anafast_cross_scalars(
-                                output_data[field,0],  output_data[field,1], compute_cls["mask"][field], compute_cls["mask"][field], 
-                                bls_beam[field], bls_beam[field]))
-                        else:
-                            getattr(cls_out, attr).append(compute_namaster_cross_scalars(
-                            output_data[field,0], output_data[field,1], compute_cls["mask"][field], compute_cls["mask"][field],
-                            bls_beam[field], bls_beam[field], compute_cls["field_cls_in"][field], compute_cls["field_cls_in"][field]
-                            ))
+                    if any(x in config.field_cls_out for x in ["TT", "EE", "BB"]):
+                        for field in fields_auto:
+                            if config.spectra_comp == 'anafast':
+                                getattr(cls_out, attr).append(compute_anafast_cross_scalars(
+                                    output_data[field,0],  output_data[field,1], compute_cls["mask"][field], compute_cls["mask"][field], 
+                                    bls_beam[field], bls_beam[field]))
+                            else:
+                                getattr(cls_out, attr).append(compute_namaster_cross_scalars(
+                                output_data[field,0], output_data[field,1], compute_cls["mask"][field], compute_cls["mask"][field],
+                                bls_beam[field], bls_beam[field], compute_cls["field_cls_in"][field], compute_cls["field_cls_in"][field]
+                                ))
                     
-                    if "EETE" in config.field_cls_out or "BBTE" in config.field_cls_out:
+                    if "TE" in config.field_cls_out:
                         if config.spectra_comp == 'anafast':
                             mask_ =  compute_cls["mask"][1] if np.mean(np.ceil(compute_cls["mask"][0])) > np.mean(np.ceil(compute_cls["mask"][1])) else compute_cls["mask"][0]
                             getattr(cls_out, attr).append(compute_anafast_cross_scalars(
@@ -843,8 +889,8 @@ def _get_cls(config: Configs, compute_cls, nsim=None):
                                 bls_beam[0], bls_beam[1], compute_cls["field_cls_in"][0], compute_cls["field_cls_in"][1]
                             ))
                     
-                    if "BBEB" in config.field_cls_out or "BTEEB" in config.field_cls_out:
-                        field_E, field_B = (1, 2) if "T" in compute_cls["field_cls_in"] else (0, 1)
+                    if "EB" in config.field_cls_out:
+                        field_E, field_B = (1, 2) if any(x in config.field_cls_out for x in ["TT", "TE", "TB"]) else (0, 1)
                         if config.spectra_comp == 'anafast':
                             mask_ =  compute_cls["mask"][field_B] if np.mean(np.ceil(compute_cls["mask"][field_E])) > np.mean(np.ceil(compute_cls["mask"][field_B])) else compute_cls["mask"][field_E]
                             getattr(cls_out, attr).append(
@@ -856,8 +902,8 @@ def _get_cls(config: Configs, compute_cls, nsim=None):
                                 bls_beam[field_E], bls_beam[field_B], compute_cls["field_cls_in"][field_E], compute_cls["field_cls_in"][field_B]
                             ))
 
-                    if "BBTB" in config.field_cls_out or "EBTB" in config.field_cls_out:
-                        field_B = 2 if "E" in compute_cls["field_cls_in"] else 1
+                    if "TB" in config.field_cls_out:
+                        field_B = 2 if any(x in config.field_cls_out for x in ["EE", "TE", "EB"]) else 1
                         if config.spectra_comp == 'anafast':
                             mask_ =  compute_cls["mask"][field_B] if np.mean(np.ceil(compute_cls["mask"][0])) > np.mean(np.ceil(compute_cls["mask"][field_B])) else compute_cls["mask"][0]
                             getattr(cls_out, attr).append(compute_anafast_cross_scalars(
@@ -870,21 +916,28 @@ def _get_cls(config: Configs, compute_cls, nsim=None):
                 else:
                     if "T" in compute_cls["field_cls_in"]:
                         field_Q = 1
-                        field_B = 1 if "EE" not in config.field_cls_out else 2 if "BB" in config.field_cls_out else None
-                        field_E = 1 if "EE" in config.field_cls_out else None
+                        if any(x in config.field_cls_out for x in ["BB", "EB", "TB"]):
+                            field_B = 1 if not any(x in config.field_cls_out for x in ["EE", "TE", "EB"]) else 2 
+                        else: 
+                            field_B = None
+                        field_E = 1 if any(x in config.field_cls_out for x in ["EE", "TE", "EB"]) else None
                         beam_nmt = bls_beam[0]
                         T_map, Q_map, U_map = output_data[0], output_data[1], output_data[2]
                     else:
                         mask_ =  compute_cls["mask"][0]
                         field_Q = 0
-                        field_B = 0 if "EE" not in config.field_cls_out else 1 if "BB" in config.field_cls_out else None
-                        field_E = 0 if "EE" in config.field_cls_out else None
+                        if any(x in config.field_cls_out for x in ["BB", "EB", "TB"]):
+                            field_B = 0 if not any(x in config.field_cls_out for x in ["EE", "TE", "EB"]) else 1
+                        else:
+                            field_B = None
+                        field_E = 0 if any(x in config.field_cls_out for x in ["EE", "TE", "EB"]) else None
                         beam_nmt = hp.gauss_beam(np.radians(config.fwhm_out/60.), lmax=config.lmax, pol=False)
                         if config.pixel_window_out:
                             beam_nmt *= hp.pixwin(config.nside, lmax=config.lmax, pol=False)
                         T_map, Q_map, U_map = np.zeros_like(output_data[0]), output_data[0], output_data[1]
 
-                    get_cross = any(x in config.field_cls_out for x in ["EETE", "BBTE", "BBEB", "BTEEB", "BBTB", "EBTB"])
+                    get_cross = any(x in config.field_cls_out for x in ["TE", "EB", "TB"])
+
                     if config.spectra_comp == 'anafast':
                         cls_s2 = compute_anafast_full_TQU(
                             T_map, Q_map, U_map,
@@ -898,24 +951,29 @@ def _get_cls(config: Configs, compute_cls, nsim=None):
                         if "BB" in config.field_cls_out:
                             getattr(cls_out, attr).append(cls_s2[2])
                         if get_cross:
-                            if "EETE" in config.field_cls_out or "BBTE" in config.field_cls_out:
+                            if "TE" in config.field_cls_out:
                                 getattr(cls_out, attr).append(cls_s2[3])
-                            if "BBEB" in config.field_cls_out or "BTEEB" in config.field_cls_out:
+                            if "EB" in config.field_cls_out:
                                 getattr(cls_out, attr).append(cls_s2[4])
-                            if "BBTB" in config.field_cls_out or "EBTB" in config.field_cls_out:
+                            if "TB" in config.field_cls_out:
                                 getattr(cls_out, attr).append(cls_s2[5])
                     elif config.spectra_comp == 'namaster':
-                        if "TT" in config.field_cls_out:
+                        if any(x in config.field_cls_out for x in ["TT", "TE", "TB"]):
                             f_0_0 = nmt.NmtField(compute_cls["mask"][0], [T_map[0]], beam=bls_beam[0],lmax=config.lmax,lmax_mask=config.lmax)
-                            f_0_1 = nmt.NmtField(compute_cls["mask"][0], [T_map[1]], beam=bls_beam[0],lmax=config.lmax,lmax_mask=config.lmax)
                             if idx==0:
                                 if mask_in_maps is not None:
                                     f_0_0_w = nmt.NmtField(compute_cls["mask"][0] * mask_in_maps, [T_map[0]], beam=bls_beam[0], lmax=config.lmax, lmax_mask=config.lmax)
+
+                        if "TT" in config.field_cls_out:
+                            f_0_1 = nmt.NmtField(compute_cls["mask"][0], [T_map[1]], beam=bls_beam[0],lmax=config.lmax,lmax_mask=config.lmax)
+                            if idx==0:
+                                if mask_in_maps is not None:
                                     f_0_1_w = nmt.NmtField(compute_cls["mask"][0] * mask_in_maps, [T_map[1]], beam=bls_beam[0], lmax=config.lmax, lmax_mask=config.lmax)
                                     w00 = nmt.NmtWorkspace.from_fields(f_0_0_w, f_0_1_w, b_bin)
                                 else:
                                     w00 = nmt.NmtWorkspace.from_fields(f_0_0, f_0_1, b_bin)
                             getattr(cls_out, attr).append((nmt.compute_full_master(f_0_0, f_0_1, b_bin, workspace=w00))[0])
+
                         f2_0 = nmt.NmtField(compute_cls["mask"][field_Q], [Q_map[0], U_map[0]], purify_b=compute_cls["nmt_purify_B"], purify_e=compute_cls["nmt_purify_E"], beam=beam_nmt, lmax=config.lmax, lmax_mask=config.lmax)
                         f2_1 = nmt.NmtField(compute_cls["mask"][field_Q], [Q_map[1], U_map[1]], purify_b=compute_cls["nmt_purify_B"], purify_e=compute_cls["nmt_purify_E"], beam=beam_nmt, lmax=config.lmax, lmax_mask=config.lmax)
                         if idx==0:
@@ -932,17 +990,17 @@ def _get_cls(config: Configs, compute_cls, nsim=None):
                             getattr(cls_out, attr).append(w22.decouple_cell(nmt.compute_coupled_cell(f2_0, f2_1))[0])
                         if "BB" in config.field_cls_out:
                             getattr(cls_out, attr).append(w22.decouple_cell(nmt.compute_coupled_cell(f2_0, f2_1))[3])
-                        if ("EETE" in config.field_cls_out or "BBTE" in config.field_cls_out) or ("BBTB" in config.field_cls_out or "EBTB" in config.field_cls_out):
+                        if any(x in config.field_cls_out for x in ["TE", "TB"]):
                             if idx==0:
                                 if mask_in_maps is not None:
                                     w02 = nmt.NmtWorkspace.from_fields(f_0_0_w, f2_1_w, b_bin)
                                 else:
                                     w02 = nmt.NmtWorkspace.from_fields(f_0_0, f2_1, b_bin)
-                        if "EETE" in config.field_cls_out or "BBTE" in config.field_cls_out:
+                        if "TE" in config.field_cls_out:
                             getattr(cls_out, attr).append(w02.decouple_cell(nmt.compute_coupled_cell(f_0_0, f2_1))[0])
-                        if "BBEB" in config.field_cls_out or "BTEEB" in config.field_cls_out:
+                        if "EB" in config.field_cls_out:
                             getattr(cls_out, attr).append(w22.decouple_cell(nmt.compute_coupled_cell(f2_0, f2_1))[1])
-                        if "BBTB" in config.field_cls_out or "EBTB" in config.field_cls_out:
+                        if "TB" in config.field_cls_out:
                             getattr(cls_out, attr).append(w02.decouple_cell(nmt.compute_coupled_cell(f_0_0, f2_1))[1])
 
         else:
@@ -953,15 +1011,16 @@ def _get_cls(config: Configs, compute_cls, nsim=None):
                     getattr(cls_out, attr).append(compute_namaster_scalar(output_data, compute_cls["mask"], bls_beam[0], compute_cls["field_cls_in"]))
             else:
                 if 'QU' not in compute_cls["field_cls_in"]:
-                    for field in range(output_data.shape[0]):
-                        if config.spectra_comp == 'anafast':
-                            getattr(cls_out, attr).append(compute_anafast_scalar(
-                                output_data[field], compute_cls["mask"][field], bls_beam[field]))
-                        else:
-                            getattr(cls_out, attr).append(compute_namaster_scalar(
-                            output_data[field], compute_cls["mask"][field], bls_beam[field], compute_cls["field_cls_in"][field]))
+                    if any(x in config.field_cls_out for x in ["TT", "EE", "BB"]):
+                        for field in fields_auto:
+                            if config.spectra_comp == 'anafast':
+                                getattr(cls_out, attr).append(compute_anafast_scalar(
+                                    output_data[field], compute_cls["mask"][field], bls_beam[field]))
+                            else:
+                                getattr(cls_out, attr).append(compute_namaster_scalar(
+                                output_data[field], compute_cls["mask"][field], bls_beam[field], compute_cls["field_cls_in"][field]))
                     
-                    if "EETE" in config.field_cls_out or "BBTE" in config.field_cls_out:
+                    if "TE" in config.field_cls_out:
                         if config.spectra_comp == 'anafast':
                             mask_ =  compute_cls["mask"][1] if np.mean(np.ceil(compute_cls["mask"][0])) > np.mean(np.ceil(compute_cls["mask"][1])) else compute_cls["mask"][0]
                             getattr(cls_out, attr).append(compute_anafast_cross_scalars(
@@ -972,8 +1031,8 @@ def _get_cls(config: Configs, compute_cls, nsim=None):
                                 bls_beam[0], bls_beam[1], compute_cls["field_cls_in"][0], compute_cls["field_cls_in"][1]
                             ))
                     
-                    if "BBEB" in config.field_cls_out or "BTEEB" in config.field_cls_out:
-                        field_E, field_B = (1, 2) if "T" in compute_cls["field_cls_in"] else (0, 1)
+                    if "EB" in config.field_cls_out:
+                        field_E, field_B = (1, 2) if any(x in config.field_cls_out for x in ["TT", "TE", "TB"]) else (0, 1)
                         if config.spectra_comp == 'anafast':
                             mask_ =  compute_cls["mask"][field_B] if np.mean(np.ceil(compute_cls["mask"][field_E])) > np.mean(np.ceil(compute_cls["mask"][field_B])) else compute_cls["mask"][field_E]
                             getattr(cls_out, attr).append(
@@ -985,8 +1044,8 @@ def _get_cls(config: Configs, compute_cls, nsim=None):
                                 bls_beam[field_E], bls_beam[field_B], compute_cls["field_cls_in"][field_E], compute_cls["field_cls_in"][field_B]
                             ))
 
-                    if "BBTB" in config.field_cls_out or "EBTB" in config.field_cls_out:
-                        field_B = 2 if "E" in compute_cls["field_cls_in"] else 1
+                    if "TB" in config.field_cls_out:
+                        field_B = 2 if any(x in config.field_cls_out for x in ["EE", "TE", "EB"]) else 1
                         if config.spectra_comp == 'anafast':
                             mask_ =  compute_cls["mask"][field_B] if np.mean(np.ceil(compute_cls["mask"][0])) > np.mean(np.ceil(compute_cls["mask"][field_B])) else compute_cls["mask"][0]
                             getattr(cls_out, attr).append(compute_anafast_cross_scalars(
@@ -999,21 +1058,28 @@ def _get_cls(config: Configs, compute_cls, nsim=None):
                 else:
                     if "T" in compute_cls["field_cls_in"]:
                         field_Q = 1
-                        field_B = 1 if "EE" not in config.field_cls_out else 2 if "BB" in config.field_cls_out else None
-                        field_E = 1 if "EE" in config.field_cls_out else None
+                        if any(x in config.field_cls_out for x in ["BB", "EB", "TB"]):
+                            field_B = 1 if not any(x in config.field_cls_out for x in ["EE", "TE", "EB"]) else 2
+                        else: 
+                            field_B = None
+                        field_E = 1 if any(x in config.field_cls_out for x in ["EE", "TE", "EB"]) else None
                         beam_nmt = bls_beam[0]
                         T_map, Q_map, U_map = output_data[0], output_data[1], output_data[2]
                     else:
                         mask_ =  compute_cls["mask"][0]
                         field_Q = 0
-                        field_B = 0 if "EE" not in config.field_cls_out else 1 if "BB" in config.field_cls_out else None
-                        field_E = 0 if "EE" in config.field_cls_out else None
+                        if any(x in config.field_cls_out for x in ["BB", "EB", "TB"]):
+                            field_B = 0 if not any(x in config.field_cls_out for x in ["EE", "TE", "EB"]) else 1
+                        else:
+                            field_B = None
+                        field_E = 0 if any(x in config.field_cls_out for x in ["EE", "TE", "EB"]) else None
                         beam_nmt = hp.gauss_beam(np.radians(config.fwhm_out/60.), lmax=config.lmax, pol=False)
                         if config.pixel_window_out:
                             beam_nmt *= hp.pixwin(config.nside, lmax=config.lmax, pol=False)
                         T_map, Q_map, U_map = np.zeros_like(output_data[0]), output_data[0], output_data[1]
 
-                    get_cross = any(x in config.field_cls_out for x in ["EETE", "BBTE", "BBEB", "BTEEB", "BBTB", "EBTB"])
+                    get_cross = any(x in config.field_cls_out for x in ["TE", "EB", "TB"])
+
                     if config.spectra_comp == 'anafast':
                         cls_s2 = compute_anafast_full_TQU(
                             T_map, Q_map, U_map,
@@ -1027,15 +1093,18 @@ def _get_cls(config: Configs, compute_cls, nsim=None):
                         if "BB" in config.field_cls_out:
                             getattr(cls_out, attr).append(cls_s2[2])
                         if get_cross:
-                            if "EETE" in config.field_cls_out or "BBTE" in config.field_cls_out:
+                            if "TE" in config.field_cls_out:
                                 getattr(cls_out, attr).append(cls_s2[3])
-                            if "BBEB" in config.field_cls_out or "BTEEB" in config.field_cls_out:
+                            if "EB" in config.field_cls_out:
                                 getattr(cls_out, attr).append(cls_s2[4])
-                            if "BBTB" in config.field_cls_out or "EBTB" in config.field_cls_out:
+                            if "TB" in config.field_cls_out:
                                 getattr(cls_out, attr).append(cls_s2[5])
+
                     elif config.spectra_comp == 'namaster':
-                        if "TT" in config.field_cls_out:
+                        if any(x in config.field_cls_out for x in ["TT", "TE", "TB"]):
                             f_0 = nmt.NmtField(compute_cls["mask"][0], [T_map], beam=bls_beam[0],lmax=config.lmax,lmax_mask=config.lmax)
+
+                        if "TT" in config.field_cls_out:
                             if idx==0:
                                 if mask_in_maps is not None:
                                     f_0_w = nmt.NmtField(compute_cls["mask"][0] * mask_in_maps, [T_map], beam=bls_beam[0], lmax=config.lmax, lmax_mask=config.lmax)
@@ -1043,6 +1112,7 @@ def _get_cls(config: Configs, compute_cls, nsim=None):
                                 else:
                                     w00 = nmt.NmtWorkspace.from_fields(f_0, f_0, b_bin)
                             getattr(cls_out, attr).append((nmt.compute_full_master(f_0, f_0, b_bin, workspace=w00))[0])
+
                         f2 = nmt.NmtField(compute_cls["mask"][field_Q], [Q_map, U_map], purify_b=compute_cls["nmt_purify_B"], purify_e=compute_cls["nmt_purify_E"], beam=beam_nmt, lmax=config.lmax, lmax_mask=config.lmax)
                         if idx==0:
                             if mask_in_maps is not None:
@@ -1052,21 +1122,23 @@ def _get_cls(config: Configs, compute_cls, nsim=None):
                                 w22 = nmt.NmtWorkspace.from_fields(f2_w, f2_w, b_bin)
                             else:
                                 w22 = nmt.NmtWorkspace.from_fields(f2, f2, b_bin)
+
                         if "EE" in config.field_cls_out:
                             getattr(cls_out, attr).append(w22.decouple_cell(nmt.compute_coupled_cell(f2, f2))[0])
                         if "BB" in config.field_cls_out:
                             getattr(cls_out, attr).append(w22.decouple_cell(nmt.compute_coupled_cell(f2, f2))[3])
-                        if ("EETE" in config.field_cls_out or "BBTE" in config.field_cls_out) or ("BBTB" in config.field_cls_out or "EBTB" in config.field_cls_out):
+                        if any(x in config.field_cls_out for x in ["TE", "TB"]):
                             if idx==0:
                                 if mask_in_maps is not None:
                                     w02 = nmt.NmtWorkspace.from_fields(f_0_w, f2_w, b_bin)
                                 else:
                                     w02 = nmt.NmtWorkspace.from_fields(f_0, f2, b_bin)
-                        if "EETE" in config.field_cls_out or "BBTE" in config.field_cls_out:
+
+                        if "TE" in config.field_cls_out:
                             getattr(cls_out, attr).append(w02.decouple_cell(nmt.compute_coupled_cell(f_0, f2))[0])
-                        if "BBEB" in config.field_cls_out or "BTEEB" in config.field_cls_out:
+                        if "EB" in config.field_cls_out:
                             getattr(cls_out, attr).append(w22.decouple_cell(nmt.compute_coupled_cell(f2, f2))[1])
-                        if "BBTB" in config.field_cls_out or "EBTB" in config.field_cls_out:
+                        if "TB" in config.field_cls_out:
                             getattr(cls_out, attr).append(w02.decouple_cell(nmt.compute_coupled_cell(f_0, f2))[1])
 
     for attr in vars(cls_out).keys():
@@ -1074,7 +1146,7 @@ def _get_cls(config: Configs, compute_cls, nsim=None):
 
     return cls_out
             
-def get_bls(nside: int, fwhm: float, lmax: int, field_cls_out: str, pixel_window_out: bool = True) -> np.ndarray:
+def get_bls(nside: int, fwhm: float, lmax: int, field_cls_out: list, pixel_window_out: bool = True) -> np.ndarray:
     """
     Get the beam transfer functions for the required fields and lmax.
 
@@ -1086,8 +1158,9 @@ def get_bls(nside: int, fwhm: float, lmax: int, field_cls_out: str, pixel_window
             Full width at half maximum of the beam in arcminutes.
         lmax : int
             Maximum multipole to consider.
-        field_cls_out : str
-            Fields for which to compute the beam transfer functions.
+        field_cls_out : list
+            List of fields for which to compute the angular power spectra. 
+            It can contain any combination of the following: 'TT', 'EE', 'BB', 'TE', 'TB', 'EB'.
         pixel_window_out : bool, optional
             Whether to consider the pixel window function in the beam transfer functions. Default is True.
     
@@ -1106,11 +1179,11 @@ def get_bls(nside: int, fwhm: float, lmax: int, field_cls_out: str, pixel_window
         bl_[1] *= pw_[1]
         bl_[2] *= pw_[1]
 
-    if 'TT' in field_cls_out:
+    if any(x in ["TT", "TE", "TB"] for x in field_cls_out):
         bls_beam.append(bl_[0])
-    if 'EE' in field_cls_out:
+    if any(x in ["EE", "TE", "EB"] for x in field_cls_out):
         bls_beam.append(bl_[1])
-    if 'BB' in field_cls_out:
+    if any(x in ["BB", "TB", "EB"] for x in field_cls_out):
         bls_beam.append(bl_[2])
 
     bls_beam = np.array(bls_beam)
@@ -1141,9 +1214,9 @@ def _get_fields_in_for_cls(field_out,field_cls_out):
     """
 
     if field_out == "TQU":
-        if field_cls_out in ["EE", "BB", "EEBB", "EEBBEB"]:
+        if all(x not in ["TT", "TE", "TB"] for x in field_cls_out):
             return "QU"
-        elif field_cls_out == "TT":
+        elif len(field_cls_out)==1 and field_cls_out[0] == "TT":
             return "T"
         else:
             return "TQU"
@@ -1151,11 +1224,12 @@ def _get_fields_in_for_cls(field_out,field_cls_out):
         return field_out
     elif field_out in ["TEB", "EB"]:
         field_cls_in = ""
-        if ("TT" in field_cls_out) and (field_out == "TEB"):
-            field_cls_in += "T"
-        if "EE" in field_cls_out:
+        if field_out == "TEB":
+            if any(x in ["TT", "TE", "TB"] for x in field_cls_out):
+                field_cls_in += "T"
+        if any(x in ["EE", "TE", "EB"] for x in field_cls_out):
             field_cls_in += "E"
-        if "BB" in field_cls_out:
+        if any(x in ["BB", "TB", "EB"] for x in field_cls_out):
             field_cls_in += "B"
         return field_cls_in
 
@@ -1180,30 +1254,23 @@ def _check_fields_for_cls(field_out: str, field_cls_out: str) -> None:
     valid_fields = ['T', 'E', 'B', 'QU', 'QU_E', 'QU_B', 'EB', 'TQU', 'TEB']
     valid_cls_out = [
         'TT', 'EE', 'BB',
-        'TTEE', 'TTEETE',
-        'TTBB', 'TTBBTB',
-        'EEBB', 'EEBBEB',
-        'TTEEBB', 'TTEEBBTEEBTB'
+        'TE','TB', 'EB'
     ]
 
     if field_out not in valid_fields:
         raise ValueError(f'Invalid field_out: "{field_out}". Must be one of {valid_fields}.')
-    if field_cls_out not in valid_cls_out:
-        raise ValueError(f'Invalid field_cls_out: "{field_cls_out}". Must be one of {valid_cls_out}.')
+    
+    if field_out in ['T','E','B'] and (len(field_cls_out)!=1 or field_cls_out[0] != f"{field_out}{field_out}"):
+        raise ValueError(f'If "field_out" is "{field_out}", "field_cls_out" must be "{field_out}{field_out}" or ["{field_out}{field_out}"].')
 
-    if field_out in ['T','E','B'] and field_cls_out != f"{field_out}{field_out}":
-        raise ValueError(f'If field_out is "{field_out}", field_cls_out must be "{field_out}{field_out}".')
+    if field_out in ["QU", "EB"]:
+        if any(x in ["TT", "TE", "TB"] for x in field_cls_out):
+            raise ValueError(f'If "field_out" is "{field_out}", "field_cls_out" cannot contain "TT", "TE", or "TB".')
 
-    if field_out in ["QU", "EB"] and field_cls_out not in ["EE", "BB", "EEBB", "EEBBEB"]:
-        raise ValueError(f'If field_out is "{field_out}", field_cls_out must be one of ["EE", "BB", "EEBB", "EEBBEB"].')
-
-    if field_out == "QU_E" and field_cls_out != "EE":
-        raise ValueError('If field_out is "QU_E", field_cls_out must be "EE".')
-    if field_out == "QU_B" and field_cls_out != "BB":
-        raise ValueError('If field_out is "QU_B", field_cls_out must be "BB".')
-
-    if field_out in ["TQU", "TEB"] and field_cls_out not in valid_cls_out:
-        raise ValueError(f'Invalid combination for field_out="{field_out}" and field_cls_out="{field_cls_out}".')
+    if field_out == "QU_E" and (len(field_cls_out)!=1 or field_cls_out[0] != "EE"):
+        raise ValueError('If "field_out" is "QU_E", "field_cls_out" must be "EE" or ["EE"].')
+    if field_out == "QU_B" and (len(field_cls_out)!=1 or field_cls_out[0] != "BB"):
+        raise ValueError('If "field_out" is "QU_B", "field_cls_out" must be "BB" or ["BB"].')
 
 def _load_cls(path: str, components:list, field_cls_out: str, mask_folder: str,
     nside: int, lmax: int, fwhm_out: float, nsim: Optional[str] = None, return_Dell: bool = False) -> np.ndarray:

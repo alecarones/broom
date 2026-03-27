@@ -337,9 +337,10 @@ def _combine_needlet_j(
 
         
     # Load weights
-    weights_filename = os.path.join(config.path_outputs,
-        compsep_run["compsep_path"],
-        f"weights/weights_{compsep_run['field']}_{config.fwhm_out}acm_ns{nside_}_lmax{config.lmax}_nl{nl_scale}"
+    weights_filename = os.path.join(config.path_outputs, compsep_run["compsep_path"], "weights")
+    if compsep_run["nsim_weights"] is not None:
+        weights_filename = os.path.join(weights_filename, compsep_run["nsim_weights"])
+    weights_filename = os.path.join(weights_filename, f"weights_{compsep_run['field']}_{config.fwhm_out}acm_ns{nside_}_lmax{config.lmax}_nl{nl_scale}"
     )
     if compsep_run["nsim_weights"] is not None:
         weights_filename += f"_{compsep_run['nsim_weights']}"
@@ -453,9 +454,10 @@ def _combine_pixel(
         ]).T
 
     # Load weights
-    weights_filename = os.path.join(config.path_outputs,
-        compsep_run["compsep_path"],
-        f"weights/weights_{compsep_run['field']}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}"
+    weights_filename = os.path.join(config.path_outputs, compsep_run["compsep_path"], "weights")
+    if compsep_run["nsim_weights"] is not None:
+        weights_filename = os.path.join(weights_filename, compsep_run["nsim_weights"])
+    weights_filename = os.path.join(weights_filename, f"weights_{compsep_run['field']}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}"
     )
     if compsep_run["nsim_weights"] is not None:
         weights_filename += f"_{compsep_run['nsim_weights']}"
@@ -666,9 +668,10 @@ def _combine_P_needlet_j(
     good_channels_nl = _get_good_channels_nl(config, b_ell)
 
     # Load PILC weights
-    weights_filename = os.path.join(config.path_outputs,
-        compsep_run["compsep_path"],
-        f"weights/weights_{compsep_run['field']}_{config.fwhm_out}acm_ns{nside_}_lmax{config.lmax}_nl{nl_scale}"
+    weights_filename = os.path.join(config.path_outputs, compsep_run["compsep_path"], "weights")
+    if compsep_run["nsim_weights"] is not None:
+        weights_filename = os.path.join(weights_filename, compsep_run["nsim_weights"])
+    weights_filename = os.path.join(weights_filename, f"weights_{compsep_run['field']}_{config.fwhm_out}acm_ns{nside_}_lmax{config.lmax}_nl{nl_scale}"
     )
     if compsep_run["nsim_weights"] is not None:
         weights_filename += f"_{compsep_run['nsim_weights']}"
@@ -789,6 +792,8 @@ def _combine_P_pixel(config: Configs, input_alms, compsep_run, **kwargs):
                         config.nside, lmax=config.lmax, pol=True)[1:]
 
     weights_filename = os.path.join(config.path_outputs, compsep_run["compsep_path"], "weights")
+    if compsep_run["nsim_weights"] is not None:
+        weights_filename = os.path.join(weights_filename, compsep_run["nsim_weights"])
     weights_filename += f"/weights_{compsep_run['field']}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}"
     if compsep_run["nsim_weights"] is not None:
         weights_filename += f"_{compsep_run['nsim_weights']}"

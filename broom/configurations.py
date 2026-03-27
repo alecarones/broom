@@ -355,7 +355,7 @@ class Configs:
         self.delta_ell = self.config.get("delta_ell") or 1
         self.spectra_comp = self.config.get("spectra_comp") or "anafast"
         self.return_Dell = self.config.get("return_Dell", False)
-        self.field_cls_out = self.config.get("field_cls_out") or self.field_out
+        self.field_cls_out = self.config.get("field_cls_out") 
         self.save_spectra = self.config.get("save_spectra", True)
         self.return_spectra = self.config.get("return_spectra", True)
         self.save_mask = self.config.get("save_mask", True)
