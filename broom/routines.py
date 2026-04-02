@@ -467,9 +467,23 @@ def _get_local_cov_(
 #        nside_covar = nside_from_fwhm(fwhm_stat, unit="rad", pixs_per_fwhm = 3.)
 #        nside_covar = int(np.min([nside, nside_covar]))
         nside_covar = nside
+    
+    # Get beam for smoothing covariance
+    bl_stat = hp.gauss_beam(fwhm_stat, 3 * nside - 1)
+
     nside_out = max(1, nside // 4)
     lmax_stat = 2 * nside_out #2 * nside_out # 
+    if bl_stat[lmax_stat] > 1e-8:
+        nside_out = max(1, nside // 2)
+        lmax_stat = 2 * nside_out
+        if bl_stat[lmax_stat] > 1e-8:
+            nside_out = max(1, nside)
+            lmax_stat = 2 * nside_out
+            if bl_stat[lmax_stat] > 1e-8:
+                lmax_stat = 3 * nside - 1
 
+    bl_stat = hp.gauss_beam(fwhm_stat, lmax=lmax_stat)
+    
     if variance:
         map1 -= hp.smoothing(map1, fwhm=fwhm_stat, lmax=lmax_stat, pol=False, verbose=False)
         map2 -= hp.smoothing(map2, fwhm=fwhm_stat, lmax=lmax_stat, pol=False, verbose=False)
@@ -482,8 +496,6 @@ def _get_local_cov_(
     product_map = hp.ud_grade(product_map, nside_out = nside_out, order_in = 'RING', order_out = 'RING')
     alm_s = hp.map2alm(product_map, lmax=lmax_stat, iter=1, use_weights=True)# iter=0?
 
-    # Get beam for smoothing covariance
-    bl_stat = hp.gauss_beam(fwhm_stat, lmax_stat)
     # If reduce_bias is True, apply bias reduction technique
     if reduce_bias:
         thetas = np.arange(0,np.pi,0.002)

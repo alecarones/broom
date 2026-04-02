@@ -515,7 +515,7 @@ def get_planck_mask(apo: int = 5, nside: int = 2048, field: int = 3, info: bool 
     except IOError:
         output = hp.read_map(remote_file, field=None)
         output = hp.ud_grade(output, nside)
-        hp.write_map(local_file, output)
+        hp.write_map(local_file, output, dtype=output.dtype)
         return output[field]
 
 def get_masks_for_compsep(mask_obs: Union[str, np.ndarray, None]

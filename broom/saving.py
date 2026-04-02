@@ -126,7 +126,7 @@ def _save_compsep_products(
                     filename += f"_{nsim}"
                 filename += ".fits"
 
-                hp.write_map(os.path.join(path_c, filename), attr_values[f], overwrite=True)
+                hp.write_map(os.path.join(path_c, filename), attr_values[f], overwrite=True, dtype=(attr_values[f]).dtype)
 
         elif (
             compsep_run["method"] in ["fgd_diagnostic", "fgd_P_diagnostic"]
@@ -145,9 +145,9 @@ def _save_compsep_products(
                     filename += f"_{nsim}"
                 filename += ".fits"
                 if attr_values.ndim == 2:
-                    hp.write_map(os.path.join(path_c, filename), attr_values[j], overwrite=True)
+                    hp.write_map(os.path.join(path_c, filename), attr_values[j], overwrite=True, dtype=(attr_values[j]).dtype)
                 elif attr_values.ndim == 3:
-                    hp.write_map(os.path.join(path_c, filename), attr_values[:,j], overwrite=True)
+                    hp.write_map(os.path.join(path_c, filename), attr_values[:,j], overwrite=True, dtype=(attr_values[:,j]).dtype)
         else:              
             filename = (
                 f"{config.field_out}_{label_out}_{config.fwhm_out}acm_"
@@ -156,7 +156,7 @@ def _save_compsep_products(
             if nsim is not None:
                 filename += f"_{nsim}"
             filename += ".fits"
-            hp.write_map(os.path.join(path_c, filename), attr_values, overwrite=True)
+            hp.write_map(os.path.join(path_c, filename), attr_values, overwrite=True, dtype=(attr_values).dtype)
             
 def _save_residuals_template(
     config: Configs,
@@ -227,7 +227,7 @@ def _save_residuals_template(
             filename += f"_{nsim}"
         filename += ".fits"
 
-        hp.write_map(os.path.join(path_c, filename), attr_values, overwrite=True)
+        hp.write_map(os.path.join(path_c, filename), attr_values, overwrite=True, dtype=(attr_values).dtype)
 
 def _save_combination(
     config: Configs,
@@ -283,7 +283,7 @@ def _save_combination(
                 filename += f"_{nsim}"
             filename += ".fits"
 
-            hp.write_map(os.path.join(path_c, filename), attr_values, overwrite=True)
+            hp.write_map(os.path.join(path_c, filename), attr_values, overwrite=True, dtype=(attr_values).dtype)
         else:
             for f, freq in enumerate(compsep_run["channels_out"]):
                 tag = config.instrument.channels_tags[freq]
@@ -297,7 +297,7 @@ def _save_combination(
                     filename += f"_{nsim}"
                 filename += ".fits"
 
-                hp.write_map(os.path.join(path_c, filename), attr_values[f], overwrite=True)
+                hp.write_map(os.path.join(path_c, filename), attr_values[f], overwrite=True, dtype=(attr_values[f]).dtype)
 
 
 def _get_full_path_out(config: Configs, compsep_run: Dict[str, Any]) -> str:
@@ -1083,7 +1083,7 @@ def _save_mask(mask: np.ndarray,
     
     filename = f"mask_{''.join(config.field_cls_out)}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}{post_filename}.fits"
     
-    hp.write_map(os.path.join(path_mask, filename), mask, overwrite=True)
+    hp.write_map(os.path.join(path_mask, filename), mask, overwrite=True, dtype=mask.dtype)
 
 __all__ = [
     name

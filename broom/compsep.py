@@ -1403,7 +1403,6 @@ def _load_outputs_(filename: str, fields: str, nsim: Optional[str] = None) -> np
     else:
         raise ValueError("Invalid value for fields. It must be 'T', 'E', 'B', 'EB', 'QU', 'TQU', 'TEB', 'QU_E', or 'QU_B'.")
 
-
 def _combine_products(config: Configs, nsim=None):
     """
     Combine fields from multiple runs into a single output file.
@@ -1469,86 +1468,142 @@ def _combine_products(config: Configs, nsim=None):
                     os.makedirs(os.path.join(config.path_outputs, combine_run["path_out"], component), exist_ok=True)
                 else:
                     if component.split('_')[-1] in ["residuals", "total"]:
-                        os.makedirs(os.path.join(config.path_outputs, combine_run["path_out"], component), exist_ok=True)
+                        os.makedirs(os.path.join(config.path_outputs, combine_run["path_out"], component, f"{nsim}" if nsim is not None else ""), exist_ok=True)
                     else:
-                        os.makedirs(os.path.join(config.path_outputs, combine_run["path_out"], "_".join(component.split('_')[:-1])), exist_ok=True)
+                        os.makedirs(os.path.join(config.path_outputs, combine_run["path_out"], "_".join(component.split('_')[:-1]), f"{nsim}" if nsim is not None else ""), exist_ok=True)
         
-            outputs = None
-            if not from_gilc:
-                component_name = component.split('/')[0] if '/' in component else component                
-
-            for field_in, path in zip(combine_run["fields_in"], combine_run["paths_fields_in"]):
-                path_in = os.path.join(config.path_outputs, path)
-                filename = os.path.join(path_in, f"{component}/{field_in}_{component_name}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}")
-                if outputs is None:
-                    outputs = _load_outputs_(filename, field_in, nsim=nsim)
-                    if outputs.ndim == 1:
-                        outputs = outputs[np.newaxis, :]
+            if not from_gilc or (component.split('_')[-1] not in ["residuals", "total"]):
+                if not from_gilc:
+                    component_name = component.split('/')[0] if '/' in component else component  
                 else:
-                    outputs_ = _load_outputs_(filename,field_in,nsim=nsim)
-                    if outputs_.ndim == 1:
-                        outputs_ = outputs_[np.newaxis, :]
-                    outputs = np.concatenate([outputs,outputs_], axis=0)
-                    del outputs_
+                    component_name = "_".join(component.split('_')[:-1])
 
-            if outputs.ndim == 2 and outputs.shape[0] == 1:
-                outputs = outputs[0]
+                outputs = _combine_products_(config, component, combine_run, nsim, mask_cov=mask_cov, from_gilc=from_gilc)
 
-            if combine_run["fields_out"] != "".join(combine_run["fields_in"]):
-                if combine_run["fields_in"] in [["T", "E", "B"], ["T", "EB"]]:
-                    if combine_run["fields_out"] == "TQU":
-                        outputs = _EB_to_QU(outputs, config.lmax)
+                if config.save_compsep_products:
+                    if not from_gilc:
+                        filename_out = os.path.join(config.path_outputs, combine_run["path_out"], f"{component}/{combine_run['fields_out']}_{component_name}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}")
                     else:
-                        raise ValueError(f"'field_out' can be {''.join(combine_run['fields_in'])} or TQU for provided 'field_in'")
-                elif combine_run["fields_in"] in [["T", "E"], ["T", "B"]]:
-                    if combine_run["fields_out"][:3] == "TQU":
-                        if combine_run["fields_out"] == "TQU":
-                            combine_run["fields_out"] = f"TQU_{combine_run['fields_in'][-1]}"
-                        if "E" in combine_run["fields_in"]:
-                            outputs = np.concatenate([(outputs[0])[np.newaxis, :], _E_to_QU(outputs[1], config.lmax)], axis=0)
-                        elif "B" in combine_run["fields_in"]:
-                            outputs = np.concatenate([(outputs[0])[np.newaxis, :], _B_to_QU(outputs[1], config.lmax)], axis=0)
+                        filename_out = os.path.join(config.path_outputs, combine_run["path_out"], f"{component_name}", f"{nsim}" if nsim is not None else "", f"{combine_run['fields_out']}_{component}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}")
+
+                    if nsim is not None:
+                        filename_out += f"_{nsim}"
+                    filename_out += f".fits"
+                    hp.write_map(filename_out, outputs, overwrite=True, dtype=outputs.dtype)
+
+                if config.return_compsep_products:
+                    if not from_gilc:
+                        setattr(outputs_recomb, component_name, np.array(outputs))
                     else:
-                        raise ValueError(f"'field_out' can be {''.join(combine_run['fields_in'])}, TQU or TQU_{combine_run['fields_in'][-1]} for provided 'field_in'")
-                elif combine_run["fields_in"] in [["E", "B"], ["E"], ["B"]]:
-                    if combine_run["fields_out"][:2] != "QU":
-                        raise ValueError(f"Invalid 'fields_out' for provided 'field_in'")                        
-                    if outputs.ndim == 2:
-                        combine_run["fields_out"] = "QU"
-                        outputs = _EB_to_QU(outputs, config.lmax)
-                    elif outputs.ndim==1:
-                        combine_run["fields_out"] = f"QU_{combine_run['fields_in'][0]}"
-                        if combine_run['fields_in'][0] == "E":
-                            outputs = _E_to_QU(outputs, config.lmax)
-                        elif combine_run['fields_in'][0] == "B":
-                            outputs = _B_to_QU(outputs, config.lmax)
-                elif combine_run["fields_in"] in [["T", "QU"], ["QU"]]:
-                    if (combine_run["fields_in"]==["T", "QU"] and combine_run["fields_out"]=="TEB") or (combine_run["fields_in"]==["QU"] and combine_run["fields_out"]=="EB"):
-                        outputs = _QU_to_EB(outputs, config.lmax)
-                    else:
-                        raise ValueError(f"Wrong 'field_out' for provided 'field_in'")
-                else:
-                    raise ValueError(f"Invalid 'field_in' or 'field_out'")
-            
-            if mask_cov is not None:
-                if outputs.ndim == 1:
-                    outputs[mask_cov == 0.] = 0.
-                elif outputs.ndim == 2:
-                    outputs[:, mask_cov == 0.] = 0.
-                
-            if config.save_compsep_products:
-                filename_out = os.path.join(config.path_outputs, combine_run["path_out"], f"{component}/{combine_run['fields_out']}_{component_name}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}")
+                        setattr(outputs_recomb, component.replace(".", "p"), np.array(outputs))
+            else:
+                pattern = os.path.join(config.path_outputs, combine_run["paths_fields_in"][0], f"{component}", f"{nsim}" if nsim is not None else "", f"{combine_run['fields_in'][0]}_{component}_*_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}")
                 if nsim is not None:
-                    filename_out += f"_{nsim}"
-                filename_out += f".fits"
-                hp.write_map(filename_out, outputs, overwrite=True)
+                    pattern += f"_{nsim}.fits"
+                else:
+                    pattern += ".fits"
+                filenames = glob.glob(pattern)
 
-            if config.return_compsep_products:
-                setattr(outputs_recomb, component_name, np.array(outputs))
+                for filename in filenames:
+                    channel_tag = (filename.split(f"{combine_run['fields_in'][0]}_{component}_")[-1]).split(f"_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}")[0]
+                    for field_in, path in zip(combine_run["fields_in"], combine_run["paths_fields_in"]):
+                        filename_check = os.path.join(config.path_outputs, path, f"{component}", f"{nsim}" if nsim is not None else "", f"{field_in}_{component}_{channel_tag}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}")
+                        filename_check += f"_{nsim}.fits" if nsim is not None else ".fits"
+                        if not os.path.exists(filename_check):
+                            filenames = np.delete(filenames, np.where(np.array(filenames) == filename)[0][0])
+
+                for filename in filenames:
+                    component_ = (filename.split(f"{combine_run['fields_in'][0]}_")[-1]).split(f"_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}")[0]
+                    
+                    outputs = _combine_products_(config, component_, combine_run, nsim, mask_cov=mask_cov, from_gilc=from_gilc)
+
+                    if config.save_compsep_products:
+                        filename_out = os.path.join(config.path_outputs, combine_run["path_out"], f"{component}", f"{nsim}" if nsim is not None else "", f"{combine_run['fields_out']}_{component_}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}")
+                        if nsim is not None:
+                            filename_out += f"_{nsim}"
+                        filename_out += f".fits"
+                        hp.write_map(filename_out, outputs, overwrite=True, dtype=outputs.dtype)
+
+                    if config.return_compsep_products:
+                        setattr(outputs_recomb, component_.replace(".", "p"), np.array(outputs))
 
     if config.return_compsep_products:
         return outputs_recomb
 
+
+def _combine_products_(config: Configs, component, combine_run, nsim, mask_cov = None, from_gilc = False):
+
+    outputs = None
+
+    if not from_gilc:
+        component_name = component.split('/')[0] if '/' in component else component     
+    else:
+        component_name = "_".join(component.split('_')[:-1])           
+
+    for field_in, path in zip(combine_run["fields_in"], combine_run["paths_fields_in"]):
+        path_in = os.path.join(config.path_outputs, path)
+        if not from_gilc:
+            filename = os.path.join(path_in, f"{component}/{field_in}_{component_name}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}")
+        else:
+            filename = os.path.join(path_in, f"{component_name}", f"{nsim}" if nsim is not None else "", f"{field_in}_{component}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}")
+
+        if outputs is None:
+            outputs = _load_outputs_(filename, field_in, nsim=nsim)
+            if outputs.ndim == 1:
+                outputs = outputs[np.newaxis, :]
+        else:
+            outputs_ = _load_outputs_(filename,field_in,nsim=nsim)
+            if outputs_.ndim == 1:
+                outputs_ = outputs_[np.newaxis, :]
+            outputs = np.concatenate([outputs,outputs_], axis=0)
+            del outputs_
+
+    if outputs.ndim == 2 and outputs.shape[0] == 1:
+        outputs = outputs[0]
+
+    if combine_run["fields_out"] != "".join(combine_run["fields_in"]):
+        if combine_run["fields_in"] in [["T", "E", "B"], ["T", "EB"]]:
+            if combine_run["fields_out"] == "TQU":
+                outputs = _EB_to_QU(outputs, config.lmax)
+            else:
+                raise ValueError(f"'field_out' can be {''.join(combine_run['fields_in'])} or TQU for provided 'field_in'")
+        elif combine_run["fields_in"] in [["T", "E"], ["T", "B"]]:
+            if combine_run["fields_out"][:3] == "TQU":
+                if combine_run["fields_out"] == "TQU":
+                    combine_run["fields_out"] = f"TQU_{combine_run['fields_in'][-1]}"
+                if "E" in combine_run["fields_in"]:
+                    outputs = np.concatenate([(outputs[0])[np.newaxis, :], _E_to_QU(outputs[1], config.lmax)], axis=0)
+                elif "B" in combine_run["fields_in"]:
+                    outputs = np.concatenate([(outputs[0])[np.newaxis, :], _B_to_QU(outputs[1], config.lmax)], axis=0)
+            else:
+                raise ValueError(f"'field_out' can be {''.join(combine_run['fields_in'])}, TQU or TQU_{combine_run['fields_in'][-1]} for provided 'field_in'")
+        elif combine_run["fields_in"] in [["E", "B"], ["E"], ["B"]]:
+            if combine_run["fields_out"][:2] != "QU":
+                raise ValueError(f"Invalid 'fields_out' for provided 'field_in'")                        
+            if outputs.ndim == 2:
+                combine_run["fields_out"] = "QU"
+                outputs = _EB_to_QU(outputs, config.lmax)
+            elif outputs.ndim==1:
+                combine_run["fields_out"] = f"QU_{combine_run['fields_in'][0]}"
+                if combine_run['fields_in'][0] == "E":
+                    outputs = _E_to_QU(outputs, config.lmax)
+                elif combine_run['fields_in'][0] == "B":
+                    outputs = _B_to_QU(outputs, config.lmax)
+        elif combine_run["fields_in"] in [["T", "QU"], ["QU"]]:
+            if (combine_run["fields_in"]==["T", "QU"] and combine_run["fields_out"]=="TEB") or (combine_run["fields_in"]==["QU"] and combine_run["fields_out"]=="EB"):
+                outputs = _QU_to_EB(outputs, config.lmax)
+            else:
+                raise ValueError(f"Wrong 'field_out' for provided 'field_in'")
+        else:
+            raise ValueError(f"Invalid 'field_in' or 'field_out'")
+    
+    if mask_cov is not None:
+        if outputs.ndim == 1:
+            outputs[mask_cov == 0.] = 0.
+        elif outputs.ndim == 2:
+            outputs[:, mask_cov == 0.] = 0.
+    
+    return outputs
 
 __all__ = [
     name

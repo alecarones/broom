@@ -159,7 +159,7 @@ def _save_real_tracers(tracers, path_tracers, tags, fwhm_out, lmax, field_out: s
         path_tracers = path_tracers + '/'
 
     for i, tracer in enumerate(tracers):
-        hp.write_map(path_tracers + f"{field_out}_tracer_{tags[i]}_{fwhm_out}acm_ns{hp.npix2nside(tracer.shape[0])}_lmax{lmax}.fits", tracer, overwrite=True)
+        hp.write_map(path_tracers + f"{field_out}_tracer_{tags[i]}_{fwhm_out}acm_ns{hp.npix2nside(tracer.shape[0])}_lmax{lmax}.fits", tracer, overwrite=True, dtype=tracer.dtype)
     
 def initialize_scalar_tracers(
     config: Configs,
