@@ -2,26 +2,26 @@
 
 
 # ==== GENERAL ==== #
-#Minimum multipole where power is injected in simulations and considered in component separation. Default: 2.
+#Minimum multipole considered in component separation. Default: 2.
 lmin: 2
+# Minimum multipole considered in the generation of simulations (if requested). Default: lmin.
+lmin_in: 2
 
-# Nside parameter. Used to generate simulations (if requested) and produce outputs from component separation.
+# Nside parameter. Used to produce outputs from component separation.
 nside: 64
-# If simulations for compsep are not generated with broom package, it specifies the nside of the input data.
-# If not provided, it will be set to nside.
-# When running component separation and maps are provided, it will be directly inferred from them.
+# This parameter specifies the HEALPix resolution used to generate simulation maps of any microwave component with get_input_data} function. 
+# It is also used to correct for input pixel window function the data before component separation if pixel_window_in is True and alms and 
+#        not maps are provided as input data set.
+# If null, it will be set to the nside parameter. Default: null.
 nside_in: null
 
-#Maximum multipole used to generate simulations (if requested) and to run component separation. Default: 2 * nside.
+#Maximum multipole used to run component separation. Default: 2 * nside.
 lmax: 150
+# Maximum multipole used to generate simulations (if requested). Default: 3 * nside_in -1.
 
 # Data type. Used to set how simulations must be returned (and/or saved), if generated, 
 # and which kind of data you are passing to compsep.
 data_type: "alms" # "maps" or "alms"
-
-# Resolution at which input data are brought before running component separation (if bring_to_common_resolution is True).
-# Default is 2.5 * pixel_size, where pixel_size is the pixel size corresponding to the nside parameter.
-fwhm_out: 30. 
 
 # Number identifying the initial simulation of the set you may want to run.
 # In general, the simulation number is used to generate (and/or save) simulations and to save compsep outputs. 
@@ -36,7 +36,7 @@ nsim_start: 0
 nsims: 1
 
 # If True, routines are parallelized (either among simulations or across needlet bands). Not implemented yet.
-parallelize: False # 
+#parallelize: False # 
 
 # Verbosity
 # If True, the code will print information about the run. Default: False.
@@ -50,14 +50,14 @@ foreground_models: ["d1","s1"]
 
 # Path (including filename) of the yaml file where the instrument configuration is stored.
 # It should contain an attribute with the same name as the experiment specified below.
-# By defaul it will be the 'utils/instrument_config.yaml' in broom package.
+# By defaul it will be the 'utils/instrument_config.yaml' in BROOM package.
 experiments_file: ""
 
 # Considered experiment. 
 # Used to generate simulations, MC-ILC tracers and 
 # to properly account for beams and bandpasses in compsep.
 # A dictionary with the same name must be present in the experiments_file. 
-# See examples in the utils/experiments.yaml file in broom package.
+# See examples in the utils/experiments.yaml file in BROOM package.
 # It should include the following keys:
 # - frequency: list of central observed frequencies in GHz
 # - depth_I: list of noise depths in muK-arcmin for intensity maps (if not provided, they will be depth_P/sqrt(2)).
@@ -104,9 +104,9 @@ experiments_file: ""
 #             If not provided, white noise is assumed.
 experiment: "LiteBIRD_PTEP" 
 
-# Units of the data. Used to generate simulations and in component separation to compute CMB and moments SEDs.
-# Methods reconstructing CMB signal will return products in uk_CMB units.
-# Methods reconstructing foregrounds will return products in the same units as the input data.
+# Units of the data. Used to generate simulations and in component separation to compute needed SEDs of components.
+# Methods reconstructing signal with known SEDs (such as CMB, foreground moments, SZ) will return products in uk_CMB units.
+# Methods reconstructing foregrounds (GILC, GPILC) will return products in the same units as the input data.
 # Default: "uK_CMB".
 units: "uK_CMB"
 
@@ -120,22 +120,23 @@ coordinates: "G"
 # Keywords for input simulations. Most of these parameters are not needed for the compsep runs.
 
 # If True, the input foregrounds are generated. 
-# If False, the input foregrounds are loaded from the paths specified below, if needed.
+# If False, the input foregrounds are loaded from 'fgds_path', if provided.
 # Default: True.
 generate_input_foregrounds: False #True #
 
 # If True, when generating/loading input foregrounds, 
-# it will store/load the single components (e.g. dust, synchrotron) of the foregrounds. Default: False.
+# it will store/load the single components (e.g. dust, synchrotron) of the foregrounds listed in foreground_models.
+# Default: False.
 return_fgd_components: True
 
-# If True, input foreground and CMB maps are obtained after bandpass integration. Default: False.
+# If True, input foreground and CMB maps are bandpass integrated. Default: False.
 # Bandpasses shapes depend on the instrument dictionary in experiments_file.
 # You can either provide 'path_bandpasses' or 'bandwidth' in the experiment dictionary.
 # Both of them are assumed to be in intensity units. 
 bandpass_integrate: False
 
 # If True, the input noise maps are generated. 
-# If False, the input noise maps are loaded from the paths specified below. Default: True.
+# If False, the input noise maps are loaded from 'noise_path', if provided. Default: True.
 generate_input_noise: False #True #
 # If not null, input noise maps will be generated starting from the provided seed. It must be integer. 
 # Default: null.
@@ -143,7 +144,7 @@ generate_input_noise: False #True #
 seed_noise: null
 
 # If True, the input CMB maps are generated from the angular power spectrum specified in cls_cmb_path. 
-# If False, the input CMB maps are loaded from the paths specified below. Default: True.
+# If False, the input CMB maps are loaded from 'cmb_path', if needed. Default: True.
 generate_input_cmb: False #True #
 # If not null, input CMB maps will be generated starting from the provided seed. It must be integer. Default: null.
 # For multiple simulations, the seed will be incremented by the simulation number.
@@ -156,8 +157,8 @@ cls_cmb_path: ""
 # If False, it assumes they are ordered as [TT, TE, TB, EE, EB, BB].
 cls_cmb_new_ordered: True
 
-# If True, the input coadded maps will be generated as the sum of loaded or generated foreground, noise and CMB. 
-# If False, the input total data are loaded from the path specified below. 
+# If True, the input coadded maps will be generated as the sum of loaded or generated single microwave components.
+# If False, the input total data are loaded from 'data_path', if provided.
 # Default: True.
 generate_input_data: False #True #
 
@@ -169,6 +170,13 @@ save_inputs: True #False #
 # If True, input data are corrected for it before component separation.
 pixel_window_in: False
 
+# Boolean. If True, also half-mission splits are generated for total co-added data and instrumental noise.
+# In practice these splits are generated as the sum of the same signal components but different noise realizations with sqrt(2) higher noise levels than the full-mission maps.
+data_splits: False
+
+# If True, only half-mission splits are generated for total co-added data and instrumental noise. Default: False.
+only_splits: False 
+
 
 # Paths to input total data, foregrounds, CMB and noise simulations.
 # Used to save/load simulations.
@@ -176,7 +184,7 @@ pixel_window_in: False
 # If nsim is provided it will add the number of the simulation 
 #    to the filename at the end when saving/loading total, CMB and noise maps.
 
-# Full path to total input maps. Used save/load total simulations.
+# Full path to total co-added input maps. Used to save/load total simulations.
 # If nsim is provided, it will add the number of the simulation to the filename at the end.
 data_path: "inputs/LiteBIRD_PTEP/total/total_alms_ns64"
 # Full path to foreground input maps. Used to save/load foreground simulations.
@@ -191,6 +199,11 @@ noise_path: "inputs/LiteBIRD_PTEP/noise/noise_alms_ns64"
 
 
 # ==== COMPONENT SEPARATION ==== #
+
+# Resolution at which input data are brought before running component separation (if bring_to_common_resolution is True).
+# Default is 2.5 * pixel_size, where pixel_size is the pixel size corresponding to the nside parameter.
+fwhm_out: 30. 
+
 
 # Input fields provided to compsep as alms or maps. 
 # It can be in ["T","E","B","QU","TQU","EB","TEB"] for maps and in ["T","E","B","EB","TEB"] for alms.
@@ -224,29 +237,32 @@ mask_observations: null #"data/norm_nHits_SA_35FOV_ns512.fits"
 # Pixels which are 0 in mask_observations will be set to 0 in mask_covariance.
 mask_covariance: None # 
 
-# If provided, polarization maps will be corrected for EB-leakage before running component separation on E-modes and/or B-modes. 
+# If provided, polarization maps will be corrected for EB-leakage before running component separation on E-modes and/or B-modes and input  polarization maps are QU. 
 # It is used only if 'mask_observations' is provided.
 # Default: null.
-# It can be ["EB", "B"] followed by "_purify" or "_recycling".
+# It can be ["E", "B", "EB"] followed by "_purify", "_recycling", "_recycling_iterationsN", "_recycling_inpainting", "_inpainting", "_inpainting_iterationsN".
 # If "_purify" is chosen, the standard purification procedure is implemented through the pymaster package.
 # If "_recycling" is chosen, the recycling correction is implemented. See https://arxiv.org/abs/2208.12059 for details.
-# In "_recycling" case you can also apply an iterative procedure by adding e.g. "_iterations3" (3 iterations) at the end.
+# In "_recycling" case you can also apply an iterative harmonic deprojection of residual ambiguous modes by adding e.g. "_iterations3" (3 iterations) at the end.
+# "_inpainting" will apply a subtraction of a leakage template obtained through diffusive inpainting.
+#    It can be followed by "_iterationsN" to apply an iterative harmonic deprojection of residual ambiguous modes.
+# If "_recycling_inpainting" is chosen, it will apply the recycling correction and then the inpainting correction.
 # Examples: "B_purify", "B_recycling" (no iterations), "B_recycling_iterations3" (3 iterations).
 leakage_correction: null
 
 # If True, the output maps are saved in the path specified with path_outputs. Default: False.
-# The products will be save in subfolders of path_ouputs with name specifying univocally the compsep run.
+# The products will be save in predefined subfolders of path_ouputs with folder and file names univocally specifying the compsep run and the different products.
 save_compsep_products: True 
-# If True, the output maps are returned by compsep functions. Default: True.
+# If True, the output maps are returned as a SimpleNamespace object by compsep functions. Default: True.
 return_compsep_products: False # True #
 
 # Full root path where outputs from compsep are saved (change with your path)
-path_outputs: "outputs/LiteBIRD_PTEP/d1s1" 
+path_outputs: "outputs/" 
 
 # Component separation runs
 # Each run is specified by a dictionary with the following keys:
 # - method: method to be used for component separation. 
-#     It can be "ilc", "mcilc", "mc_ilc", "gilc", "cilc", "c_ilc", "pilc", "cpilc", "c_pilc", "gpilc".
+#     It can be "ilc", "mcilc", "mc_ilc", "gilc", "cilc", "c_ilc", "pilc" (or "prilc"), "cpilc" (or "cprilc"), "c_pilc" (or "c_prilc"), "gpilc" (or "gprilc").
 #       - "ilc": standard ILC method to be applied on scalar fields (T, E, B). It comprises: ILC, NILC (if needlet domain is used).
 #       - "mcilc": Multi-clustering ILC method to be applied on scalar fields (T, E, B). 
 #           It comprises: MC-ILC, MC-NILC (if needlet domain is used).
@@ -259,11 +275,12 @@ path_outputs: "outputs/LiteBIRD_PTEP/d1s1"
 #       - "c_ilc": deproject moments only on selected needlet bands (specified in special_nls).
 #       - "mc_cilc": It applies Multi-clustering only on selected needlet bands (specified in special_nls) 
 #           and moments deprojection in other needlets
-#       - "pilc": Polarization ILC method to be applied on QU maps. It can be applied both in pixel and needlet domain.
-#       - "cpilc": Constrained moment PILC method to be applied on QU maps. It can be applied both in pixel and needlet domain.
+#       - "pilc" ("prilc"): Polarization ILC method to be applied on QU maps. It can be applied both in pixel and needlet domain.
+#            If "prilc", the component-separation weigths are set to be real, while if "pilc" they can be complex.
+#       - "cpilc" (or "cprilc"): Constrained moment PILC method to be applied on QU maps. It can be applied both in pixel and needlet domain.
 #          It can be used to deproject moments on QU maps.
-#       - "c_pilc": deproject moments only on selected needlet bands (specified in special_nls).
-#       - "gpilc": Generalized PILC method to be applied on QU maps. It can be applied both in pixel and needlet domain.  
+#       - "c_pilc" (or "c_prilc"): deproject moments only on selected needlet bands (specified in special_nls).
+#       - "gpilc" (or "gprilc"): Generalized PILC method to be applied on QU maps. It can be applied both in pixel and needlet domain.  
 #           Used to reconstruct foregrounds at different frequencies.
 #       - "fgd_diagnostic": It provides diagnostic of foreground complexity for scalar fields given the provided instrumental configuration.
 #           See https://arxiv.org/abs/2402.17579 for details.
@@ -280,6 +297,12 @@ path_outputs: "outputs/LiteBIRD_PTEP/d1s1"
 #             It is used only if needlet_windows is "mexican" or "standard".
 #         - ell_peaks: list of multipoles where the cosine needlet windows are peaked. Used only if needlet_windows is "cosine".
 
+# - component_out (string): it specifies the component to be reconstructed with the method. It is used only if method is not "gilc", "gpilc", "fgd_diagnostic" or "fgd_P_diagnostic".
+#   It can be any string among "cmb", "tsz", '0d', '1bd', '1Td', '2bd', '2Td', '2bdTd', '2Tdbd', '0s', '1bs', '2bs'.
+#   The first two options ("cmb" and "tsz") are used to reconstruct CMB and tSZ signal, respectively.
+#   The other options refer to foreground moments. For example, "1bd" means the first order moment of dust SED with respect to the dust spectral index beta_d.
+#   Default: "cmb". It is not needed for GILC and GPILC runs, where the output components are foregrounds at different frequencies, and for fgd diagnostic runs.
+
 # - ilc_bias: amount of residual ILC bias. It is used to set the size of domain where covariance is computed. 
 #       If 0., covariance is computed as the average over the full sky/patch. Default: 0.0
 #       The final ILC_bias will be such that std_bias = ilc_bias * std_cmb, where std_cmb is the standard deviation of the input CMB signal.
@@ -290,9 +313,11 @@ path_outputs: "outputs/LiteBIRD_PTEP/d1s1"
 # - save_weights: if True, the weights used to reconstruct the maps are saved in the method specific path.
 # - special_nls: list of needlet bands indexes where either multiclustering or moment deprojections
 #       has to be applied. Used only if method is "mc_ilc", "c_ilc", "c_pilc".
+#       For example, if method is "mc_ilc" and special_nls is [0, 2], MC-ILC will be applied in the first and third needlet bands, while standard NILC will be applied in the others.
 # - cov_noise_debias: (float, list) Noise covariance debiasing factor. It can be used for all methods except MC-ILC. 
 #       If different from 0. it will debias the covariance matrix by a factor cov_noise_debias * noise_covariance.
 #       It should be a list with the same length as the number of needlet scales if domain is "needlet", otherwise a single float.
+# - minimize_variance: if True, the ILC weights are computed to minimize the variance of the output map. If False, they are computed to minimize the output power.
 
 compsep:
 # ILC in pixel domain
@@ -300,6 +325,8 @@ compsep:
     domain: "pixel"
     ilc_bias: 0.001
     cov_noise_debias: 0.0 # 0.0, 0.1, 0.2, ...
+    component_out: "cmb" # "cmb", "tsz", "mu" or any string identifying a foreground moment (for those see cILC "moments" attribute below)
+    minimize_variance: False
 
 # ILC in needlet domain (NILC) with mexican needlets (similar dictionary for standard needlets)
   - method: "ilc"
@@ -310,15 +337,30 @@ compsep:
       - merging_needlets: [0, 14, 17, 19, 40]
     ilc_bias: 0.001
     reduce_ilc_bias: False
-#    b_squared: False
+    component_out: "cmb"
+    b_squared: False
     adapt_nside: True
     save_needlets: True
     save_weights: True
     cov_noise_debias: [0., 0., 0., 0.]
-
+    minimize_variance: False
+    
 # ILC in needlet domain (NILC) with cosine needlets
   - method: "ilc"
     domain: "needlet"
+    needlet_config:
+      - needlet_windows: "cosine"
+      - ell_peaks: [0,50,100,150]
+    ilc_bias: 0.0
+#    b_squared: False
+    adapt_nside: False
+    save_needlets: True
+    save_weights: True
+
+# ILC in needlet domain (NILC) with cosine needlets for tsz reconstruction
+  - method: "ilc"
+    domain: "needlet"
+    component_out: "tsz"
     needlet_config:
       - needlet_windows: "cosine"
       - ell_peaks: [0,50,100,150]
@@ -333,15 +375,15 @@ compsep:
 #       'cea' stands for (Clusters with Equal Area) and runs faster than 'rp' (Random Partition) but with similar results.
 #        'ideal' will construct clusters internally from foreground maps while 'real' will use the clusters constructed with "get_and_save_real_tracers_B" from broom.clusters.
 # - path_tracers: full path where the MC-ILC tracers are stored. Used only if mc_type is "cea_real" or "rp_real".
-# - channels_tracers: list of indexes of the frequency channels to be used to construct the clusters. Needed only for "mc_ilc" and "mcilc" methods.
+# - channels_tracers: list of two indexes of the frequency channels to be used to construct the clusters. Needed only for "mc_ilc" and "mcilc" methods.
 # - reduce_mcilc_bias: if True, the MC-ILC bias is reduced by computing the covariance in each pixel avoiding a region around it. 
 #       Used only if method is "mcilc" or "mc_ilc".
 # - save_patches: if True, it will save the patches in the output_folder. Patches will be saved just if nsim is None or config.nsim_start.
 
-# Configuration fro MC-NILC with ideal tracer. 
+# Configuration for MC-NILC with ideal tracer. 
 # If you want to use real tracer change 'ideal' to 'real' in mc_type. 
-# Note that you need to run 'get_and_save_real_tracers_B' from broom.clusters in adavance in 'real' case.
-# Real tracer will be loaded from the path specified in path_tracers.
+# Note that you need to run 'get_mcilc_tracers' from broom.clusters in adavance for 'real' case.
+# Realistic tracer will be loaded from the path specified in path_tracers.
 # If you do not want to suffer of MC-ILC bias, keep 'reduce_mcilc_bias' to True.
 # For details see https://arxiv.org/abs/2212.04456.
   - method: "mcilc"
@@ -371,32 +413,25 @@ compsep:
     special_nls: [0]
     save_patches: False 
 
-# With this configuration MC-ILC is applied only in the needlet bands specified by 'special_nls'.
-# In the remaining needlet bands cMILC is applied.
-  - method: "mc_cilc"
-    domain: "needlet"
-    needlet_config:
-      - needlet_windows: "mexican"
-      - width: 1.3
-      - merging_needlets: [0, 14, 17, 19, 40]
-    reduce_mcilc_bias: True
-    adapt_nside: False
-    mc_type: "cea_real" # "cea_ideal", "rp_ideal", "cea_real", "rp_real"
-    path_tracers: "outputs/LiteBIRD_PTEP/d1s1/tracers" # if mc_type is "cea_ideal" or "rp_ideal", this path is not needed
-    channels_tracers: [20,12] # indexes of the frequency channels to be used to construct the clusters
-    special_nls: [0]
-    save_patches: False 
-
 # Parameters for running GILC, GPILC and fgd diagnostic
 
-# - channels_out: list of indexes of the frequency channels to be reconstructed with GILC and GPILC. Used only if method is "gilc" or "gpilc".
-# - cmb_nuisance: if False, the CMB is excluded from the computation of the nuisance covariance in GILC, GPILC and fgd_diagnostic.
-#     Default: True.
+# - channels_out: list of indexes of the frequency channels to be reconstructed with GILC and GPILC. Used only if method is "gilc" or "gpilc" or "gprilc". 
+#             If not provided, all channels are reconstructed.
+# - nuisance: list of strings identifying the nuisance components for the GILC run. It can include "cmb", "noise" or any PySM model acronym (e.g. "d1", "s1", etc.). 
+#             It can also include "nuisance" and it will use the nuisance attribute of the provided SimpleNamespace object with the input simulations to set the nuisance components.
+# - load_nuisance_covariance: if True, the covariance of the nuisance components is loaded from disk from a predefined path set by the running configuration. 
+#             If False, the covariance of the nuisance components is computed using the attributes of the provided SimpleNamespace object with the input simulations.
+#             If True, the user should first run "get_nuisance_covariance" from broom.compsep to estimate and save the covariance of the nuisance components (see below).
+# - cov_noise_debias: Noise covariance debiasing factor. If different from 0. it will debias the covariance matrix by a factor cov_noise_debias * noise_covariance. 
+#             It must be a single number if domain is "pixel" and a list if domain is "needlet". 
+#             If the lenght of the list is lower than the number of needlet bands, the default value (0.) will be used for the remaining bands.
+# - load_noise_covariance: if True, the noise covariance is loaded from disk from a predefined path set by the running configuration if any of the elements of cov_noise_debias is different from 0. 
+#             If False, the noise covariance is computed using the noise attribute of the provided SimpleNamespace object with the input simulations.
 # - depro_cmb: list. If an element of the list (depro_cmb[j]) is not null, in the corresponding j-th needlet band CMB will be deprojected such that 
 #       its residual in the output maps will be equal to depro_cmb[j] * CMB.
 #       If depro_cmb is null, no CMB deprojection is performed.
 #       Used only if method is "gilc" or "gpilc".
-# - m_bias: list of floats. If an element of the list (m_bias[j]) is not null, in the corresponding j-th needlet band
+# - m_bias: list of integer. If an element of the list (m_bias[j]) is not null, in the corresponding j-th needlet band
 #      m_bias[j] more/less foreground modes will be reconstructed in GILC maps.
 #      If m_bias is null, no additional foreground modes are reconstructed.
 #      If e.g. m_bias > 0, foreground signal will be better reconstructed at the price of higher noise and CMB residues.      
@@ -412,22 +447,29 @@ compsep:
     ilc_bias: 0.01
 #    b_squared: False
     adapt_nside: True
-    cmb_nuisance: True
+    nuisance: ["noise", "cmb"] # ["nuisance"] ["noise", "cib1"] or etc. depending on the components you want to consider as nuisance for the GILC run
+    load_nuisance_covariance: False
     reduce_ilc_bias: False
-#    depro_cmb: [null,0.,0.]
-#    m_bias: [0,1,1,1]
+    depro_cmb: [null,0.,0.]
+    m_bias: [0,1,1,1]
 #    channels_out: [0,1,2,3,4,5]  indices of channels you want to be reconstructed with GNILC. If not provided, all channels are reconstructed.
     save_needlets: True
+    cov_noise_debias: [0., 0.]
+    load_noise_covariance: False
 
-# Parameters for moments deprojection in 'cilc', 'c_ilc', 'cpilc', 'c_pilc' methods.
-# - constraints: list of dictionaries specifying the moments to be deprojected. 
-#       Used only if method is "cilc", "c_ilc", "cpilc", "c_pilc".
+
+# Parameters for constrained ILC in 'cilc', 'c_ilc', 'cpilc', 'c_pilc', 'cprilc', 'c_prilc' methods.
+# - constraints: list of dictionaries specifying the components to be deprojected. 
 #       It must include the following keys:
-#         - moments: list of moments to be deprojected. 
-#             They can be in ["0d", "0s", "1bd", "1bs", "1Td", 2bd', '2bs', '2Td', '2bdTd', '2Tdbd'].
-#             The list can include any zero, first and second order moments for dust and synchrotron
-#             It can be a list of lists if you want to deproject different moments in different needlet bands.
-# In constraints you can also specify the beta_d, T_d, beta_s indices used for dust and synchrotron moments computation. 
+#         - components: list of components to be deprojected. 
+#             They can be in ["0d", "0s", "1bd", "1bs", "1Td", 2bd', '2bs', '2Td', '2bdTd', '2Tdbd', 'cmb', 'tsz'] where:
+#                 - '0d' and '0s' are the MBB and power-law SEDs, respectively.
+#                 - '1bd', '1bs', '1Td' are the first order moments of the MBB and power-law SEDs with respect to the MBB spectral index, the power law spectral index and the MBB temperature, respectively.
+#                - '2bd', '2bs', '2Td' are the second order moments of the MBB and power-law SEDs with respect to the MBB spectral index, the power law spectral index and the MBB temperature, respectively.
+#                - '2bdTd' and '2Tdbd' are the second order moments of the MBB SED with respect to the spectral index and temperature.
+#                - 'cmb' and 'tsz' are the CMB and tSZ SEDs, respectively.
+#             It can be a list of lists if you want to deproject different components in different needlet bands.
+# In constraints you can also specify the beta_d (MBB spectral index), T_d (MBB temperature), beta_s (power law spectral index) indices used for MBB and power-law moments computation. 
 #   If floats are provided, they will be used for all needlet bands. 
 #   If lists are provided, each value will be used for the corresponding needlet band.
 #   Defaults are beta_d = 1.54, T_d = 20., beta_s = -3..
@@ -445,29 +487,45 @@ compsep:
       - width: 1.3
       - merging_needlets: [0, 14, 17, 19, 40]
     ilc_bias: 0.001
+    component_out: "cmb"
     constraints:
-      - moments: ["0d","0s","1bd","1bs","1Td"]
+      - components: ["0d","0s","1bd","1bs","1Td"]
       - beta_d: 1.54 # or [1.54, 1.5, 1.6, 1.55] for each needlet band
       - T_d: 20. # or [20., 19., 21., 20.] for each needlet band
       - beta_s: -3. # or [-3., -2.5, -3.5, -3.] for each needlet band
       - deprojection: [0., 0., 0., 0., 0.] # or [[0., 0., 0., 0., 0.], [0.1, 0.1, 0.1, 0.1, 0.1]] for each needlet band
 
-# Constrained moment ILC on first two needlet bands (the bands have to be specified in special_nls), standard NILC in the others.
-  - method: "c_ilc"
+# Constrained ILC to reconstruct the SZ effect by fully deprojecting the CMB.
+  - method: "cilc"
     domain: "needlet"
     needlet_config:
       - needlet_windows: "mexican"
       - width: 1.3
       - merging_needlets: [0, 14, 17, 19, 40]
     ilc_bias: 0.001
+    component_out: "tsz"
     constraints:
-      - moments: ["0d","0s","1bd","1bs","1Td"]
+      - components: ["cmb"]
+      - deprojection: [0.] # or [[0., 0., 0., 0., 0.], [0.1, 0.1, 0.1, 0.1, 0.1]] for each needlet band
+
+# Constrained moment ILC on first two needlet bands (the bands have to be specified in special_nls), standard NILC in the others.
+  - method: "c_ilc"
+    domain: "needlet"
+    component_out: "cmb"
+    needlet_config:
+      - needlet_windows: "mexican"
+      - width: 1.3
+      - merging_needlets: [0, 14, 17, 19, 40]
+    ilc_bias: 0.001
+    constraints:
+      - components: ["0d","0s","1bd","1bs","1Td"]
     special_nls: [0,1]
 
 # Polarization ILC (PILC) in pixel domain. Variance minimization applied to QU maps.
   - method: "pilc"
     domain: "pixel"
     ilc_bias: 0.001
+    component_out: "cmb"
 
 # Polarization ILC (PILC) in needlet domain. Variance minimization applied to QU maps.
   - method: "pilc"
@@ -481,19 +539,32 @@ compsep:
     save_needlets: True
     save_weights: True
 
-# Constrained moment PILC. 
-  - method: "cpilc"
+#  Polarization ILC with real weights (PRILC) in needlet domain. Variance minimization applied to QU maps.
+  - method: "prilc"
     domain: "needlet"
     needlet_config:
       - needlet_windows: "mexican"
       - width: 1.3
       - merging_needlets: [0, 14, 17, 19, 40]
     ilc_bias: 0.001
+#    b_squared: False
+    save_needlets: True
+    save_weights: True
+
+# Constrained moment PRILC. 
+  - method: "cprilc"
+    domain: "needlet"
+    component_out: "cmb"
+    needlet_config:
+      - needlet_windows: "mexican"
+      - width: 1.3
+      - merging_needlets: [0, 14, 17, 19, 40]
+    ilc_bias: 0.001
     constraints:
-      - moments: ["0d","0s","1bd","1bs","1Td"]
+      - components: ["0d","0s","1bd","1bs","1Td"]
 
 # Constrained moment PILC only in the first two needlet bands (the bands have to be specified in special_nls), standard PILC in the others.
-  - method: "cpilc"
+  - method: "c_pilc"
     domain: "needlet"
     needlet_config:
       - needlet_windows: "mexican"
@@ -501,8 +572,28 @@ compsep:
       - merging_needlets: [0, 14, 17, 34]
     ilc_bias: 0.001
     constraints:
-      - moments: ["0d","0s","1bd","1bs","1Td"]
+      - components: ["0d","0s","1bd","1bs","1Td"]
     special_nls: [0,1]
+    
+# With this configuration MC-ILC is applied only in the needlet bands specified by 'special_nls'.
+# In the remaining needlet bands cMILC is applied.
+  - method: "mc_cilc"
+    domain: "needlet"
+    needlet_config:
+      - needlet_windows: "mexican"
+      - width: 1.3
+      - merging_needlets: [0, 14, 17, 19, 40]
+    reduce_mcilc_bias: True
+    adapt_nside: False
+    mc_type: "cea_real" # "cea_ideal", "rp_ideal", "cea_real", "rp_real"
+    path_tracers: "outputs/LiteBIRD_PTEP/d1s1/tracers" # if mc_type is "cea_ideal" or "rp_ideal", this path is not needed
+    channels_tracers: [20,12] # indexes of the frequency channels to be used to construct the clusters
+    special_nls: [0]
+    save_patches: False 
+    constraints:
+      - components: ["0d","0s","1bd","1bs","1Td"]
+    
+
 
 # GPILC to reconstruct foregrounds. Foreground are reconstructed in QU maps.
   - method: "gpilc"
@@ -513,7 +604,8 @@ compsep:
       - merging_needlets: [0,10,14,17,34] # [0,12,15,20,25,34] #
     ilc_bias: 0.01
 #    b_squared: False
-    cmb_nuisance: True
+    nuisance: ["noise", "cmb"] # ["nuisance"] ["noise", "cib1"] or etc. depending on the components you want to consider as nuisance for the GILC run
+    load_nuisance_covariance: False
     reduce_ilc_bias: False
 #    depro_cmb: [null,0.,0.]
 #    m_bias: [0,1,1,1]
@@ -531,7 +623,8 @@ compsep:
     ilc_bias: 0.001
     b_squared: False
     adapt_nside: False
-    cmb_nuisance: True # It includes CMB in the nuisance covariance matrix used to compute the foreground diagnostic.
+    nuisance: ["noise", "cmb"] # ["nuisance"] ["noise", "cib1"] or etc. depending on the components you want to consider as nuisance.
+    load_nuisance_covariance: False
 
 # Foreground diagnostic for polarization maps (QU).
   - method: "fgd_P_diagnostic"
@@ -544,16 +637,22 @@ compsep:
     ilc_bias: 0.001
     b_squared: False
     adapt_nside: False
-    cmb_nuisance: True
+    nuisance: ["noise", "cmb"] # ["nuisance"] ["noise", "cib1"] or etc. depending on the components you want to consider as nuisance.
+    load_nuisance_covariance: False
 
 # Configuration to get estimate of the foreground residuals.
-# In gnilc_path the code will look for the multifrequency cleaned foreground maps generated with a GILC run.
+# In gilc_path the code will look for the multifrequency cleaned foreground maps generated with a GILC run.
 # It will load the files with fields corresponding to 'field_out' if 'field_in' is not specified in compsep_residuals.
 # In compsep_path it will search for the component separation weights.
 # Both to gilc_path and compsep_path, path_outputs will be added as root path. 
 # The paths will therefore be {path_outputs}/{gilc_path} and {path_outputs}/{compsep_path}.
+# gilc_path is not needed if gilc_outputs (a SimpleNamespace object as returned by component_separation function) is provided to estimate_residuals function
+# gilc_components specifies the components of the GILC run to be combined with compsep weights.
+# compsep_residuals can include different entries (as shown for compsep). Each entry will provide a different estimate of the foreground residuals based on different GILC runs and/or different component separation weights.
+# The number of entris in compsep_residuals should match the number of GILC runs included in gilc_outputs if gilc_outputs is provided and both numbers are greater than 1.
 compsep_residuals:
-  - gnilc_path: "outputs/LiteBIRD_PTEP/d1s1/gilc_needlet_bias0.001/cosine_0_50_100"
+  - gilc_path: "outputs/LiteBIRD_PTEP/d1s1/gilc_needlet_bias0.001/cosine_0_50_100"
+    gilc_components: ["output_total", "noise_residuals"] # components of the GILC run to be combined with compsep weights
     compsep_path: "outputs/LiteBIRD_PTEP/d1s1/ilc_needlet_bias0.001/cosine_0_50_100"
     field_in: "TEB" # If not provided, it will use field_out from the config file.
     adapt_nside: False # If True, the HEALPix resolution of needlet maps is adapted to the sampled range of multipoles. Should match that of compsep run.
@@ -568,6 +667,13 @@ real_mc_tracers:
 # Every time a new realization of CMB and noise is generated and saved in the folder specified below.
 # Default: inputs_mc_tracers/{config.experiment}
     tracers_inputs_path: "mc_tracers_inputs/LiteBIRD_PTEP"
+
+# Dictionary to propagate any simulated component or data through component-separation by applying to them the corresponding weights.
+# Used in BROOM combine_with_weights function.
+compsep_propagate:
+  - path_method: "ilc_needlet_bias0.001/mexican_B1.3_j0j13_j14j16_j17j33" # path to the component separation run whose weights will be used for propagation
+    nsim_weights: 0 # index of the simulation realization whose weights will be used for propagation. If None, it will use the simulation index specified in combine_with_weights.
+    adapt_nside: False # If True, the HEALPix resolution of needlet maps is adapted to the sampled range of multipoles. Should match that of compsep run.
 
 # Configuration to combine outputs from different component separation runs.
 combine_outputs:
@@ -586,17 +692,17 @@ combine_outputs:
 
 # ==================================== Cls PARAMETERS ==================================== #
 
-# Binning to be applied on computed power spectra.
+# Minimum multipole for each of the desired bandpowers. Default: None, which means that delta_ell will be applied to all multipoles.
+ell_min_bpws: [2,5,10,30,50]
+# Binning to be applied on computed power spectra. It is used if ell_min_bpws is None. Default: 1.
 delta_ell: 1
 # Method used to compute angular power spectra: either 'anafast' or 'nanamaster'.
 spectra_comp: 'anafast'
 # If True, the code will return the Dls instead of the Cls.
 return_Dell: False
 # Fields of the angular power spectra to be computed; it can include auto power spectra only or even cross-spectra.
-# Examples: "TTEEBBTEEBTB", "BB", "TTEETE"
-# If cross power spectra are needed, all of them should be included in the string, 
-# e.g. "TTEEBBTE" is not allowed, but "TTEEBBTEEBTB" is.
-field_cls_out: "TTEEBBTEEBTB"
+# It should be aither a string for a single spectrum (examples: "TT", "BB", "TE") or a list of strings for multiple spectra (examples: ["TT", "EE", "BB"], ["TE", "EB"], etc.).
+field_cls_out: ["TT","EE","BB","TE"]
 # If True, the code will return the computed angular power spectra
 return_spectra: True
 # If True, the code will save the computed angular power spectra in the method specific path for each case.
@@ -625,12 +731,6 @@ compute_spectra:
     #      The path to foreground residual template must be specified in ''fgres_temp_for_masking''.
     # - "fgres" or "fgtemp": it will threshold the foreground residuals map or template map, respectively, 
     #      to genereate the mask with final sky fraction set by 'fsky' keyword.
-    # - "config": the mask specified in config.mask_covariance will be used. 
-    #      If config.mask_covariance is None, but mask_observations is not None, that will be used.
-    # - "config+fgres": the mask specified in config will be used and 
-    #      further regions will be masked based on foreground residuals map upon the fsky specified with 'fsky' keyword.
-    # - "config+fgtemp": the mask specified in config will be used and 
-    #      further regions will be masked based on foreground residuals template map upon the fsky specified with 'fsky' keyword.
     mask_type: "GAL40" #"from_fits" #
     # Full path to the mask to be used. It can be a binary mask or an apodized mask. Used if mask_type is "from_fits".
     mask_path: ""
@@ -640,7 +740,7 @@ compute_spectra:
     # For the last three options, it will use 'pymaster' to perform the apodization.
     apodize_mask: null #"C1"
     # Apodization scale in degrees.
-    smooth_mask: 0.
+    apodize_scale: 0.
     # If not null, it will apply a smoothing with a Gaussian beam with FWHM=smooth_tracer (in deg) 
     # to the tracer (fgres or fgtemp) eventually used to generate the mask. 
     smooth_tracer: 3.
