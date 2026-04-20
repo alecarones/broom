@@ -235,7 +235,10 @@ def _get_nside_lmax_from_b_ell(b_ell: np.ndarray, nside: int, lmax: int, needlet
     """
 
     if needlet_windows == "mexican":
-        max_b = np.max(np.where(b_ell >= 0.005))
+        if np.max(b_ell) < 0.005:
+            max_b = np.max(np.nonzero(b_ell)) 
+        else:
+            max_b = np.max(np.where(b_ell >= 0.005))
     else:
         max_b = np.max(np.nonzero(b_ell)) 
 
