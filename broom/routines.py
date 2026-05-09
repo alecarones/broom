@@ -218,6 +218,45 @@ def  _get_beam_from_file(beam_file: str, lmax: int, symmetric_beam: bool = True)
         bl[idx_lmax,:] = bl_file[idx_lmax_file,:]
     return bl
 
+def taper_beam_to_zero(l, ell0, ell1):
+    """
+    Taper function to zero between ell0 and ell1 for beams.
+    - for ell <= ell0: unchanged (W=1)
+    - for ell0 < ell <= ell1: smoothly tapered
+    - for ell > ell1: zero
+
+    Parameters
+    ----------
+    l : ndarray
+        array of multipole moments
+    ell0 : int
+        multipole below which the beam is unchanged
+    ell1 : int
+        multipole above which the beam is set to zero
+    
+    Returns
+    ----------
+    taper_window : ndarray
+        multiplicative window to be applied to bl (1 for ell<=ell0, 0 for ell>ell1)
+    """
+    if ell1 <= ell0:
+        raise ValueError("ell1 must be > ell0")
+
+    # window initialization
+    W = np.zeros_like(l, dtype=float)
+    mask_lo = l <= ell0
+    mask_mid = (l > ell0) & (l <= ell1)
+    mask_hi = l > ell1
+
+    W[mask_lo] = 1.0
+    W[mask_hi] = 0.0
+
+    if np.any(mask_mid):
+        phase = (l[mask_mid] - ell0) / (ell1 - ell0)   # in (0,1]
+        W[mask_mid] = 0.5 * (1.0 + np.cos(np.pi * phase))
+
+    return W
+
 def _get_bandwidths(config: Configs, good_channels: np.ndarray) -> Optional[Union[np.ndarray, List[str]]]:
     """
     Retrieves the bandwidths for the specified channels based on the configuration.
@@ -252,10 +291,12 @@ def _get_local_cov(
     input_maps: np.ndarray,
     lmax: int,
     ilc_bias: float,
+    fwhm_out: float,
     b_ell: Optional[np.ndarray] = None,
     mask: Optional[np.ndarray] = None,
     reduce_bias: bool = False,
-    input_maps_2: Optional[np.ndarray] = None
+    input_maps_2: Optional[np.ndarray] = None,
+    variance: bool = False
 ) -> np.ndarray:
     """
     Compute the local covariance matrix between input maps.
@@ -268,6 +309,8 @@ def _get_local_cov(
             Maximum multipole used in the harmonic space.
         ilc_bias: float
             Term used for smoothing scale estimation to optimally sample the covariance.
+        fwhm_out: float
+            Full width at half maximum of the input maps in arcminutes.
         b_ell: np.ndarray, optional
             Needlet transfer function. Defaults: unity.
         mask: np.ndarray, optional
@@ -276,6 +319,9 @@ def _get_local_cov(
             If True, apply ILC bias-reduction technique.
         input_maps_2: np.ndarray, optional
             Second set of maps for computing cross-covariance.
+        variance: bool
+            If True, compute the variance instead of the power.
+            Default is False.        
 
     Returns
     -------
@@ -285,11 +331,16 @@ def _get_local_cov(
     if not isinstance(b_ell, np.ndarray):
         b_ell = np.ones(lmax+1)
 
-    nmodes_band = np.sum((2. * np.arange(lmax + 1) + 1.) * (b_ell ** 2))
-    pps = np.sqrt(float(input_maps.shape[1]) * float(input_maps.shape[0]-1) / (ilc_bias * nmodes_band) )
-
     n_channels = input_maps.shape[0]
-    nside_cov = hp.npix2nside(input_maps.shape[1]) if mask is not None else int(np.min([hp.npix2nside(input_maps.shape[1]), 128]))
+    n_pixels = input_maps.shape[1]
+
+    fwhm_stat = get_fwhm_for_cov(lmax, n_pixels, n_channels, ilc_bias, fwhm_out, b_ell=b_ell)
+
+#    nside_cov = hp.npix2nside(n_pixels) if mask is not None else int(np.min([hp.npix2nside(n_pixels), 128]))
+    #pixs_per_fwhm = 24. #if domain == "needlet" else 60.
+    #nside_cov = nside_from_fwhm(fwhm_stat, unit="rad", pixs_per_fwhm = pixs_per_fwhm)
+    #nside_cov = int(np.min([hp.npix2nside(n_pixels), nside_cov, 128]))
+    nside_cov = int(np.min([hp.npix2nside(n_pixels), 128]))
 
     cov = np.zeros((n_channels, n_channels, 12 * nside_cov ** 2))
 
@@ -299,9 +350,12 @@ def _get_local_cov(
             map2 = (input_maps_2[k] if input_maps_2 is not None else input_maps[k])
             map2 = map2 * mask if mask is not None else map2
 
-            cov[i,k] = cov_map = _get_local_cov_(
-                map1, map2, pps, nside_cov, reduce_bias=reduce_bias
+            cov[i,k] = _get_local_cov_(
+                map1, map2, fwhm_stat, nside_cov, reduce_bias=reduce_bias, variance=variance
             )
+            #cov[i,k] = _get_local_cov_old(
+            #    map1, map2, fwhm_stat, nside_cov, reduce_bias=reduce_bias
+            #)
 
     for i in range(n_channels):
         for k in range(i):
@@ -309,10 +363,10 @@ def _get_local_cov(
             
     return cov
 
-def _get_local_cov_(
+def _get_local_cov_old(
     map1: np.ndarray,
     map2: np.ndarray,
-    pps: float,
+    fwhm_stat: float,
     nside_covar: Optional[int] = None,
     reduce_bias: bool = False
 ) -> np.ndarray:
@@ -325,8 +379,8 @@ def _get_local_cov_(
             First input map.
         map2: np.ndarray
             Second input map.
-        pps: float
-            Smoothing factor.
+        fwhm_stat: float
+            Full width at half maximum for smoothing in radians.
         nside_covar: int, optional
             Nside resolution of output covariance. If None, it is set to Nside of map1 and map2
         reduce_bias: bool
@@ -341,7 +395,6 @@ def _get_local_cov_(
         raise ValueError("Input maps must have the same HEALPix resolution.")
 
     product_map = map1 * map2
-    npix = product_map.size
     nside = hp.get_nside(product_map)
     if nside_covar is None:
         nside_covar = nside
@@ -355,8 +408,6 @@ def _get_local_cov_(
     alm_s = hp.map2alm(stat_map, lmax=lmax_stat, iter=1, use_weights=True)# iter=0?
 
     # Get beam for smoothing covariance
-    pix_size = np.sqrt(4.0 * np.pi / npix)
-    fwhm_stat = pps * pix_size
     bl_stat = hp.gauss_beam(fwhm_stat, lmax_stat)
 
     # If reduce_bias is True, apply bias reduction technique
@@ -374,12 +425,13 @@ def _get_local_cov_(
     return hp.alm2map(alm_s, nside_covar, lmax=lmax_stat)
 
 
-def _get_local_cov_new_(
+def _get_local_cov_(
     map1: np.ndarray,
     map2: np.ndarray,
-    pps: float,
+    fwhm_stat: float,
     nside_covar: Optional[int] = None,
-    reduce_bias: bool = False
+    reduce_bias: bool = False,
+    variance: bool = False
 ) -> np.ndarray:
     """
     Compute local covariance between two maps using full resolution smoothing
@@ -391,10 +443,14 @@ def _get_local_cov_new_(
             First input map.
         map2: np.ndarray 
             Second input map.
-        pps: float
+        fwhm_stat: float
             Smoothing factor.
         nside_covar: int, optional
-            Nside resolution of output covariance. If None, it is set to Nside of map1 and map2
+            Nside resolution of output covariance. If None, it is set based on fwhm_stat.
+        reduce_bias: bool
+            Apply smoothing bias reduction if True.
+        variance: bool
+            If True, compute variance instead of power of the product map.
 
     Returns
     -------
@@ -405,23 +461,41 @@ def _get_local_cov_new_(
     if hp.get_nside(map1) != hp.get_nside(map2):
         raise ValueError("Input maps must have the same HEALPix resolution.")
 
-    product_map = map1 * map2
-    npix = product_map.size
-    nside = hp.get_nside(product_map)
-
+    npix = map1.size
+    nside = hp.get_nside(map1)
     if nside_covar is None:
-        nside_covar = max(1, nside // 4)
+#        nside_covar = nside_from_fwhm(fwhm_stat, unit="rad", pixs_per_fwhm = 3.)
+#        nside_covar = int(np.min([nside, nside_covar]))
+        nside_covar = nside
+    
+    # Get beam for smoothing covariance
+    bl_stat = hp.gauss_beam(fwhm_stat, 3 * nside - 1)
 
+    nside_out = max(1, nside // 4)
+    lmax_stat = 2 * nside_out #2 * nside_out # 
+    if bl_stat[lmax_stat] > 1e-8:
+        nside_out = max(1, nside // 2)
+        lmax_stat = 2 * nside_out
+        if bl_stat[lmax_stat] > 1e-8:
+            nside_out = max(1, nside)
+            lmax_stat = 2 * nside_out
+            if bl_stat[lmax_stat] > 1e-8:
+                lmax_stat = 3 * nside - 1
+
+    bl_stat = hp.gauss_beam(fwhm_stat, lmax=lmax_stat)
+    
+    if variance:
+        map1 -= hp.smoothing(map1, fwhm=fwhm_stat, lmax=lmax_stat, pol=False, verbose=False)
+        map2 -= hp.smoothing(map2, fwhm=fwhm_stat, lmax=lmax_stat, pol=False, verbose=False)
+
+    product_map = map1 * map2
     # Compute alm
-
-    lmax_stat = 2 * nside_covar #3 * nside_out - 1 # 
+    #if nside_covar < nside:
+        #product_map = hp.ud_grade(product_map, nside_out = 2 * nside_covar, order_in = 'RING', order_out = 'RING')
+    #if nside_covar < int(nside //4):
+    product_map = hp.ud_grade(product_map, nside_out = nside_out, order_in = 'RING', order_out = 'RING')
     alm_s = hp.map2alm(product_map, lmax=lmax_stat, iter=1, use_weights=True)# iter=0?
 
-    # Find smoothing size
-
-    pix_size = np.sqrt(4.0 * np.pi / npix)
-    fwhm_stat = pps * pix_size
-    bl_stat = hp.gauss_beam(fwhm_stat, lmax_stat)
     # If reduce_bias is True, apply bias reduction technique
     if reduce_bias:
         thetas = np.arange(0,np.pi,0.002)
@@ -432,11 +506,42 @@ def _get_local_cov_new_(
         dist[np.argmax(dist):]=1.
         bl_stat = hp.beam2bl(dist * beam_stat,thetas, lmax = lmax_stat)
 
-
     alm_s = hp.sphtfunc.almxfl(alm_s, bl_stat)
 
     return hp.alm2map(alm_s, nside_covar, lmax=lmax_stat) 
 
+def get_fwhm_for_cov(lmax, n_pixels, n_channels, ilc_bias, fwhm_out, b_ell=None):
+    """
+    Compute the FWHM required for smoothing the covariance matrix.
+
+    Parameters
+    ----------
+        lmax: int
+            Maximum multipole.
+        n_pixels: int
+            Number of pixels in the map.
+        n_channels: int
+            Number of frequency channels.
+        ilc_bias: float
+            ILC bias parameter.
+        b_ell: np.ndarray, optional
+            Needlet transfer function. Defaults to unity.
+    
+    Returns
+        float
+            FWHM in radians.
+    """
+
+    if b_ell is None:
+        b_ell = np.ones(lmax + 1)
+
+    beam = hp.gauss_beam(np.deg2rad(fwhm_out/60.),lmax=lmax,pol=False)
+
+    nmodes_band = np.sum((2. * np.arange(lmax + 1) + 1.) * (b_ell ** 2) * (beam ** 2))
+    pps = np.sqrt(float(n_pixels) * float(n_channels-1) / (ilc_bias * nmodes_band) )
+    pix_size = np.sqrt(4.0 * np.pi / n_pixels)
+
+    return pps * pix_size
 
 def merge_dicts(d: Union[List[Dict[Any, Any]], Dict[Any, Any]]) -> Dict[Any, Any]:
     """
@@ -472,7 +577,7 @@ def merge_dicts(d: Union[List[Dict[Any, Any]], Dict[Any, Any]]) -> Dict[Any, Any
     else:
         raise ValueError("Input must be a list of dictionaries or a single dictionary")
           
-def obj_to_array(obj: SimpleNamespace) -> np.ndarray:
+def obj_to_array(obj: SimpleNamespace, return_attributes: bool = False) -> Union[np.ndarray, List[str]]:
     """
     Convert a SimpleNamespace object with specified attributes into a numpy array.
 
@@ -482,11 +587,16 @@ def obj_to_array(obj: SimpleNamespace) -> np.ndarray:
     ----------
         obj
             SimpleNamespace with attributes like "total", "fgds", etc.
+        return_attributes: bool
+            If True, return the list of attributes of the object instead of the numpy array.
+            Default is False.
 
     Returns
     --------
         np.ndarray
-            A numpy array representation of the object's attributes.
+            A numpy array stacking the specified attributes if `return_attributes` is False.
+        List[str]
+            List of attribute names if `return_attributes` is True.
 
     Raises
     -------
@@ -495,17 +605,29 @@ def obj_to_array(obj: SimpleNamespace) -> np.ndarray:
     if not isinstance(obj, SimpleNamespace):
         raise ValueError("Input must be a SimpleNamespace object.")
     
-    allowed_attributes = [
-        "total", "fgds", "noise", "nuisance", "cmb", "dust", "synch", "ame",
+    default_attributes = [
+        "total", "total_split1", "total_split2", "fgds", "noise", "noise_split1", "noise_split2", "nuisance", "cmb", "dust", "synch", "ame",
         "co", "freefree", "cib", "tsz", "ksz", "radio_galaxies"
     ]
-    
-    array = [getattr(obj, attr) for attr in allowed_attributes if hasattr(obj, attr)]
+
+    obj_attributes = list(vars(obj).keys())
+
+    used_attributes = [attr for attr in default_attributes if hasattr(obj, attr)]
+
+    additional_attributes = [attr for attr in obj_attributes if attr not in default_attributes and hasattr(obj, attr)]
+
+    all_used_attributes = used_attributes + additional_attributes
+
+    array = [getattr(obj, attr) for attr in all_used_attributes if hasattr(obj, attr)]
     array = np.array(array)
-    if array.ndim == 3:
-        return np.transpose(array, axes=(1,2,0))
-    elif array.ndim == 4:
-        return np.transpose(array, axes=(1,2,3,0))
+
+    if return_attributes:
+        return all_used_attributes
+    else:
+        if array.ndim == 3:
+            return np.transpose(array, axes=(1,2,0))
+        elif array.ndim == 4:
+            return np.transpose(array, axes=(1,2,3,0))
     
 def obj_out_to_array(obj: SimpleNamespace) -> np.ndarray:
     """
@@ -528,16 +650,25 @@ def obj_out_to_array(obj: SimpleNamespace) -> np.ndarray:
     if not isinstance(obj, SimpleNamespace):
         raise ValueError("Input must be a SimpleNamespace object.")
 
-    allowed_attributes = [
-        "output_total", "noise_residuals", "fgds_residuals",
+    default_attributes = [
+        "output_total","output_total_split1","output_total_split2", "noise_residuals", "noise_split1_residuals", "noise_split2_residuals", "fgds_residuals",
         "output_cmb", "fgres_templates", "fgres_templates_noise",
-        "fgres_templates_ideal"
+        "fgres_templates_fgds"
     ]
+
+    obj_attributes = list(vars(obj).keys())
+
+    used_attributes = [attr for attr in default_attributes if hasattr(obj, attr)]
+
+    additional_attributes = [attr for attr in obj_attributes if attr not in default_attributes and hasattr(obj, attr)]
+
+    all_used_attributes = used_attributes + additional_attributes
     
-    array = [getattr(obj, attr) for attr in allowed_attributes if hasattr(obj, attr)]
+    array = [getattr(obj, attr) for attr in all_used_attributes if hasattr(obj, attr)]
+    
     return np.array(array)
     
-def array_to_obj(array: np.ndarray, obj: SimpleNamespace) -> SimpleNamespace:
+def array_to_obj(array: np.ndarray, attr_list: List[str]) -> SimpleNamespace:
     """
     Convert a numpy array back to a SimpleNamespace object with specific attributes,
     based on attributes present in the reference object.
@@ -546,25 +677,22 @@ def array_to_obj(array: np.ndarray, obj: SimpleNamespace) -> SimpleNamespace:
     ----------
         array: np.ndarray
             Numpy array where the last dimension corresponds to attributes.
-            obj: SimpleNamespace object to reference which attributes to set.
+        attr_list: List[str]
+            List of attributes to assign from the array slices.
 
     Returns
     --------
         SimpleNamespace 
             SimpleNamespace with attributes set from array slices.
     """
-    allowed_attributes = [
-        "total", "fgds", "noise", "nuisance", "cmb", "dust", "synch", "ame",
-        "co", "freefree", "cib", "tsz", "ksz", "radio_galaxies"
-    ]
-    
     new_obj = SimpleNamespace()
 
-    count = 0
-    for attr in allowed_attributes:
-        if hasattr(obj, attr):
-            setattr(new_obj, attr, array[..., count])
-            count += 1
+    if len(attr_list) != array.shape[-1]:
+        raise ValueError("Length of attr_list must match the last dimension of the array.")
+
+    for idx, attr in enumerate(attr_list):
+        setattr(new_obj, attr, array[..., idx])
+
     return new_obj
 
 def _slice_data(data: SimpleNamespace, field_in: str, field_out: str) -> SimpleNamespace:
@@ -745,12 +873,134 @@ def _log(message: str, verbose=False):
     if verbose:
         print(message)
 
+def change_coord_mask(mask: np.ndarray, coord: List[str]) -> np.ndarray:
+    """ Change coordinates of a HEALPIX mask
+
+    Parameters
+    ----------
+        mask : np.ndarray
+            mask(s) to be rotated. It can be a single mask or a stack of masks.
+            Shape is (n_maps, n_pixels) or (n_pixels,).
+        coord : list
+            List of strings.
+            First character is the coordinate system of mask, second character
+            is the coordinate system of the output mask. As in HEALPIX, allowed
+            coordinate systems are 'G' (galactic), 'E' (ecliptic) or 'C' (equatorial)
+
+    Returns
+    -------
+        np.ndarray
+            Mask(s) in the new coordinate system.
+    """
+    # Basic HEALPix parameters
+    npix = mask.shape[-1]
+    nside = hp.npix2nside(npix)
+    ang = hp.pix2ang(nside, np.arange(npix))
+
+    # Select the coordinate transformation
+    rot = hp.Rotator(coord=reversed(coord))
+
+    # Convert the coordinates
+    new_ang = rot(*ang)
+    new_pix = hp.ang2pix(nside, *new_ang)
+
+    return mask[..., new_pix]
+
+def nside_from_fwhm(fwhm, pixs_per_fwhm = 3., unit="arcmin"):
+    """
+    Compute the minimum HEALPix nside (power of 2) such that
+    the pixel size is <= FWHM / pixs_per_fwhm.
+
+    Parameters
+    ----------
+    fwhm : float
+        Beam FWHM. 
+    unit : {"arcmin", "deg", "rad"}, optional
+        Unit of `fwhm`. Default is arcmin.
+    pixs_per_fwhm : float, optional
+        Number of pixels per FWHM. Default is 3.
+
+    Returns
+    -------
+    nside : int
+        Smallest power-of-two nside such that the typical
+        HEALPix pixel size is <= FWHM/pixs_per_fwhm.
+    """
+
+    # --- Convert FWHM to radians ---
+    if unit == "arcmin":
+        fwhm_rad = np.deg2rad(fwhm / 60.0)
+    elif unit == "deg":
+        fwhm_rad = np.deg2rad(fwhm)
+    elif unit == "rad":
+        fwhm_rad = float(fwhm)
+    else:
+        raise ValueError("unit must be one of 'arcmin', 'deg', 'rad'")
+
+    if fwhm_rad <= 0:
+        raise ValueError("FWHM must be positive")
+
+    nside_min_float = np.sqrt(np.pi / 3) * pixs_per_fwhm / fwhm_rad
+
+    if nside_min_float < 1:
+        return 1  # smallest valid nside
+
+    k = int(np.ceil(np.log2(nside_min_float)))
+    nside = 2**k
+
+    return nside
+
+def get_prefix(model, prefixes):
+    """Get the prefix of a model from a list of prefixes.
+
+    Parameters
+    ----------
+    model : str
+        Model name.
+    prefixes : List[str]
+        List of possible prefixes.
+    
+    Returns
+    -------
+    str or None
+        The matching prefix if found, otherwise None.
+    """
+
+    for p in prefixes:
+        if model.startswith(p):
+            return p
+    return None
+
+def get_fields_from_alms(input_alms: np.ndarray, field_out: str) -> List[str]:
+    """
+    Determine the fields present in the input alms based on their shape and the configuration parameters.
+
+    Parameters
+    ----------
+        input_alms: np.ndarray
+            Input alms array, which can have different shapes depending on the fields included.
+        field_out: str
+            Desired output field type (e.g., "T", "E", "B", "EB", "QU_E", "QU_B").
+    
+    Returns
+        List[str]
+            List of field identifiers (e.g., "T", "E", "B") corresponding to the input alms.
+    """
+
+    if input_alms.ndim == 4:
+        if input_alms.shape[1] == 3:
+            return ["T", "E", "B"]
+        elif input_alms.shape[1] == 2:
+            return ["E", "B"]
+    elif input_alms.ndim == 3:
+        if field_out in ["T", "E", "B"]:
+            return [field_out]
+        elif field_out in ["QU_E", "QU_B"]:
+            return [field_out[-1]]
+
 __all__ = [
     name
     for name, obj in globals().items()
     if callable(obj) and getattr(obj, "__module__", None) == __name__
 ]
-
-
-
 

@@ -5,15 +5,16 @@ from .routines import _slice_data, _map2alm_kwargs, _log
 from .needlets import _get_needlet_windows_,  _needlet_filtering
 from .configurations import Configs
 from types import SimpleNamespace
-from .simulations import _get_data_foregrounds_, _get_data_simulations_
+from .simulations import _get_foregrounds_, get_input_data
 from typing import Optional, Union, List, Dict, Any, Tuple
 import sys
 
 
-def get_and_save_real_tracers_B(
+def get_mcilc_tracers(
     config: Configs,
     foregrounds: Optional[np.ndarray] = None,
     systematics: Optional[np.ndarray] = None,
+    save_inputs: bool = False,
     **kwargs: Any
 ) -> None:
     """
@@ -89,7 +90,7 @@ def get_and_save_real_tracers_B(
     if "tracers_inputs_path" not in config.real_mc_tracers[0]:
         config.real_mc_tracers[0]["tracers_inputs_path"] = f"inputs_mc_tracers/{config.experiment}"
 
-    config_mc = get_mc_config(config, config.real_mc_tracers[0]["tracers_inputs_path"])
+    config_mc = get_mc_config(config, config.real_mc_tracers[0]["tracers_inputs_path"], save_inputs=save_inputs)
     kwargs = _map2alm_kwargs(**kwargs)
 
     _log("Generating input simulations for MC-ILC tracers", verbose=config_mc.verbose)
@@ -112,19 +113,20 @@ def get_and_save_real_tracers_B(
 
     tracers = component_separation(config_mc, mc_data)
     
-    tracers = _combine_B_tracers(np.array(tracers.total))
+    tracers = _combine_tracers(np.array(tracers.total))
 
     _log(f"Saving the tracers in {config.real_mc_tracers[0]['path_tracers']} directory", verbose=config_mc.verbose)
 
-    _save_real_tracers_B(
+    _save_real_tracers(
         tracers,
         config.real_mc_tracers[0]["path_tracers"],
         np.array(config_mc.instrument.channels_tags)[config.real_mc_tracers[0]["channels_tracers"]],
         config_mc.fwhm_out,
-        config_mc.lmax
+        config_mc.lmax,
+        config_mc.field_out
     )
 
-def _save_real_tracers_B(tracers, path_tracers, tags, fwhm_out, lmax):
+def _save_real_tracers(tracers, path_tracers, tags, fwhm_out, lmax, field_out: str = "B") -> None:
     """
     Save the generated realistic B-mode tracers in the specified path.
 
@@ -140,11 +142,13 @@ def _save_real_tracers_B(tracers, path_tracers, tags, fwhm_out, lmax):
             Full width at half maximum of the output beam in arcminutes associated to the tracers.
         lmax : int
             Maximum multipole for the tracers.
+        field_out : str, optional
+            Field of the tracers to be saved. Default is "B".
     
     Returns
     -------
         None
-            Saves the tracers in the specified path with the format "B_tracer_{tag}_{fwhm_out}acm_ns{nside}_lmax{lmax}.fits"
+            Saves the tracers in the specified path with the format "{field_out}_tracer_{tag}_{fwhm_out}acm_ns{nside}_lmax{lmax}.fits"
 
     """
 
@@ -155,7 +159,7 @@ def _save_real_tracers_B(tracers, path_tracers, tags, fwhm_out, lmax):
         path_tracers = path_tracers + '/'
 
     for i, tracer in enumerate(tracers):
-        hp.write_map(path_tracers + f"B_tracer_{tags[i]}_{fwhm_out}acm_ns{hp.npix2nside(tracer.shape[0])}_lmax{lmax}.fits", tracer, overwrite=True)
+        hp.write_map(path_tracers + f"{field_out}_tracer_{tags[i]}_{fwhm_out}acm_ns{hp.npix2nside(tracer.shape[0])}_lmax{lmax}.fits", tracer, overwrite=True, dtype=tracer.dtype)
     
 def initialize_scalar_tracers(
     config: Configs,
@@ -554,7 +558,7 @@ def get_tracers_compsep(
     }]
     return tracers_compsep
 
-def get_mc_config(config: Configs, tracers_inputs_path: str) -> Configs:
+def get_mc_config(config: Configs, tracers_inputs_path: str, save_inputs: bool = False) -> Configs:
     """
     Generate a configuration object for the MC-ILC tracers generation based on the provided configuration.
 
@@ -562,9 +566,11 @@ def get_mc_config(config: Configs, tracers_inputs_path: str) -> Configs:
     ----------
     config : Configs
             Configuration object containing the instrumental and parameters configuration. 
-            See 'generate_and_save_real_tracers_B' for details.
-        tracers_inputs_path : str
-            Path where the MC-ILC tracers inputs are stored. It should be a directory path.
+            See 'generate_and_save_real_tracers' for details.
+    tracers_inputs_path : str
+        Path where the MC-ILC tracers inputs are stored. It should be a directory path.
+    save_inputs : bool, optional
+            Whether to save the simulated input data. Default is False.
 
     Returns
     -------
@@ -600,9 +606,11 @@ def get_mc_config(config: Configs, tracers_inputs_path: str) -> Configs:
     config_mc.generate_input_noise = True #
     config_mc.generate_input_cmb = True #
     config_mc.generate_input_data = True #
-    config_mc.save_inputs = True # 
+    config_mc.save_inputs = save_inputs # 
     config_mc.seed_cmb = None
     config_mc.seed_noise = None
+    config_mc.data_splits = False
+    config_mc.only_splits = False
 #    else:
 #        if not os.path.exists(config_mc.fgds_path + f"_{''.join(config_mc.foreground_models)}.npy"):
 #            config_mc.generate_input_foregrounds = True
@@ -617,6 +625,7 @@ def get_mc_config(config: Configs, tracers_inputs_path: str) -> Configs:
 
     config_mc.save_compsep_products = False #
     config_mc.return_compsep_products = True
+    config_mc.pixel_window_out = False
 #    config_mc.mask_type = "mask_for_compsep"
 
     if config_mc.data_type == "maps":
@@ -659,19 +668,19 @@ def get_mc_data(
     """
 
     if foregrounds is None:
-        mc_foregrounds = _get_data_foregrounds_(config_mc)
+        mc_foregrounds = _get_foregrounds_(config_mc)
     else:
         mc_foregrounds = SimpleNamespace()
         mc_foregrounds.total = foregrounds
 
-    mc_data = _get_data_simulations_(config_mc, mc_foregrounds)
+    mc_data = get_input_data(config_mc, foregrounds = mc_foregrounds)
 
     if systematics is not None:
         mc_data.total = mc_data.total + systematics
 
     return _slice_data(mc_data, config_mc.mc_data_field, config_mc.field_in)
 
-def _combine_B_tracers(tracers, coefficients=[0.7,0.3]):
+def _combine_tracers(tracers, coefficients=[0.7,0.3]):
     """
     Combine the scalar tracers using the provided coefficients.
 

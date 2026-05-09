@@ -42,6 +42,9 @@ generate_input_data: True #
 save_inputs: False # 
 pixel_window_in: True
 
+data_splits: True
+only_splits: False 
+
 
 data_path: "inputs/SO_SAT/total/total_maps_ns128"
 fgds_path: "inputs/SO_SAT/foregrounds/d1s1/foregrounds_alms_ns128"
@@ -92,7 +95,7 @@ compsep:
 
 # Configuration to get estimate of the foreground residuals.
 compsep_residuals:
-  - gnilc_path: "gilc_needlet_bias0.1_m+1_nls1-2-3_deproCMB0.0_nls1-2/mexican_B1.3_j0j9_j10j13_j14j16_j17j39"
+  - gilc_path: "gilc_needlet_bias0.1_m+1_nls1-2-3_deproCMB0.0_nls1-2/mexican_B1.3_j0j9_j10j13_j14j16_j17j39"
     compsep_path: "ilc_needlet_bias0.001/mexican_B1.3_j0j13_j14j16_j17j18_j19j39"
     field_in: "B" # If not provided, it will use field_out from this file.
     adapt_nside: False # If True, the HEALPix resolution of needlet maps is adapted to the sampled range of multipoles. Should match that of compsep run.
@@ -129,7 +132,7 @@ compute_spectra:
     mask_path: ""
     field_out: "QU"
     apodize_mask: null #"C1"
-    smooth_mask: 0.
+    apodize_scale: 0.
     smooth_tracer: 3.
     fsky: 0.5
     nmt_purify_B: True

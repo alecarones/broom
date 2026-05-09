@@ -118,7 +118,9 @@ def get_standard_windows(lmax: int, needlet_config: Dict) -> np.ndarray:
             break
         j_max += 1
 
-    return _merge_needlets_(b_ell, needlet_config.get("merging_needlets"))
+    b_ell = _merge_needlets_(b_ell, needlet_config.get("merging_needlets"))
+    b_ell[0,:3] = np.sqrt(1. - np.sum((b_ell**2)[1:], axis=0)[:3])
+    return b_ell
 
 def get_mexican_windows(lmax: int, needlet_config: Dict) -> np.ndarray:
     """
@@ -151,7 +153,9 @@ def get_mexican_windows(lmax: int, needlet_config: Dict) -> np.ndarray:
             break
         j_max += 1
     
-    return _merge_needlets_(b_ell, needlet_config.get("merging_needlets"))
+    b_ell = _merge_needlets_(b_ell, needlet_config.get("merging_needlets"))
+    b_ell[0,:3] = np.sqrt(1. - np.sum((b_ell**2)[1:], axis=0)[:3])
+    return b_ell
 
     
 def _merge_needlets_(b_ell: np.ndarray, merging_needlets: Optional[Union[int, List[int]]]) -> np.ndarray:
@@ -209,7 +213,7 @@ def _merge_needlets_(b_ell: np.ndarray, merging_needlets: Optional[Union[int, Li
     else:
         raise ValueError("merging_needlets must be int, list[int], or None")
 
-def _get_nside_lmax_from_b_ell(b_ell: np.ndarray, nside: int, lmax: int) -> Tuple[int, int]:
+def _get_nside_lmax_from_b_ell(b_ell: np.ndarray, nside: int, lmax: int, needlet_windows: str) -> Tuple[int, int]:
     """
     Estimate optimal nside and lmax based on the needlet filter support.
 
@@ -221,6 +225,8 @@ def _get_nside_lmax_from_b_ell(b_ell: np.ndarray, nside: int, lmax: int) -> Tupl
             Input nside.
         lmax : int
             Input lmax.
+        needlet_windows : str
+            Type of needlet windows used ('cosine', 'standard', 'mexican').
 
     Returns
     -------
@@ -228,7 +234,14 @@ def _get_nside_lmax_from_b_ell(b_ell: np.ndarray, nside: int, lmax: int) -> Tupl
             Recommended (nside, lmax) values to be used for needlet maps generation.
     """
 
-    max_b = np.max(np.nonzero(b_ell)) 
+    if needlet_windows == "mexican":
+        if np.max(b_ell) < 0.005:
+            max_b = np.max(np.nonzero(b_ell)) 
+        else:
+            max_b = np.max(np.where(b_ell >= 0.005))
+    else:
+        max_b = np.max(np.nonzero(b_ell)) 
+
     if max_b == lmax:
         return nside, lmax
     

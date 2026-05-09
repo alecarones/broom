@@ -3,7 +3,7 @@ import healpy as hp
 import sys
 #from sklearn.linear_model import LinearRegression
 
-def purify_master(QU_maps,mask,lmax, return_E=True, return_B=True, purify_E=False):
+def purify_master(QU_maps,mask,lmax, return_E=True, return_B=True, purify_E=False, purify_B=True):
     """
     Purify the E and B modes of the input QU maps using purification in NaMaster package.
 
@@ -21,6 +21,8 @@ def purify_master(QU_maps,mask,lmax, return_E=True, return_B=True, purify_E=Fals
             If True, return the B-mode alms. Default is True.
         purify_E : bool, optional
             If True, perform purification of E modes. Default is False.
+        purify_B : bool, optional
+            If True, perform purification of B modes. Default is True.
     
     Returns
     -------
@@ -40,7 +42,7 @@ def purify_master(QU_maps,mask,lmax, return_E=True, return_B=True, purify_E=Fals
     nside = hp.get_nside(QU_maps[0])
     
     fp = nmt.NmtField(mask, [(QU_maps[0])*maskbin, (QU_maps[1])*maskbin],lmax=lmax,lmax_mask=lmax)
-    alms_p, _ = fp._purify(fp.mask, fp.get_mask_alms(), [(QU_maps[0])*maskbin, (QU_maps[1])*maskbin], n_iter=fp.n_iter,task=[purify_E,True])
+    alms_p, _ = fp._purify(fp.mask, fp.get_mask_alms(), [(QU_maps[0])*maskbin, (QU_maps[1])*maskbin], n_iter=fp.n_iter,task=[purify_E, purify_B])
     if return_E and return_B:
         return alms_p
     elif return_E and not return_B:
@@ -50,7 +52,7 @@ def purify_master(QU_maps,mask,lmax, return_E=True, return_B=True, purify_E=Fals
     else:
         raise ValueError("At least one of 'return_E' and 'return_B' must be True.")
 
-def purify_recycling(QU_maps, QU_full_maps, mask,lmax, return_E=True, return_B=True, purify_E=False, iterations=0, **kwargs):
+def purify_recycling(QU_maps, QU_full_maps, mask,lmax, return_E=True, return_B=True, purify_B=True, purify_E=False, inpaint=False, iterations=0, iterations_inp=1000, **kwargs):
     """
     Purify the E and B modes of the input QU maps using recycling technique.
 
@@ -68,10 +70,16 @@ def purify_recycling(QU_maps, QU_full_maps, mask,lmax, return_E=True, return_B=T
             If True, return the E-mode alms. Default is True.
         return_B : bool, optional
             If True, return the B-mode alms. Default is True.
+        purify_B : bool, optional
+            If True, perform purification of B modes. Default is True.
         purify_E : bool, optional
             If True, perform purification of E modes. Default is False.
+        inpaint : bool, optional
+            If True, perform inpainting correction after applying the recycling technique. Default is False.
         iterations : int, optional
             Number of iterations for recycling purification. Default is 0.
+        iterations_inp : int, optional
+            Number of iterations for inpainting correction. Default is 1000.
     
     Returns
     -------
@@ -99,8 +107,9 @@ def purify_recycling(QU_maps, QU_full_maps, mask,lmax, return_E=True, return_B=T
         alms_p[0] = hp.map2alm(TQU_maps*mask, lmax=lmax, pol=True, **kwargs)[1]
     elif return_E and purify_E:
         print("Purification of E not implemented yet for recycling technique.")
+        alms_p[0] = hp.map2alm(TQU_maps*mask, lmax=lmax, pol=True, **kwargs)[1]
 
-    if return_B:
+    if return_B and purify_B:
         alms_m = hp.map2alm(TQU_maps*maskbin, lmax=lmax, pol=True, **kwargs)
         full_alms_m = hp.map2alm(TQU_full_maps*maskbin, lmax=lmax, pol=True, **kwargs)
             
@@ -140,17 +149,146 @@ def purify_recycling(QU_maps, QU_full_maps, mask,lmax, return_E=True, return_B=T
 #        QU_p[2] = maps_TQU_B[2]-((reg_U.coef_)[0])*maps_TQU_B_temp[2]
         QU_p[1] = maps_TQU_B[1]-(reg_Q[0])*maps_TQU_B_temp[1]
         QU_p[2] = maps_TQU_B[2]-(reg_U[0])*maps_TQU_B_temp[2]
-            
+
+        del maps_TQU_E, maps_TQU_B, full_maps_TQU_E, full_maps_TQU_B, maps_TQU_B_temp, full_maps_TQU_B_temp
+        del alms_E, alms_B, full_alms_E, full_alms_B, alms_E_B, full_alms_E_B, alms_B_m, full_alms_B_m
+
         if iterations > 0:
             for it in range(iterations):
                 alms_B_m = np.zeros((3,alms_m.shape[1]),dtype=complex)
                 alms_B_m[2] = hp.map2alm([0.*(QU_p[0]),(QU_p[1])*maskbin,(QU_p[2])*maskbin], lmax=lmax, pol=True, **kwargs)[2]
                 QU_p = hp.alm2map(alms_B_m,nside,lmax=lmax,pol=True)
-            
+
+        if inpaint:
+            mask_inv = 1. - maskbin
+            indices = np.arange(12*nside**2)
+            neighs = hp.get_all_neighbours(nside, indices[mask_inv>0])
+            neighs = neighs.flatten()
+            mask_inp = np.zeros(12*nside**2)
+            mask_inp[np.unique(neighs)]=1.
+            mask_inp = mask_inp - mask_inv
+
+            alms_B_m = hp.map2alm(QU_p*maskbin, lmax=lmax, pol=True, **kwargs)[2]
+            B_m = hp.alm2map(alms_B_m, nside, lmax=lmax, pol=False)
+    
+            B_m_temp = B_m * mask_inp
+            for _ in range(iterations_inp):
+                B_m_temp[(maskbin > 0.) & (mask_inp == 0.)] = np.mean(B_m_temp[hp.get_all_neighbours(nside, indices[(maskbin > 0.) & (mask_inp == 0.)])],axis=0)
+            B_m = B_m - B_m_temp
+            if return_E:
+                alms_p[1] = hp.map2alm(B_m * maskbin, lmax=lmax, pol=False, **kwargs)
+            else:
+                alms_p[0] = hp.map2alm(B_m * maskbin, lmax=lmax, pol=False, **kwargs)
+        else:          
+            if return_E:
+                alms_p[1] = hp.map2alm([0.*(QU_p[0]),(QU_p[1])*mask,(QU_p[2])*mask], lmax=lmax, pol=True, **kwargs)[2]
+            else:
+                alms_p[0] = hp.map2alm([0.*(QU_p[0]),(QU_p[1])*mask,(QU_p[2])*mask], lmax=lmax, pol=True, **kwargs)[2]
+
+    elif return_B and not purify_B:
         if return_E:
-            alms_p[1] = hp.map2alm([0.*(QU_p[0]),(QU_p[1])*mask,(QU_p[2])*mask], lmax=lmax, pol=True, **kwargs)[2]
+            alms_p[1] = hp.map2alm(TQU_maps*mask, lmax=lmax, pol=True, **kwargs)[2]
         else:
-            alms_p[0] = hp.map2alm([0.*(QU_p[0]),(QU_p[1])*mask,(QU_p[2])*mask], lmax=lmax, pol=True, **kwargs)[2]
+            alms_p[0] = hp.map2alm(TQU_maps*mask, lmax=lmax, pol=True, **kwargs)[2]
+    
+    if (return_E and not return_B) or (return_B and not return_E):
+        return alms_p[0]
+    else:
+        return alms_p
+
+
+def purify_inpainting(QU_maps, mask, lmax, return_E=True, return_B=True, purify_B=True, purify_E=False, iterations=0, iterations_inp=1000, **kwargs):
+    """
+    Purify the E and B modes of the input QU maps using inpainting technique. 
+    After applying inpainting, the maps can be further purified with iterative harmonic transformations.
+
+    Parameters
+    ----------
+        QU_maps : array of Healpix maps
+            The input maps containing Q and U components.
+        mask : array
+            The mask to apply to the maps.
+        lmax : int
+            The maximum multipole to consider for purification.
+        return_E : bool, optional
+            If True, return the E-mode alms. Default is True.
+        return_B : bool, optional
+            If True, return the B-mode alms. Default is True.
+        purify_B : bool, optional
+            If True, perform purification of B modes. Default is True.
+        purify_E : bool, optional
+            If True, perform purification of E modes. Default is False.
+        iterations : int, optional
+            Number of iterations for recycling purification. Default is 0.
+        iterations_inp : int, optional
+            Number of iterations for inpainting correction. Default is 1000.
+    
+    Returns
+    -------
+        alms_p : array
+            The purified alms for E and/or B modes based on the input flags.
+    """
+#    print('Performing recycling purification.')
+    maskbin = np.zeros_like(mask)
+    maskbin[mask > 0.] = 1.
+    lm = hp.Alm.getsize(lmax)
+
+    nside = hp.get_nside(QU_maps[0])
+
+    if return_E and return_B:
+        alms_p = np.zeros((2,lm),dtype=complex)
+    elif (return_E and not return_B) or (return_B and not return_E):
+        alms_p = np.zeros((1,lm),dtype=complex)
+    else:
+        raise ValueError("At least one of 'return_E' and 'return_B' must be True.")
+    
+    TQU_maps = np.array([0.*QU_maps[0],QU_maps[0],QU_maps[1]])
+    
+    if return_E and not purify_E:
+        alms_p[0] = hp.map2alm(TQU_maps*mask, lmax=lmax, pol=True, **kwargs)[1]
+    elif return_E and purify_E:
+        print("Purification of E not implemented yet for recycling technique.")
+        alms_p[0] = hp.map2alm(TQU_maps*mask, lmax=lmax, pol=True, **kwargs)[1]
+
+    if return_B and purify_B:
+        mask_inv = 1. - maskbin
+        indices = np.arange(12*nside**2)
+        neighs = hp.get_all_neighbours(nside, indices[mask_inv>0])
+        neighs = neighs.flatten()
+        mask_inp = np.zeros(12*nside**2)
+        mask_inp[np.unique(neighs)]=1.
+        mask_inp = mask_inp - mask_inv
+
+        alms_B_m = hp.map2alm(TQU_maps * maskbin, lmax=lmax, pol=True, **kwargs)[2]
+        B_m = hp.alm2map(alms_B_m, nside, lmax=lmax, pol=False)
+
+        B_m_temp = B_m * mask_inp
+        for _ in range(iterations_inp):
+            B_m_temp[(maskbin > 0.) & (mask_inp == 0.)] = np.mean(B_m_temp[hp.get_all_neighbours(nside, indices[(maskbin > 0.) & (mask_inp == 0.)])],axis=0)
+        B_m = B_m - B_m_temp
+
+        if iterations == 0:
+            if return_E:
+                alms_p[1] = hp.map2alm(B_m * maskbin, lmax=lmax, pol=False, **kwargs)
+            else:
+                alms_p[0] = hp.map2alm(B_m * maskbin, lmax=lmax, pol=False, **kwargs)
+        else:          
+            alms_B_m = hp.map2alm(B_m * maskbin, lmax=lmax, pol=False, **kwargs)
+            QU_p = hp.alm2map([0.*alms_B_m,0.*alms_B_m,alms_B_m], nside, lmax=lmax, pol=True)
+            for it in range(iterations):
+                alms_B_m = np.zeros((3,lm),dtype=complex)
+                alms_B_m[2] = hp.map2alm([0.*(QU_p[0]),(QU_p[1])*maskbin,(QU_p[2])*maskbin], lmax=lmax, pol=True, **kwargs)[2]
+                QU_p = hp.alm2map(alms_B_m,nside,lmax=lmax,pol=True)
+            if return_E:
+                alms_p[1] = hp.map2alm([0.*(QU_p[0]),(QU_p[1])*mask,(QU_p[2])*mask], lmax=lmax, pol=True, **kwargs)[2]
+            else:
+                alms_p[0] = hp.map2alm([0.*(QU_p[0]),(QU_p[1])*mask,(QU_p[2])*mask], lmax=lmax, pol=True, **kwargs)[2]
+
+    elif return_B and not purify_B:
+        if return_E:
+            alms_p[1] = hp.map2alm(TQU_maps*mask, lmax=lmax, pol=True, **kwargs)[2]
+        else:
+            alms_p[0] = hp.map2alm(TQU_maps*mask, lmax=lmax, pol=True, **kwargs)[2]
     
     if (return_E and not return_B) or (return_B and not return_E):
         return alms_p[0]

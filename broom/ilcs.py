@@ -2,13 +2,13 @@ import numpy as np
 import healpy as hp
 from .configurations import Configs
 from .routines import _get_local_cov, _EB_to_QU, _E_to_QU, _B_to_QU,\
-                      obj_to_array, array_to_obj, _get_bandwidths
-from .saving import _save_compsep_products, _get_full_path_out, save_patches, save_ilc_weights
+                      obj_to_array, array_to_obj, _get_bandwidths, get_fields_from_alms
+from .saving import _get_full_path_out, save_patches, save_ilc_weights, _get_full_path_nuiscov, load_nuiscov
 from .needlets import  _get_nside_lmax_from_b_ell, _get_needlet_windows_, _needlet_filtering, _get_good_channels_nl 
-from .seds import _get_CMB_SED, _get_moments_SED, _standardize_cilc
+from .seds import _get_CMB_SED, _get_SEDs, _standardize_cilc
 from .clusters import _adapt_tracers_path, _cea_partition, _rp_partition, \
                       get_scalar_tracer, get_scalar_tracer_nl, initialize_scalar_tracers
-
+from .masking import _downgrade_mask
 from types import SimpleNamespace
 import os
 from typing import Any, Optional, Union, Dict, List, Tuple
@@ -30,8 +30,8 @@ def ilc(config: Configs, input_alms: SimpleNamespace, compsep_run: Dict, **kwarg
             - save_compsep_products : bool, whether to save component separation products.
             - return_compsep_products : bool, whether to return component separation products.
             - path_outputs : str, path to save the output files.
-            - units : str, units of the output maps (e.g., "uK_CMB"). Used to compute moments, if needed.
-            - bandpass_integrate : bool, whether inputs are bandpass-integrated. Used to compute moments, if needed. 
+            - units : str, units of the output maps (e.g., "uK_CMB"). Used to compute components SEDs, if needed.
+            - bandpass_integrate : bool, whether inputs are bandpass-integrated. Used to compute components SEDs, if needed. 
         input_alms : SimpleNamespace
             SimpleNamespace object containing input spherical harmonic coefficients (alms). 
             Each attribute has shape (n_channels, (n_fields), n_alms), where n_fields depend on the fields requested in config.field_out.
@@ -54,6 +54,7 @@ def ilc(config: Configs, input_alms: SimpleNamespace, compsep_run: Dict, **kwarg
                 If not provided, it is set to the value of config.save_compsep_products. Default: True.
             - "mask": (optional) HEALPix mask which will exclude (unobserved) regions from covariance computation. 
                 It must be a 1D array with shape (12 * nside**2,). If non-binary, it will be used to weigh pixel in covariance computation.
+            - "path_patches": (str) Path to .npy file containing pre-defined patches for MC-ILC. If not provided, patches will be defined on the fly. Default: None.
             - "n_patches": (int) Number of patches to use in MC-ILC. Default: 50.
             - "mc_type": (str), needed if method is "mcilc" or "mc_ilc".
                 Type of MC-ILC to use. Options: "cea_ideal", "rp_ideal", "cea_real", "rp_real". Default: "cea_real".
@@ -62,7 +63,7 @@ def ilc(config: Configs, input_alms: SimpleNamespace, compsep_run: Dict, **kwarg
                 It must be a list with the same length as the number of needlet scales if domain is "needlet", otherwise a single float.
             - "special_nls": (list) List of needlet scales where moment deprojection is applied in c_ilc and clustering in mc_ilc.
             - "constraints": Dictionary to be used if method is "cilc" or "c_ilc". It must contain:
-                - "moments": list of strings with moments to be deprojected in cILC. It can be a list of lists if domain is "needlet".
+                - "components": list of strings with components to be deprojected in cILC. It can be a list of lists if domain is "needlet".
                     Each list will be associated to a needlet band in order.
             Optionally can include:
                 - "beta_d": (float, list): dust spectral index to compute dust moments. If list, a different beta_d is used for each needlet band. Default: 1.54.
@@ -83,37 +84,54 @@ def ilc(config: Configs, input_alms: SimpleNamespace, compsep_run: Dict, **kwarg
     if compsep_run["method"] in ["cilc", "c_ilc", "mc_cilc"]:
         compsep_run = _standardize_cilc(compsep_run, config.lmax)
 
+    input_attrs = obj_to_array(input_alms, return_attributes=True)
+
     # Check for MC-ILC ideal tracer requirements
     if compsep_run["method"] in ["mcilc", "mc_ilc", "mc_cilc"]:
-        if compsep_run["mc_type"] in ["cea_ideal", "rp_ideal"]:
-            if not hasattr(input_alms, "fgds"):
-                raise ValueError("The input_alms object must have 'fgds' attribute for ideal tracer in MC-ILC.")
+        if "path_patches" not in compsep_run:
+            if compsep_run["mc_type"] in ["cea_ideal", "rp_ideal"]:
+                if not hasattr(input_alms, "fgds"):
+                    raise ValueError("The input_alms object must have 'fgds' attribute for ideal tracer in MC-ILC.")
+                compsep_run["fgds_idx"] = input_attrs.index('fgds')
+            elif compsep_run["mc_type"] in ["cea_real", "rp_real"]:
+                if config.field_out not in ["B", "QU_B"]:
+                    raise ValueError("The 'cea_real' and 'rp_real' MC-ILC types are currently only implemented for B-mode reconstruction. The requested output field in config.field_out must be either 'B' or 'QU_B'.")
+        else:
+            if len(config.field_out) != 1:
+                if config.field_out not in ["QU_E", "QU_B"]:
+                    print("Warning: For MC-ILC with pre-defined patches, if multiple fields are requested in config.field_out, the code will search in the .npy file for multiple patches in the shape (N_fields, Npix).")
+                    print("If multiple patches are not available, it will fallback to searching for a single patch in the shape (Npix,) and use it for all fields.")
+                    
+    if hasattr(input_alms, "total"):
+        compsep_run["from_splits"] = False
+    elif hasattr(input_alms, "total_split1") and hasattr(input_alms, "total_split2"):
+        compsep_run["from_splits"] = True
+    else:
+        raise ValueError("The input_alms object must have either 'total' attribute or both 'total_split1' and 'total_split2' attributes.")
     
     if compsep_run["method"] != "mcilc":
-        if np.any(np.array(compsep_run["cov_noise_debias"]) != 0.):
-            if not hasattr(input_alms, "noise"):
-                raise ValueError("The input_alms object must have 'noise'' attribute for debiasing the covariance.")
-            compsep_run["noise_idx"] = 2 if hasattr(input_alms, "fgds") else 1
-                    
+        if not compsep_run["from_splits"]:
+            if not ("load_noise_covariance" in compsep_run and compsep_run["load_noise_covariance"]):
+                if np.any(np.array(compsep_run["cov_noise_debias"]) != 0.):
+                    if not hasattr(input_alms, "noise"):
+                        raise ValueError("The input_alms object must have 'noise'' attribute for debiasing the covariance.")
+                    compsep_run["noise_idx"] = input_attrs.index('noise')
+    
     # Perform the core ILC component separation
     output_maps = _ilc(config, obj_to_array(input_alms), compsep_run, **kwargs)
 
     compsep_run.pop("noise_idx", None)
+    compsep_run.pop("fgds_idx", None)
     
     # Post-process outputs (e.g., convert EB to QU if needed)
     output_maps = _ilc_post_processing(config, output_maps, compsep_run, **kwargs)
 
     # Convert array back to object with attributes
-    outputs = array_to_obj(output_maps, input_alms)
+    outputs = array_to_obj(output_maps, input_attrs)
 
     del output_maps
 
-    # Save component separation products if requested
-    if config.save_compsep_products:
-        _save_compsep_products(config, outputs, compsep_run, nsim=compsep_run["nsim"])
-
-    if config.return_compsep_products:
-        return outputs
+    return outputs, compsep_run
 
 def _ilc_post_processing(
     config: Configs,
@@ -201,16 +219,7 @@ def _ilc(
             Output separated maps.
     """
     # Determine fields based on input shape and desired output
-    if input_alms.ndim == 4:
-        if input_alms.shape[1] == 3:
-            fields_ilc = ["T", "E", "B"]
-        elif input_alms.shape[1] == 2:
-            fields_ilc = ["E", "B"]
-    elif input_alms.ndim == 3:
-        if config.field_out in ["T", "E", "B"]:
-            fields_ilc = [config.field_out]
-        elif config.field_out in ["QU_E", "QU_B"]:
-            fields_ilc = [config.field_out[-1]]
+    fields_ilc = get_fields_from_alms(input_alms, config.field_out)
 
     # Allocate output array and run ILC compsep per field if needed
     if input_alms.ndim == 4:
@@ -218,22 +227,33 @@ def _ilc(
         for i in range(input_alms.shape[1]):
             compsep_run["field"] = fields_ilc[i]
             if compsep_run["method"] in ["mcilc", "mc_ilc", "mc_cilc"]:
-                input_fgds_alms = np.zeros_like(input_alms[:, i, :, 0]) if "real" in compsep_run["mc_type"] else input_alms[:, i, :, 1]
-                compsep_run["tracers"] = initialize_scalar_tracers(
-                    config, input_fgds_alms, compsep_run, field=compsep_run["field"], **kwargs
-                )
-                del input_fgds_alms
+                if "path_patches" not in compsep_run:
+                    input_fgds_alms = np.zeros_like(input_alms[:, i, :, 0]) if "real" in compsep_run["mc_type"] else input_alms[:, i, :, compsep_run["fgds_idx"]]
+                    compsep_run["tracers"] = initialize_scalar_tracers(
+                        config, input_fgds_alms, compsep_run, field=compsep_run["field"], **kwargs
+                    )
+                    del input_fgds_alms
+                else:
+                    compsep_run["field_idx"] = i
             output_maps[i] = _ilc_scalar(config, input_alms[:, i, :, :], compsep_run, **kwargs)
 
     elif input_alms.ndim == 3:
         compsep_run["field"] = fields_ilc[0]
         if compsep_run["method"] in ["mcilc", "mc_ilc", "mc_cilc"]:
-            input_fgds_alms = np.zeros_like(input_alms[...,0]) if "real" in compsep_run["mc_type"] else input_alms[...,1]
-            compsep_run["tracers"] = initialize_scalar_tracers(config, input_fgds_alms, compsep_run, field=compsep_run["field"], **kwargs)
-            del input_fgds_alms
+            if "path_patches" not in compsep_run:
+                input_fgds_alms = np.zeros_like(input_alms[...,0]) if "real" in compsep_run["mc_type"] else input_alms[...,compsep_run["fgds_idx"]]
+                compsep_run["tracers"] = initialize_scalar_tracers(config, input_fgds_alms, compsep_run, field=compsep_run["field"], **kwargs)
+                del input_fgds_alms
+            else:
+                compsep_run["field_idx"] = 0
         output_maps = _ilc_scalar(config, input_alms, compsep_run, **kwargs)
     
     del compsep_run["field"]
+    if compsep_run["method"] in ["mcilc", "mc_ilc", "mc_cilc"]:
+        if "path_patches" not in compsep_run:
+            del compsep_run["tracers"]
+        else:
+            compsep_run.pop("field_idx", None)
 
     return output_maps
 
@@ -267,7 +287,7 @@ def _ilc_scalar(
     elif compsep_run["domain"] == "needlet":
         return _ilc_needlet(config, input_alms, compsep_run, **kwargs)
 #    elif compsep_run["domain"] == "harmonic":
-#        output_maps = _hilc(config, input_alms, compsep_run)
+#        output_maps = _ilc_harmonic(config, input_alms, compsep_run)
     else:
         raise ValueError(f"Unsupported domain {compsep_run['domain']} in compsep.")
 
@@ -350,13 +370,21 @@ def _ilc_needlet_j(
             Output alm array at the requested needlet scale.
     """
     # Determine nside and lmax for this scale
-    if "mask" in compsep_run:
-        nside_, lmax_ = config.nside, config.lmax
+#    if "mask" in compsep_run:
+#        nside_, lmax_ = config.nside, config.lmax
+#    else:
+    if compsep_run["adapt_nside"]:
+        nside_, lmax_ = _get_nside_lmax_from_b_ell(b_ell,config.nside,config.lmax,compsep_run["needlet_config"]["needlet_windows"])
     else:
-        if compsep_run["adapt_nside"]:
-            nside_, lmax_ = _get_nside_lmax_from_b_ell(b_ell,config.nside,config.lmax)
+        nside_, lmax_ = config.nside, config.lmax
+
+    if "mask" in compsep_run:
+        if nside_ < config.nside:
+            mask = _downgrade_mask(compsep_run["mask"], nside_, threshold=0.)
         else:
-            nside_, lmax_ = config.nside, config.lmax
+            mask = compsep_run["mask"]
+    else:
+        mask = None
     
     # Get frequency channels to be adopted in component separation at this scale
     good_channels_nl = _get_good_channels_nl(config, b_ell)
@@ -370,10 +398,13 @@ def _ilc_needlet_j(
 
     # Run either MC-ILC or ILC
     if (compsep_run["method"]=="mcilc") or ((compsep_run["method"]=="mc_ilc" or compsep_run["method"]=="mc_cilc") and nl_scale in compsep_run["special_nls"]):
-        tracer_nl = get_scalar_tracer_nl(compsep_run["tracers"], nside_, lmax_, b_ell)
-        output_maps_nl = _mcilc_maps(config, input_maps_nl, tracer_nl, compsep_run, b_ell, nl_scale=nl_scale)
+        if "path_patches" not in compsep_run:
+            tracer_nl = get_scalar_tracer_nl(compsep_run["tracers"], nside_, lmax_, b_ell)
+        else:
+            tracer_nl = None
+        output_maps_nl = _mcilc_maps(config, input_maps_nl, tracer_nl, compsep_run, b_ell, nl_scale=nl_scale, mask_mcilc=mask)
     else:
-        output_maps_nl = _ilc_maps(config, input_maps_nl, compsep_run, b_ell, nl_scale=nl_scale)
+        output_maps_nl = _ilc_maps(config, input_maps_nl, compsep_run, b_ell, nl_scale=nl_scale, mask=mask)
 
     del input_maps_nl
 
@@ -422,10 +453,13 @@ def _ilc_pixel(config: Configs, input_alms: np.ndarray, compsep_run: Dict, **kwa
 
 
     if compsep_run["method"]=="mcilc":
-        tracer = get_scalar_tracer(compsep_run["tracers"])
-        output_maps = _mcilc_maps(config, input_maps, tracer, compsep_run, np.ones(config.lmax+1))    
+        if "path_patches" not in compsep_run:
+            tracer = get_scalar_tracer(compsep_run["tracers"])
+        else:
+            tracer = None
+        output_maps = _mcilc_maps(config, input_maps, tracer, compsep_run, np.ones(config.lmax+1), mask_mcilc=compsep_run.get("mask", None)) 
     else:
-        output_maps = _ilc_maps(config, input_maps, compsep_run, np.ones(config.lmax+1))
+        output_maps = _ilc_maps(config, input_maps, compsep_run, np.ones(config.lmax+1), mask=compsep_run.get("mask", None))
     
     if config.pixel_window_out:
         for c in range(output_maps.shape[1]):
@@ -439,9 +473,10 @@ def _ilc_pixel(config: Configs, input_alms: np.ndarray, compsep_run: Dict, **kwa
     return output_maps
 
 def _ilc_maps(config: Configs, input_maps: np.ndarray, compsep_run: Dict,
-              b_ell: np.ndarray, nl_scale: Optional[Union[int, None]] = None) -> np.ndarray:
+              b_ell: np.ndarray, nl_scale: Optional[Union[int, None]] = None, mask: Optional[np.ndarray] = None
+            ) -> np.ndarray:
     """
-    Computes ILC weights and outputs the cleaned map using ILC methods with inclusion of moments deprojection (if needed).
+    Computes ILC weights and outputs the cleaned map using ILC methods with inclusion of components deprojection (if needed).
 
     Parameters
     ----------
@@ -456,8 +491,11 @@ def _ilc_maps(config: Configs, input_maps: np.ndarray, compsep_run: Dict,
             If `compsep_run["domain"]` is "pixel", it should be an array of ones with shape (lmax+1,).
         nl_scale : int, optional
             Needlet scale index corresponding to the current ILC run. Used for:
-            - Deprojection of moments in cILC.
+            - Deprojection of components in cILC.
             - Save weights with proper label.
+        mask : np.ndarray, optional
+            HEALPix mask to exclude regions from covariance computation.
+            It must be a 1D array with shape (12 * nside**2,). If non-binary, it will be used to weigh pixel in covariance computation.
 
     Returns
     -------
@@ -470,41 +508,77 @@ def _ilc_maps(config: Configs, input_maps: np.ndarray, compsep_run: Dict,
 
     bandwidths = _get_bandwidths(config, good_channels)
 
-    A_cmb = _get_CMB_SED(freqs, units=config.units, bandwidths=bandwidths)
+    if compsep_run["component_out"] == "cmb":
+        A_out = _get_CMB_SED(freqs, units=config.units, bandwidths=bandwidths)
+    elif compsep_run["component_out"] in ['0d', '1bd', '1Td', '2bd', '2Td', '2bdTd', '2Tdbd']:
+        A_out = _get_SEDs(freqs, [compsep_run["component_out"]], beta_d=compsep_run["beta_d_out"], T_d=compsep_run["T_d_out"], nu_ref_d=compsep_run["nu_ref_d_out"], units=config.units, bandwidths=bandwidths)[0]
+    elif compsep_run["component_out"] in ['0s', '1bs', '2bs']:
+        A_out = _get_SEDs(freqs, [compsep_run["component_out"]], beta_s=compsep_run["beta_s_out"], nu_ref_s=compsep_run["nu_ref_s_out"], units=config.units, bandwidths=bandwidths)[0]
+    else:
+        A_out = _get_SEDs(freqs, [compsep_run["component_out"]], units=config.units, bandwidths=bandwidths)[0]
         
     if compsep_run["method"] == "cilc":
         if nl_scale is None:
-            compsep_run["A"] = _get_moments_SED(freqs, compsep_run["constraints"]["moments"], beta_d=compsep_run["constraints"]["beta_d"], T_d=compsep_run["constraints"]["T_d"], beta_s=compsep_run["constraints"]["beta_s"], units=config.units, bandwidths=bandwidths)
+            compsep_run["A"] = _get_SEDs(freqs, compsep_run["constraints"]["components"], beta_d=compsep_run["constraints"]["beta_d"], T_d=compsep_run["constraints"]["T_d"], beta_s=compsep_run["constraints"]["beta_s"], units=config.units, bandwidths=bandwidths)
             compsep_run["e"] = np.array(compsep_run["constraints"]["deprojection"])
         else:
-            compsep_run["A"] = _get_moments_SED(freqs, compsep_run["constraints"]["moments"][nl_scale], beta_d=compsep_run["constraints"]["beta_d"][nl_scale], T_d=compsep_run["constraints"]["T_d"][nl_scale], beta_s=compsep_run["constraints"]["beta_s"][nl_scale], units=config.units, bandwidths=bandwidths)
+            compsep_run["A"] = _get_SEDs(freqs, compsep_run["constraints"]["components"][nl_scale], beta_d=compsep_run["constraints"]["beta_d"][nl_scale], T_d=compsep_run["constraints"]["T_d"][nl_scale], beta_s=compsep_run["constraints"]["beta_s"][nl_scale], units=config.units, bandwidths=bandwidths)
             compsep_run["e"] = np.array(compsep_run["constraints"]["deprojection"][nl_scale])
 
     elif (compsep_run["method"] == "c_ilc") and (nl_scale is not None) and (nl_scale in compsep_run["special_nls"]):
-        compsep_run["A"] = _get_moments_SED(freqs, compsep_run["constraints"]["moments"][compsep_run["special_nls"] == nl_scale], beta_d=compsep_run["constraints"]["beta_d"][compsep_run["special_nls"] == nl_scale], T_d=compsep_run["constraints"]["T_d"][compsep_run["special_nls"] == nl_scale], beta_s=compsep_run["constraints"]["beta_s"][compsep_run["special_nls"] == nl_scale], units=config.units, bandwidths=bandwidths)
-        compsep_run["e"] = np.array(compsep_run["constraints"]["deprojection"][compsep_run["special_nls"] == nl_scale])
+        compsep_run["A"] = _get_SEDs(freqs, compsep_run["constraints"]["components"][np.where(np.array(compsep_run["special_nls"]) == nl_scale)[0][0]], beta_d=compsep_run["constraints"]["beta_d"][np.where(np.array(compsep_run["special_nls"]) == nl_scale)[0][0]], T_d=compsep_run["constraints"]["T_d"][np.where(np.array(compsep_run["special_nls"]) == nl_scale)[0][0]], beta_s=compsep_run["constraints"]["beta_s"][np.where(np.array(compsep_run["special_nls"]) == nl_scale)[0][0]], units=config.units, bandwidths=bandwidths)
+        compsep_run["e"] = np.array(compsep_run["constraints"]["deprojection"][np.where(np.array(compsep_run["special_nls"]) == nl_scale)[0][0]])
 
     elif (compsep_run["method"] == "mc_cilc") and (nl_scale is not None) and (nl_scale not in compsep_run["special_nls"]):
-        nl_scale_cilc = nl_scale-len(np.array(compsep_run["special_nls"])[np.array(compsep_run["special_nls"]) < 2])
-        compsep_run["A"] = _get_moments_SED(freqs, compsep_run["constraints"]["moments"][nl_scale_cilc], beta_d=compsep_run["constraints"]["beta_d"][nl_scale_cilc], T_d=compsep_run["constraints"]["T_d"][nl_scale_cilc], beta_s=compsep_run["constraints"]["beta_s"][nl_scale_cilc], units=config.units, bandwidths=bandwidths)
+        nl_scale_cilc = nl_scale-len(np.array(compsep_run["special_nls"])[np.array(compsep_run["special_nls"]) < nl_scale])
+        compsep_run["A"] = _get_SEDs(freqs, compsep_run["constraints"]["components"][nl_scale_cilc], beta_d=compsep_run["constraints"]["beta_d"][nl_scale_cilc], T_d=compsep_run["constraints"]["T_d"][nl_scale_cilc], beta_s=compsep_run["constraints"]["beta_s"][nl_scale_cilc], units=config.units, bandwidths=bandwidths)
         compsep_run["e"] = np.array(compsep_run["constraints"]["deprojection"][nl_scale_cilc])
 
-    cov = get_ilc_cov(input_maps[...,0], config.lmax, compsep_run, b_ell)
-    noise_debias = compsep_run["cov_noise_debias"] if compsep_run["domain"] == "pixel" else compsep_run["cov_noise_debias"][nl_scale]
-    if noise_debias != 0.:
-        cov_n = get_ilc_cov(input_maps[...,compsep_run["noise_idx"]], config.lmax, compsep_run, b_ell)
-        cov = cov - noise_debias * cov_n
-        del cov_n
+    if compsep_run["from_splits"]:
+        cov = get_ilc_cov(input_maps[...,0], config.lmax, compsep_run, config.fwhm_out, b_ell, mask=mask, input_maps_2=input_maps[...,1])
+    else:
+        cov = get_ilc_cov(input_maps[...,0], config.lmax, compsep_run, config.fwhm_out, b_ell, mask=mask)
 
-    inv_cov = get_inv_cov(cov)
+    if compsep_run["ilc_bias"] != 0. and mask is not None:
+        mask_cov = (cov[0,0,:] != 0.).astype(float)
+        if np.sum(mask_cov == 0.) == mask_cov.shape[0]:
+            raise ValueError("The provided mask masks out all the pixels used for covariance computation.")
+        elif np.sum(mask_cov == 0.) == 0:
+            mask_cov = None
+    else:
+        mask_cov = None
+
+    if not compsep_run["from_splits"]:
+        noise_debias = compsep_run["cov_noise_debias"] if compsep_run["domain"] == "pixel" else compsep_run["cov_noise_debias"][nl_scale]
+        if noise_debias != 0.:
+            if not ("load_noise_covariance" in compsep_run and compsep_run["load_noise_covariance"]):
+                cov_n = get_ilc_cov(input_maps[...,compsep_run["noise_idx"]], config.lmax, compsep_run, config.fwhm_out, b_ell, mask=mask)
+            else:
+                path_noicov = _get_full_path_nuiscov(config, compsep_run)
+                cov_n = (load_nuiscov(config, path_noicov, compsep_run,
+                                    hp.npix2nside(input_maps.shape[-2]), "noise", nl_scale=nl_scale)).T
+            cov = cov - noise_debias * cov_n
+            del cov_n
+
+    if mask_cov is not None:
+        cov[..., mask_cov == 0.] = np.repeat(np.mean(cov[..., mask_cov != 0.], axis=-1, keepdims=True), np.sum(mask_cov == 0.), axis=-1)
+        mask_cov = None
+    
+    if mask_cov is not None:
+        inv_cov = get_inv_cov(cov[..., mask_cov != 0.])
+    else:
+        inv_cov = get_inv_cov(cov)
     del cov
 
-    w_ilc = get_ilc_weights(A_cmb, inv_cov, input_maps.shape, compsep_run)
+    w_ilc = get_ilc_weights(A_out, inv_cov, input_maps.shape, compsep_run, mask_cov=mask_cov)
     del inv_cov
 
+#    if mask is not None and compsep_run["ilc_bias"] != 0.:
+#        w_ilc[:, mask == 0.] = 0.
+
     if compsep_run["save_weights"]:
-        if 'path_out' not in compsep_run:
-            compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
+#        if 'path_out' not in compsep_run:
+        compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
         save_ilc_weights(config, w_ilc, compsep_run,
                          hp.npix2nside(input_maps.shape[-2]), nl_scale=nl_scale)
     
@@ -518,9 +592,9 @@ def _ilc_maps(config: Configs, input_maps: np.ndarray, compsep_run: Dict,
 
     return output_maps
 
-def _mcilc_maps(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
+def _mcilc_maps(config: Configs, input_maps: np.ndarray, tracer: Union[np.ndarray, None],
                 compsep_run: Dict, b_ell: np.ndarray,
-                nl_scale: Optional[Union[int, None]] = None) -> np.ndarray:
+                nl_scale: Optional[Union[int, None]] = None, mask_mcilc: Optional[np.ndarray] = None) -> np.ndarray:
     """
     Computes foreground-cleaned sky maps using the MC-ILC method.
 
@@ -536,6 +610,7 @@ def _mcilc_maps(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
         tracer : np.ndarray
             Tracer map used to define spatial partitions for independent component separation. 
             It should have shape (n_pixels,).
+            If None, the function will attempt to load patches from compsep_run["path_patches"] if available; otherwise, it will raise an error.
         compsep_run : dict
             Dictionary specifying the MCILC method and associated parameters:
             - "mc_type": Type of MCILC ('cea' or 'rp').
@@ -549,6 +624,9 @@ def _mcilc_maps(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
         nl_scale : int, optional
             Needlet scale index for the current ILC run. Used for:
             - saving weights with proper label.
+        mask_mcilc : np.ndarray, optional
+            HEALPix mask to exclude regions from covariance computation in MC-ILC.
+            It must be a 1D array with shape (12 * nside**2,). If non-binary, it will be used to weigh pixel in covariance computation.
 
     Returns
     -------
@@ -561,14 +639,17 @@ def _mcilc_maps(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
     # Get CMB SED for the good channels
     A_cmb = _get_CMB_SED(np.array(config.instrument.frequency)[good_channels], units=config.units, bandwidths=bandwidths)
 
-    if "cea" in compsep_run["mc_type"]:
-        return _mcilc_cea_(config, input_maps, tracer, compsep_run, A_cmb, nl_scale=nl_scale)
-    elif "rp" in compsep_run["mc_type"]:
-        return _mcilc_rp_(config, input_maps, tracer, compsep_run, A_cmb, nl_scale=nl_scale)
+    if tracer is None:
+        return _mcilc_patches_(config, input_maps, compsep_run, A_cmb, nl_scale=nl_scale, mask_mcilc=mask_mcilc)
+    else:
+        if "cea" in compsep_run["mc_type"]:
+            return _mcilc_cea_(config, input_maps, tracer, compsep_run, A_cmb, nl_scale=nl_scale, mask_mcilc=mask_mcilc)
+        elif "rp" in compsep_run["mc_type"]:
+            return _mcilc_rp_(config, input_maps, tracer, compsep_run, A_cmb, nl_scale=nl_scale, mask_mcilc=mask_mcilc)
 
 def _mcilc_cea_(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
                 compsep_run: Dict, A_cmb: np.ndarray,
-                nl_scale: Optional[Union[int, None]] = None) -> np.ndarray:
+                nl_scale: Optional[Union[int, None]] = None, mask_mcilc: Optional[np.ndarray] = None) -> np.ndarray:
     """
     Performs MC-ILC CMB reconstruction using CEA (Cluster of Equal Area) partitioning.
 
@@ -593,26 +674,32 @@ def _mcilc_cea_(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
         nl_scale : int, optional
             Needlet scale index for the current ILC run. Used for:
             - saving weights with proper label.
+        mask_mcilc : np.ndarray, optional
+            HEALPix mask to exclude regions from covariance computation in MC-ILC.
+            It must be a 1D array with shape (12 * nside**2,). If non-binary, it will be used to weigh pixel in covariance computation.
 
     Returns
     -------
         np.ndarray
             Output sky map cleaned via region-specific ILC weights, shape (n_pixels, n_components).
     """
-
-    mask_mcilc = compsep_run.get("mask", np.ones(input_maps.shape[-2]))
+    if mask_mcilc is None:
+        mask_mcilc = np.ones(input_maps.shape[-2])
 
     patches = _cea_partition(tracer, compsep_run["n_patches"], mask=mask_mcilc)
     if compsep_run["save_patches"] and (compsep_run['nsim'] is None or int(compsep_run['nsim']) == config.nsim_start):
-        if 'path_out' not in compsep_run:
-            compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
+        #if 'path_out' not in compsep_run:
+        compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
         save_patches(config, patches, compsep_run, nl_scale=nl_scale)
 
-    w_mcilc = get_mcilc_weights(input_maps[...,0], patches, A_cmb, compsep_run)
+    if compsep_run["from_splits"]:
+        w_mcilc = get_mcilc_weights(input_maps[...,0], patches, A_cmb, compsep_run, mask_mcilc=mask_mcilc, input_2=input_maps[...,1])
+    else:
+        w_mcilc = get_mcilc_weights(input_maps[...,0], patches, A_cmb, compsep_run, mask_mcilc=mask_mcilc)
 
     if compsep_run["save_weights"]:
-        if 'path_out' not in compsep_run:
-            compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
+        #if 'path_out' not in compsep_run:
+        compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
         save_ilc_weights(config, w_mcilc, compsep_run, hp.npix2nside(input_maps.shape[-2]), nl_scale=nl_scale)
     
     compsep_run.pop("A", None)
@@ -622,7 +709,7 @@ def _mcilc_cea_(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
     
 def _mcilc_rp_(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
                compsep_run: Dict, A_cmb: np.ndarray,
-               iterations: int = 30, nl_scale: Optional[Union[int, None]] = None) -> np.ndarray:
+               iterations: int = 30, nl_scale: Optional[Union[int, None]] = None, mask_mcilc: Optional[np.ndarray] = None) -> np.ndarray:
     """
     Performs MCILC reconstruction using Random Partitioning (RP) of the sky.
 
@@ -650,6 +737,9 @@ def _mcilc_rp_(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
         nl_scale : int or str, optional
             Needlet scale index for the current ILC run. Used for:
             - saving weights with proper label.
+        mask_mcilc : np.ndarray, optional
+            HEALPix mask to exclude regions from covariance computation in MC-ILC.
+            It must be a 1D array with shape (12 * nside**2,). If non-binary, it will be used to weigh pixel in covariance computation.
 
     Returns
     -------
@@ -658,7 +748,8 @@ def _mcilc_rp_(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
             shape (n_pixels, n_components).
     """
     output_maps = np.zeros((input_maps.shape[1], input_maps.shape[-1]))
-    mask_mcilc = compsep_run.get("mask", np.ones(input_maps.shape[-2]))
+    if mask_mcilc is None:
+        mask_mcilc = np.ones(input_maps.shape[-2])
 
     do_save_patches = compsep_run["save_patches"] and (compsep_run['nsim'] is None or int(compsep_run['nsim']) == config.nsim_start)
 
@@ -670,7 +761,10 @@ def _mcilc_rp_(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
         if do_save_patches:
             patches_set.append(patches)
 
-        w_mcilc = get_mcilc_weights(input_maps[...,0], patches, A_cmb, compsep_run)
+        if compsep_run["from_splits"]:
+            w_mcilc = get_mcilc_weights(input_maps[...,0], patches, A_cmb, compsep_run, mask_mcilc=mask_mcilc, input_2=input_maps[...,1])
+        else:
+            w_mcilc = get_mcilc_weights(input_maps[...,0], patches, A_cmb, compsep_run, mask_mcilc=mask_mcilc)
         if compsep_run["save_weights"]:
             if it == 0:
                 w_mcilc_save = np.copy(w_mcilc) / iterations
@@ -679,13 +773,13 @@ def _mcilc_rp_(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
         output_maps += (np.einsum('ij,ijk->jk', w_mcilc, input_maps) / iterations)
         
     if do_save_patches:
-        if 'path_out' not in compsep_run:
-            compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
+        #if 'path_out' not in compsep_run:
+        compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
         save_patches(config, np.array(patches_set), compsep_run, nl_scale=nl_scale)
 
     if compsep_run["save_weights"]:
-        if 'path_out' not in compsep_run:
-            compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
+        #if 'path_out' not in compsep_run:
+        compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
         save_ilc_weights(config, w_mcilc_save, compsep_run,
                          hp.npix2nside(input_maps.shape[-2]), nl_scale=nl_scale)
 
@@ -694,18 +788,114 @@ def _mcilc_rp_(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
     
     return output_maps
 
+def _mcilc_patches_(config: Configs, input_maps: np.ndarray,
+                compsep_run: Dict, A_cmb: np.ndarray,
+                nl_scale: Optional[Union[int, None]] = None, mask_mcilc: Optional[np.ndarray] = None) -> np.ndarray:
+    """
+    Performs MC-ILC CMB reconstruction using patches loaded from disk (compsep_run["path_patches"]).
+
+    Parameters
+    ----------
+        config : Configs
+            Configuration object with all global settings. See 'ilc' for details.
+        input_maps : np.ndarray
+            Input sky maps with shape (n_channels, n_pixels, n_components).
+        compsep_run : dict
+            Component separation configuration, including:
+            - "path_patches": Path to load patches for MCILC.
+            - "save_weights": Flag to save weights.
+            See 'ilc' for details.
+        A_cmb : np.ndarray
+            Spectral energy distribution (SED) vector for the CMB.
+        nl_scale : int, optional
+            Needlet scale index for the current ILC run. Used for:
+            - saving weights with proper label.
+        mask_mcilc : np.ndarray, optional
+            HEALPix mask to exclude regions from covariance computation in MC-ILC.
+            It must be a 1D array with shape (12 * nside**2,). If non-binary, it will be used to weigh pixel in covariance computation.
+
+    Returns
+    -------
+        np.ndarray
+            Output sky map cleaned via region-specific ILC weights, shape (n_pixels, n_components).
+    """
+    if mask_mcilc is None:
+        mask_mcilc = np.ones(input_maps.shape[-2])
+
+    if (nl_scale is not None) and (not compsep_run["path_patches"].endswith(".npy")):
+        filename_patches = compsep_run["path_patches"] + f"_nl{nl_scale}.npy"
+        if not os.path.exists(filename_patches):
+            nl_scale_upt = nl_scale
+            while nl_scale_upt >= 0:
+                filename_patches = compsep_run["path_patches"] + f"_nl{nl_scale_upt}.npy"
+                if os.path.exists(filename_patches):
+                    break
+                else:
+                    nl_scale_upt -= 1
+            if nl_scale_upt < 0:
+                print(f"Warning: No patches file found for any needlet scale up to {nl_scale}. Attempting to load from {compsep_run['path_patches']} without needlet scale suffix.")
+                filename_patches = compsep_run["path_patches"] + f".npy"
+            else:
+                print(f"Warning: No patches file found for needlet scale {nl_scale}. Loaded patches file {filename_patches} for needlet scale {nl_scale_upt}.")
+                
+            if not os.path.exists(filename_patches):
+                raise FileNotFoundError(f"No patches file found for needlet scales up to {nl_scale} at {compsep_run['path_patches']} with or without needlet scale suffix. Please ensure that the path is correct and the file exists.")
+    else:
+        filename_patches = compsep_run["path_patches"]
+        if not filename_patches.endswith(".npy"):
+            filename_patches += ".npy"
+
+    if not os.path.exists(filename_patches):
+        raise FileNotFoundError(f"Patches file not found at {filename_patches}. Please ensure that the path is correct and the file exists.")   
+        
+    patches = np.load(filename_patches)
+    patches = np.array(patches)
+    if patches.ndim > 2:
+        raise ValueError(f"Loaded patches have more than 2 dimension (shape {patches.shape}). Please ensure that the file at {filename_patches} contains a 1D or 2D array of patch indices.")
+    if patches.ndim == 2:
+        if patches.shape[0] < compsep_run["field_idx"] + 1:
+            patches = patches[-1]
+        else:
+            patches = patches[compsep_run["field_idx"]]
+
+    try:
+        nside_patches = hp.get_nside(patches)
+    except TypeError:
+        raise ValueError(f"Loaded patches do not appear to be in a valid HEALPix format. Please ensure that the file at {filename_patches} contains a 1D or 2D array of patch indices that can be interpreted as HEALPix maps.")
+    
+    if nside_patches < hp.npix2nside(input_maps.shape[-2]):
+        patches = hp.ud_grade(patches, hp.npix2nside(input_maps.shape[-2]), order_in='RING', order_out='RING')
+    elif nside_patches > hp.npix2nside(input_maps.shape[-2]):
+        raise ValueError(f"Loaded patches have nside {nside_patches} which is greater than the nside of the input maps ({hp.npix2nside(input_maps.shape[-2])}). Please ensure that the patches file at {filename_patches} has nside less than or equal to that of the input maps. This may also depend on the 'adapt_nside' setting in compsep_run, so please check that as well.")
+    
+    if compsep_run["from_splits"]:
+        w_mcilc = get_mcilc_weights(input_maps[...,0], patches, A_cmb, compsep_run, mask_mcilc=mask_mcilc, input_2=input_maps[...,1])
+    else:
+        w_mcilc = get_mcilc_weights(input_maps[...,0], patches, A_cmb, compsep_run, mask_mcilc=mask_mcilc)
+
+    if compsep_run["save_weights"]:
+        #if 'path_out' not in compsep_run:
+        compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
+        save_ilc_weights(config, w_mcilc, compsep_run, hp.npix2nside(input_maps.shape[-2]), nl_scale=nl_scale)
+    
+    compsep_run.pop("A", None)
+    compsep_run.pop("e", None)
+
+    return np.einsum('ij,ijk->jk', w_mcilc, input_maps)
+
 def get_ilc_weights(
-    A_cmb: np.ndarray,
+    A_out: np.ndarray,
     inv_cov: np.ndarray,
     input_shapes: Tuple[int, ...],
-    compsep_run: Dict
+    compsep_run: Dict,
+    mask_cov: Optional[np.ndarray] = None
 ) -> np.ndarray:
     """
     Compute Internal Linear Combination (ILC) weights for a given spectral component (typically CMB).
 
     Parameters
     ----------
-        A_cmb : np.ndarray
+        A_out : np.ndarray
             Spectral response vector of the target component (e.g., CMB), shape (n_channels,).
         inv_cov : np.ndarray
             Inverse of the covariance matrix. Can be 2D or 3D depending on bias settings.
@@ -716,7 +906,8 @@ def get_ilc_weights(
             - 'A': Optional constraint matrix for deprojection of additional components. Shape (n_components, n_channels).
             - 'e': Deprojection vector. Shape (n_components,).
             - 'ilc_bias': Flag indicating if covariance is pixel-independent (0.0) or not.
-            - 'mask': Optional binary mask used for excluding unobserved regions.
+        mask_cov : np.ndarray, optional
+            Optional mask used in covariance computation, shape (n_pixels,). 
 
     Returns
     -------
@@ -725,7 +916,7 @@ def get_ilc_weights(
             otherwise (n_channels,).
     """
     if "A" in compsep_run:
-        compsep_run["A"] = np.vstack((A_cmb, compsep_run["A"]))
+        compsep_run["A"] = np.vstack((A_out, compsep_run["A"]))
         compsep_run["e"] = np.insert(compsep_run["e"], 0, 1.)
         if compsep_run["ilc_bias"] == 0.:
             inv_ACA = np.linalg.inv(
@@ -745,22 +936,29 @@ def get_ilc_weights(
                 "l,ljk->jk", compsep_run["e"],
                 np.einsum("lzk,zjk->ljk", inv_ACA, np.einsum("zi,ijk->zjk", compsep_run["A"], inv_cov))
             )
+            del inv_ACA
             for i in range(input_shapes[0]):
-                if "mask" in compsep_run:
-                    w_ilc[i, compsep_run["mask"] > 0.] = w_[i]
+                if mask_cov is not None:
+                    w__ = np.zeros(mask_cov.shape[0])
+                    w__[mask_cov != 0.] = w_[i]
+                    w_ilc[i] = hp.ud_grade(w__, hp.npix2nside(input_shapes[-2]))
+                    del w__
                 else:
                     w_ilc[i]=hp.ud_grade(w_[i],hp.npix2nside(input_shapes[-2]))
-            del w_, inv_ACA
+            del w_
     else:
         if compsep_run["ilc_bias"] == 0.:
-            w_ilc = (A_cmb.T @ inv_cov) / (A_cmb.T @ inv_cov @ A_cmb) 
+            w_ilc = (A_out.T @ inv_cov) / (A_out.T @ inv_cov @ A_out) 
         else:
             w_ilc=np.zeros((input_shapes[0],input_shapes[-2]))
-            AT_invC = np.einsum('j,ijk->ik', A_cmb, inv_cov) # np.sum(inv_cov,axis=1)
-            AT_invC_A = np.einsum('j,ijk, i->k', A_cmb, inv_cov, A_cmb) #np.sum(inv_cov,axis=(0,1))
+            AT_invC = np.einsum('j,ijk->ik', A_out, inv_cov) # np.sum(inv_cov,axis=1)
+            AT_invC_A = np.einsum('j,ijk, i->k', A_out, inv_cov, A_out) #np.sum(inv_cov,axis=(0,1))
             for i in range(input_shapes[0]):
-                if "mask" in compsep_run:
-                    w_ilc[i, compsep_run["mask"] > 0.] = AT_invC[i]/AT_invC_A
+                if mask_cov is not None:
+                    w__ = np.zeros(mask_cov.shape[0])
+                    w__[mask_cov != 0.] = AT_invC[i]/AT_invC_A
+                    w_ilc[i] = hp.ud_grade(w__, hp.npix2nside(input_shapes[-2]))
+                    del w__
                 else:
                     w_ilc[i]=hp.ud_grade(AT_invC[i]/AT_invC_A,hp.npix2nside(input_shapes[-2]))
     return w_ilc
@@ -769,7 +967,9 @@ def get_mcilc_weights(
     inputs: np.ndarray,
     patches: np.ndarray,
     A_cmb: np.ndarray,
-    compsep_run: Dict
+    compsep_run: Dict,
+    mask_mcilc: Optional[np.ndarray] = None,
+    inputs_2: Optional[np.ndarray] = None
 ) -> np.ndarray:
     """
     Compute weights for the MC-ILC method over spatial patches.
@@ -784,15 +984,20 @@ def get_mcilc_weights(
             Spectral response of the CMB component, shape (n_channels,).
         compsep_run : dict
             Dictionary with MCILC options, including optional constraints and bias reduction. See 'ilc' for details.
-
+        mask_mcilc : np.ndarray, optional
+            Mask to include/exclude pixels in covariance computation. If None, all pixels are used.
+            If not binary, it will be used to weigh pixels in covariance computation.
+        inputs_2 : np.ndarray, optional
+            Optional second set of input maps for cross-covariance computation.
     Returns
     -------
         np.ndarray
             MCILC weights for each pixel, shape (n_channels, n_pixels).
     """
-    mask_mcilc = compsep_run.get("mask", np.ones(inputs.shape[1]))
+    if mask_mcilc is None:
+        mask_mcilc = np.ones(inputs.shape[1])
 
-    cov = get_mcilc_cov(inputs, patches, mask_mcilc, reduce_bias=compsep_run["reduce_mcilc_bias"])
+    cov = get_mcilc_cov(inputs, patches, mask_mcilc, reduce_bias=compsep_run["reduce_mcilc_bias"], inputs_2=inputs_2, variance=compsep_run["minimize_variance"])
 
     inv_cov = get_inv_cov(cov)
     del cov
@@ -818,6 +1023,8 @@ def get_mcilc_weights(
         del AT_invC, AT_invC_A
     
     del inv_cov
+
+    w_mcilc[:, mask_mcilc == 0.] = np.repeat(np.mean(w_mcilc[:, mask_mcilc != 0.], axis=-1, keepdims=True), np.sum(mask_mcilc == 0.), axis=-1)
     return w_mcilc
 
 
@@ -825,7 +1032,10 @@ def get_ilc_cov(
     input_maps: np.ndarray,
     lmax: int,
     compsep_run: Dict,
-    b_ell: np.ndarray
+    fwhm_out: float,
+    b_ell: np.ndarray,
+    mask: Optional[np.ndarray] = None,
+    input_maps_2: Optional[np.ndarray] = None
 ) -> np.ndarray:
     """
     Compute the input covariance matrix for ILC.
@@ -838,26 +1048,57 @@ def get_ilc_cov(
             Maximum multipole.
         compsep_run : dict
             Dictionary controlling ILC behavior (bias flags, mask, etc.). See 'ilc' for details.
+        fwhm_out : float
+            Output beam full-width at half-maximum (FWHM) in arcminutes.
         b_ell : np.ndarray
             Needlet harmonic window function, if applicable.
+        mask : np.ndarray, optional
+            Mask to exclude and/or weight pixels in covariance computation.
+        input_maps_2 : np.ndarray, optional
+            Optional second set of input maps for cross-covariance computation.
 
     Returns
     -------
         np.ndarray
             Covariance matrix, either global (2D) or pixel-dependent (3D).
     """
-    if compsep_run["ilc_bias"] == 0.:
-        if "mask" in compsep_run:
-            cov=np.mean(np.einsum('ik,jk->ijk', (input_maps * compsep_run["mask"])[:, compsep_run["mask"] > 0.], (input_maps * compsep_run["mask"])[:, compsep_run["mask"] > 0.]),axis=-1)
+    if compsep_run["ilc_bias"] == 0.:    
+        if mask is not None:
+#            cov=np.mean(np.einsum('ik,jk->ijk', (input_maps * mask)[:, mask > 0.], (input_maps * mask)[:, mask > 0.]),axis=-1)
+            if input_maps_2 is not None:
+                if compsep_run["minimize_variance"]:
+                    cov = np.cov((input_maps * mask)[:, mask > 0.], (input_maps_2 * mask)[:, mask > 0.])[:input_maps.shape[0],input_maps.shape[0]:]
+                else:
+                    cov = np.einsum('ik,jk->ij', (input_maps * mask)[:, mask > 0.], (input_maps_2 * mask)[:, mask > 0.])/np.sum(mask > 0.) #input_maps.shape[1] 
+            else:
+                if compsep_run["minimize_variance"]:
+                    cov = np.cov((input_maps * mask)[:, mask > 0.])
+                else:
+                    cov = np.einsum('ik,jk->ij', (input_maps * mask)[:, mask > 0.], (input_maps * mask)[:, mask > 0.])/np.sum(mask > 0.) # input_maps.shape[1]
         else:
-            cov=np.mean(np.einsum('ik,jk->ijk', input_maps, input_maps),axis=-1)
+#            cov=np.mean(np.einsum('ik,jk->ijk', input_maps, input_maps),axis=-1)
+            if input_maps_2 is not None:
+                if compsep_run["minimize_variance"]:
+                    cov = np.cov(input_maps, input_maps_2)[:input_maps.shape[0],input_maps.shape[0]:]
+                else:
+                    cov=np.einsum('ik,jk->ij', input_maps, input_maps_2)/input_maps.shape[1]
+            else:
+                if compsep_run["minimize_variance"]:
+                    cov = np.cov(input_maps)
+                else:
+                    cov=np.einsum('ik,jk->ij', input_maps, input_maps)/input_maps.shape[1]
     else:
-        cov = _get_local_cov(
-            input_maps, lmax, compsep_run["ilc_bias"], b_ell=b_ell,
-            mask=compsep_run.get("mask"), reduce_bias=compsep_run["reduce_ilc_bias"]
-        )
-        if "mask" in compsep_run and cov.shape[-1] == input_maps.shape[-1]:
-                cov = np.copy(cov[...,compsep_run["mask"] > 0.])
+        if input_maps_2 is not None:
+            cov = _get_local_cov(
+                input_maps, lmax, compsep_run["ilc_bias"], fwhm_out, b_ell=b_ell,
+                mask=mask, reduce_bias=compsep_run["reduce_ilc_bias"], input_maps_2=input_maps_2, variance=compsep_run["minimize_variance"]
+            )
+        else:
+            cov = _get_local_cov(
+                input_maps, lmax, compsep_run["ilc_bias"], fwhm_out, b_ell=b_ell,
+                mask=mask, reduce_bias=compsep_run["reduce_ilc_bias"], variance=compsep_run["minimize_variance"]
+            )           
+        
     return cov
 
 def get_mcilc_cov(
@@ -865,7 +1106,9 @@ def get_mcilc_cov(
     patches: np.ndarray,
     mask_mcilc: np.ndarray,
     reduce_bias: bool = True,
-    mcilc_rings: int = 4
+    mcilc_rings: int = 4,
+    inputs_2: Optional[np.ndarray] = None,
+    variance: bool = False
 ) -> np.ndarray:
     """
     Compute pixel-wise covariance matrices for MC-ILC based on patching and optional donut-masking.
@@ -882,6 +1125,10 @@ def get_mcilc_cov(
             Whether to apply donut masking to reduce MCILC bias.
         mcilc_rings : int, default=4
             Number of HEALPix neighbor rings to exclude when reducing bias.
+        inputs_2 : np.ndarray, optional
+            Optional second set of input maps for cross-covariance computation.
+        variance : bool, optional
+            If True, compute variance instead of power between maps. Default is False.
 
     Returns
     -------
@@ -905,11 +1152,31 @@ def get_mcilc_cov(
                     donut[neigh_]=0.
                     count=count+1
             patch_mask = (patches==patches[pix_]) & (donut>0.) & (mask_mcilc>0.)
-            cov[...,pix_] = np.cov((inputs * mask_mcilc)[:,patch_mask],rowvar=True)
+            if inputs_2 is not None:
+                if variance:
+                    cov[...,pix_] = np.cov((inputs * mask_mcilc)[:,patch_mask], (inputs_2 * mask_mcilc)[:,patch_mask])[:inputs.shape[0],inputs.shape[0]:]
+                else:
+                    cov[...,pix_] = np.einsum('ik,jk->ij', (inputs * mask_mcilc)[:,patch_mask], (inputs_2 * mask_mcilc)[:,patch_mask])/np.sum(patch_mask)
+            else:
+                if variance:
+                    cov[...,pix_] = np.cov((inputs * mask_mcilc)[:,patch_mask]) #rowvar=True
+                else:
+                    cov[...,pix_] = np.einsum('ik,jk->ij', (inputs * mask_mcilc)[:,patch_mask], (inputs * mask_mcilc)[:,patch_mask])/np.sum(patch_mask)
+
     else:
         for patch in np.unique(patches):
             patch_mask = (patches == patch) & (mask_mcilc > 0.)
-            patch_cov = np.mean(np.einsum('ik,jk->ijk', (inputs * mask_mcilc)[:,patch_mask], (inputs * mask_mcilc)[:,patch_mask]),axis=2)
+#            patch_cov = np.mean(np.einsum('ik,jk->ijk', (inputs * mask_mcilc)[:,patch_mask], (inputs * mask_mcilc)[:,patch_mask]),axis=2)
+            if inputs_2 is not None:
+                if variance:
+                    patch_cov = np.cov((inputs * mask_mcilc)[:,patch_mask], (inputs_2 * mask_mcilc)[:,patch_mask])[:inputs.shape[0],inputs.shape[0]:]
+                else:
+                    patch_cov = np.einsum('ik,jk->ij', (inputs * mask_mcilc)[:,patch_mask], (inputs_2 * mask_mcilc)[:,patch_mask])/np.sum(patch_mask)
+            else:
+                if variance:
+                    patch_cov = np.cov((inputs * mask_mcilc)[:,patch_mask])
+                else:
+                    patch_cov = np.einsum('ik,jk->ij', (inputs * mask_mcilc)[:,patch_mask], (inputs * mask_mcilc)[:,patch_mask])/np.sum(patch_mask)
             #cov[...,(patches==patch)] = np.repeat(patch_cov[:, :, np.newaxis], np.sum(patches==patch), axis=2)
             cov[...,patch_mask] = np.repeat(patch_cov[:, :, np.newaxis], np.sum(patch_mask), axis=2)
 
@@ -932,9 +1199,9 @@ def get_inv_cov(cov: np.ndarray) -> np.ndarray:
     if cov.ndim == 2:
         inv_cov=np.linalg.inv(cov)
     elif cov.ndim == 3:
-        inv_cov=np.linalg.inv(cov.T).T
+#        inv_cov=np.linalg.inv(cov.T).T
+        inv_cov=(np.linalg.inv(np.transpose(cov, (2,0,1)))).transpose((1,2,0))
     return inv_cov
-
 
 __all__ = [
     name

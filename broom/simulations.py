@@ -14,7 +14,7 @@ from .seds import _get_CMB_SED
 from .routines import (
     _get_ell_filter,
     _get_beam_from_file,
-    _map2alm_kwargs, _log, _get_bandwidths,
+    _map2alm_kwargs, _log, _get_bandwidths, get_prefix,
 )
 
 prefix_to_attr = {
@@ -23,33 +23,172 @@ prefix_to_attr = {
                 "ksz": "ksz", "rg": "radio_galaxies"
             }
 
-def _get_full_simulations(config: Configs, nsim: Optional[Union[int, str]] = None, **kwargs: Any) -> SimpleNamespace:
+def get_input_data(
+    config: Configs,
+    foregrounds: Optional[SimpleNamespace] = None,
+    nsim: Optional[Union[int, str]] = None,
+    **kwargs: Any
+    ) -> SimpleNamespace:
     """
-    Generate full simulations including foregrounds and data.
+    Load or generate input data for component separation including total coadded signal, CMB, noise and foregrounds.
 
     Parameters
     ----------
         config: Configs
-            Configuration parameters.
+            Configuration parameters. It should have the following attributes:
+            - `generate_input_cmb`: Whether to generate CMB maps. If False, it will try to load them from `cmb_path`.
+            - `cmb_path`: Path where saving or loading CMB maps.
+            - 'cls_cmb_path': Path to the CMB power spectrum FITS file. Used if 'generate_input_cmb' is True.
+            - 'seed_cmb': Seed for CMB generation (optional).
+            - 'cls_cmb_new_ordered': Whether the new ordering of Cls is used in the CMB power spectrum FITS file.
+            - `generate_input_noise`: Whether to generate noise maps. If False, it will try load them from `noise_path`.
+            - `noise_path`: Path where saving or loading noise maps.
+            - `seed_noise`: Seed for noise generation (optional).
+            - `data_splits`: Whether to generate/load noise and data splits.
+            - `only_splits`: Whether to generate/load only noise and data splits, without full coadded maps.
+            - `generate_input_data`: Whether to generate total data maps. If False, it will try to load them from `data_path`.
+            - `data_path`: Path where saving or loading total data maps.
+            - `save_inputs`: Whether to save generated inputs to disk.
+            - `lmax_in`: Desired maximum multipole for the simulation.
+            - `nside_in`: Desired HEALPix resolution. It will be used also to convolve the input maps for the pixel window function, if requested.
+            - `units`: Units for the maps (e.g., 'uK_CMB').
+            - `lmin_in`: Desired minimum multipole to keep in the simulation. Default is 2.
+            - `pixel_window_in`: Whether to apply pixel window smoothing to the input maps.
+            - 'generate_input_foregrounds': Whether to generate foreground maps. If False, it will try to load them from `fgds_path`.
+            - `return_fgd_components`: Whether to return individual foreground components.
+            - `fgds_path`: Path where saving or loading foreground maps.
+            - `data_type`: Type of data to return, either "maps" or "alms".
+            - `bandpass_integrate`: Whether to integrate sky components across bandpasses.
+            - `coordinates`: Coordinate system for the maps (e.g., "G" for Galactic).
+            - 'instrument': a dictionary containing the instrument configuration, including:
+                - `frequency`: List of instrument frequencies in GHz.
+                - `beams`: Type of beams to be used (e.g., "gaussian", "file_l", "file_lm").
+                - `fwhm`: List of full width at half maximum (FWHM) for each frequency channel in arcmin. Used if beams are "gaussian".
+                - 'depth_I': Depth for intensity maps in arcmin*uK_CMB (optional). 
+                            If not provided, it will be assumed to be the polarization depth divided by sqrt(2).
+                            Used if path_depth_maps is not provided.
+                - 'depth_P': Depth for polarization maps in arcmin*uK_CMB (optional).
+                            If not provided, it will be assumed to be the intensity depth multiplied by sqrt(2).
+                            Used if path_depth_maps is not provided.
+                - `path_beams`: Path to the beam files (if using "file_l" or "file_lm" beams).
+                            The code will look for files named "{path_beams}_{channel_tag}.fits" for each frequency channel.
+                - `channels_tags`: List of tags for each frequency channel, used for loading beams, bandpasses or depth maps.
+                - 'bandwidths': List of relative bandwidths for each frequency channel (optional, used if bandpass_integrate is True).
+                            Used if path_bandpasses is not provided.
+                - `path_depth_maps`: Full path to standard deviation maps (optional, used if generating noise).
+                            The code will look for files named "{path_depth_maps}_{channel_tag}.fits" for each frequency channel.   
+                            They are assumed to be in uK_CMB units.
+                - `path_hits_maps`: Full path to hits maps (optional, used if generating noise and 'path_depth_maps' is not provided).
+                            If it does not end with .fits, the code will look for files named 
+                            "{path_hits_maps}_{channel_tag}.fits" for each frequency channel.
+                - `path_bandpasses`: Path to bandpass files (optional, used if bandpass_integrate is True).
+                            The code will look for files named as "{path_bandpasses}_{channel_tag}.npy" for each channel tag.
+                            Each file should be a 2D array which has the first column a list of frequencies in GHz and the second column the corresponding bandpass response.
+                - `ell_knee`: Lists of knee frequencies for each channel for the noise power spectrum (optional).
+                            If it is a single list it will be applied to temperature only.
+                            If it is a list of two lists it will be applied to temperature (first list) and polarization (second list).
+                            If not provided, white noise is assumed.
+                - `alpha_knee`: List of spectral indices of the noise power spectrum for each channel (optional).
+                            If not provided, white noise is assumed.
+        foregrounds: Optional[SimpleNamespace]
+            Foreground components. If provided, they will be used instead of generating or loading them.
         nsim: Optional[Union[int, str]]
             Simulation number.
         kwargs: dict, optional
-            Additional keyword arguments forwarded to alm computation in map2alm.
+            Additional keyword arguments forwarded to alm computation.
 
     Returns
     -------
         SimpleNamespace
-            Simulated data container with foregrounds and total data.
+            Data container potentially including co-added signal, CMB, noise, and foregrounds.
     """
     kwargs = _map2alm_kwargs(**kwargs)
+    
+    data = SimpleNamespace()
 
-    foregrounds = _get_data_foregrounds_(config, **kwargs)
+    if foregrounds is None:
+        if config.generate_input_foregrounds or (config.fgds_path is not None): 
+            foregrounds = _get_foregrounds_(config, **kwargs)
+    
+    if nsim is not None:
+        if not isinstance(nsim, (int, str)):
+            raise ValueError("nsim must be an integer or a string.")
+        if isinstance(nsim, int):
+            nsim = str(nsim).zfill(5)
+    
+    if foregrounds is not None: 
+        if not hasattr(foregrounds, 'total'):
+            raise ValueError('foregrounds must have the attribute total.')
+        else:
+            for attr, value in vars(foregrounds).items():
+                if attr == 'total':
+                    setattr(data, 'fgds', value)
+                else:
+                    setattr(data, attr, value)
 
-    data = _get_data_simulations_(config, foregrounds, nsim=nsim, **kwargs)
+    if config.generate_input_cmb or (config.cmb_path is not None):
+        data.cmb = _get_cmb_(config, nsim=nsim)
+
+    if config.generate_input_noise or (config.noise_path is not None):
+        if not config.data_splits:
+            data.noise = _get_noise_(config, nsim=nsim, **kwargs)
+        else:
+            if config.only_splits:
+                data.noise_split1, data.noise_split2 = _get_noise_(config, nsim=nsim, **kwargs)
+            else:
+                data.noise, data.noise_split1, data.noise_split2 = _get_noise_(config, nsim=nsim, **kwargs)
+
+    if config.generate_input_data:
+        _log(f"Generating coadded signal" + f" for simulation {nsim}" if nsim is not None else "", verbose=config.verbose)
+        if not config.data_splits or not config.only_splits:
+            attrs_in = ["cmb", "noise", "fgds"]
+            for attr in attrs_in:
+                if hasattr(data, attr):
+                    if not hasattr(data, 'total'):
+                        data.total = np.copy(getattr(data, attr))
+                    else:
+                        data.total += getattr(data, attr)
+            if not hasattr(data, 'total'):
+                raise ValueError("To generate total input data, provide foregrounds, CMB or noise paths or ask to generate any of them.")
+            if config.save_inputs:
+                _save_inputs(config.data_path, data.total, nsim=nsim)
+            
+        if config.data_splits:
+            attrs_in = ["cmb", "noise_split1", "fgds"]
+
+            for attr in attrs_in:
+                if hasattr(data, attr):
+                    if not hasattr(data, 'total_split1'):
+                        data.total_split1 = np.copy(getattr(data, attr))
+                    else:
+                        data.total_split1 += getattr(data, attr)
+            if not hasattr(data, 'total_split1'):
+                raise ValueError("To generate total input data splits, provide foregrounds, CMB or noise split paths or ask to generate any of them.")
+            if config.save_inputs:
+                _save_inputs(config.data_path + "_split1", data.total_split1, nsim=nsim)
+            
+            attrs_in = ["cmb", "noise_split2", "fgds"]
+            for attr in attrs_in:
+                if hasattr(data, attr):
+                    if not hasattr(data, 'total_split2'):
+                        data.total_split2 = np.copy(getattr(data, attr))
+                    else:
+                        data.total_split2 += getattr(data, attr)
+            if not hasattr(data, 'total_split2'):
+                raise ValueError("To generate total input data splits, provide foregrounds, CMB or noise split paths or ask to generate any of them.")
+            if config.save_inputs:
+                _save_inputs(config.data_path + "_split2", data.total_split2, nsim=nsim)
+            
+    elif config.data_path is not None:
+        if not config.data_splits or not config.only_splits:
+            data.total = _load_inputs(config.data_path, nsim=nsim)
+        if config.data_splits:
+            data.total_split1 = _load_inputs(config.data_path + "_split1", nsim=nsim)
+            data.total_split2 = _load_inputs(config.data_path + "_split2", nsim=nsim)  
 
     return data
 
-def _get_data_foregrounds_(config: Configs, **kwargs: Any) -> SimpleNamespace:
+def _get_foregrounds_(config: Configs, **kwargs: Any) -> SimpleNamespace:
     """
     Load or generate foreground maps based on configuration.
 
@@ -63,32 +202,16 @@ def _get_data_foregrounds_(config: Configs, **kwargs: Any) -> SimpleNamespace:
                 - `frequency`: List of instrument frequencies in GHz.
                 - `beams`: Type of beams to be used (e.g., "gaussian", "file_l", "file_lm").
                 - `fwhm`: List of full width at half maximum (FWHM) for each frequency channel in arcmin. Used if beams are "gaussian".
-                - 'depth_I': Depth for intensity maps in arcmin*uK_CMB (optional). 
-                            If not provided, it will be assumed to be the polarization depth divided by sqrt(2).
-                            Used if path_depth_maps is not provided.
-                - 'depth_P': Depth for polarization maps in arcmin*uK_CMB (optional).
-                            If not provided, it will be assumed to be the intensity depth multiplied by sqrt(2).
-                            Used if path_depth_maps is not provided.
                 - `path_beams`: Full path to the beams files (if using "file_l" or "file_lm" beams). 
                             The code will look for files named "{path_beams}_{channel_tag}.fits" for each frequency channel.
                 - `channels_tags`: List of tags for each frequency channel, used for loading beams, bandpasses or depth maps.
                 - 'bandwidths': List of relative bandwidths for each frequency channel (optional, used if bandpass_integrate is True).
                             Used if path_bandpasses is not provided.
-                - `path_depth_maps`: Full path to depth maps (optional, used if generating noise). 
-                            The code will look for files named "{path_depth_maps}_{channel_tag}.fits" for each frequency channel.
-                - `path_hits_maps`: Full path to hits maps (optional, used if generating noise and 'depth_maps' is not provided).
-                            If it does not end with .fits, the code will look for files named "{path_hits_maps}_{channel_tag}.fits" for each frequency channel.
                 - `path_bandpasses`: Full path to bandpass files (optional, used if bandpass_integrate is True).
                             It will look for files named as "{path_bandpasses}_{channel_tag}.npy" for each channel tag.
                             Each file should be a 2D array which has the first column a list of frequencies in GHz and the second column the corresponding bandpass response.
-                - `ell_knee`: Lists of knee frequencies for each channel for the noise power spectrum (optional).
-                            If it is a single list it will be applied to temperature only.
-                            If it is a list of two lists it will be applied to temperature (first list) and polarization (second list).
-                            If not provided, white noise is assumed.
-                - `alpha_knee`: List of spectral indices of the noise power spectrum for each channel (optional).
-                            If not provided, white noise is assumed.
-            - `nside`: HEALPix resolution.
-            - `lmax`: Maximum multipole for the simulation.
+            - `nside_in`: Desired HEALPix resolution.
+            - `lmax_in`: Maximum multipole to keep in the simulation.
             - `return_fgd_components`: Whether to return individual foreground components.
             - `fgds_path`: Path where saving or loading foreground maps.
             - `save_inputs`: Whether to save generated foreground maps to disk.        
@@ -96,7 +219,7 @@ def _get_data_foregrounds_(config: Configs, **kwargs: Any) -> SimpleNamespace:
             - `units`: Units for the foreground maps (e.g., 'uK_CMB').
             - `data_type`: Type of data to return, either "maps" or "alms".
             - `bandpass_integrate`: Whether to integrate foreground components across bandpasses.
-            - `lmin`: Minimum multipole to keep in the simulation.
+            - `lmin_in`: Minimum multipole to keep in the simulation.
             - `coordinates`: Coordinate system for the maps (e.g., "G" for Galactic).
         kwargs: dict, optional
             Additional keyword arguments forwarded to alm computation.
@@ -115,17 +238,17 @@ def _get_data_foregrounds_(config: Configs, **kwargs: Any) -> SimpleNamespace:
                 msg += " with bandpass integration"
             print(msg)
 
-        foregrounds = _get_foregrounds(
+        foregrounds = _get_foregrounds_simulation(
             config.foreground_models,
             config.instrument,
-            config.nside,
-            config.lmax,
+            config.nside_in,
+            config.lmax_in,
             return_components=config.return_fgd_components,
             pixel_window=config.pixel_window_in,
             units=config.units,
             return_alms=(config.data_type == "alms"),
             bandpass_integrate=config.bandpass_integrate,
-            lmin=config.lmin,
+            lmin=config.lmin_in,
             coordinates=config.coordinates,
             **kwargs
         )
@@ -142,124 +265,102 @@ def _get_data_foregrounds_(config: Configs, **kwargs: Any) -> SimpleNamespace:
         foregrounds.total = _load_input_foregrounds(config.fgds_path, "".join(config.foreground_models))
     return foregrounds
 
-
-def _get_data_simulations_(
-    config: Configs,
-    foregrounds: Optional[SimpleNamespace] = None,
-    nsim: Optional[Union[int, str]] = None,
-    **kwargs: Any
-    ) -> SimpleNamespace:
+def _get_cmb_(config: Configs, nsim: Optional[Union[int, str]] = None) -> np.ndarray:
     """
-    Load or generate simulation data including CMB, noise, and combined total.
+    Load or generate CMB maps based on configuration.
 
     Parameters
     ----------
         config: Configs
             Configuration parameters. It should have the following attributes:
-            - `generate_input_cmb`: Whether to generate CMB maps. If False, it will load from `cmb_path`.
+            - `generate_input_cmb`: Whether to generate CMB maps.
             - `cmb_path`: Path where saving or loading CMB maps.
             - 'cls_cmb_path': Path to the CMB power spectrum FITS file. Used if 'generate_input_cmb' is True.
             - 'seed_cmb': Seed for CMB generation (optional).
             - 'cls_cmb_new_ordered': Whether the new ordering of Cls is used in the CMB power spectrum FITS file.
-            - `generate_input_noise`: Whether to generate noise maps. If False, it will load from `noise_path`.
-            - `noise_path`: Path where saving or loading noise maps.
-            - `seed_noise`: Seed for noise generation (optional).
-            - `generate_input_data`: Whether to generate total data maps. If False, it will load from `data_path`.
-            - `data_path`: Path where saving or loading total data maps.
-            - `save_inputs`: Whether to save generated inputs to disk.
-            - `lmax`: Maximum multipole for the simulation.
-            - `nside`: Desired HEALPix resolution.
-            - `data_type`: Type of data to return, either "maps" or "alms". It must be compatible with provided foregrounds, if any.
-            - `units`: Units for the maps (e.g., 'uK_CMB').
-            - `lmin`: Minimum multipole to keep in the simulation. Default is 2.
-            - `pixel_window_in`: Whether to apply pixel window smoothing to the input maps.
-            - 'instrument': a dictionary containing the instrument configuration, including:
-                - `frequency`: List of instrument frequencies in GHz.
-                - `beams`: Type of beams to be used (e.g., "gaussian", "file_l", "file_lm").
-                - `fwhm`: List of full width at half maximum (FWHM) for each frequency channel in arcmin. Used if beams are "gaussian".
-                - 'depth_I': Depth for intensity maps in arcmin*uK_CMB (optional). 
-                            If not provided, it will be assumed to be the polarization depth divided by sqrt(2).
-                            Used if path_depth_maps is not provided.
-                - 'depth_P': Depth for polarization maps in arcmin*uK_CMB (optional).
-                            If not provided, it will be assumed to be the intensity depth multiplied by sqrt(2).
-                            Used if path_depth_maps is not provided.
-                - `path_beams`: Path to the beam files (if using "file_l" or "file_lm" beams).
-                            The code will look for files named "{path_beams}_{channel_tag}.fits" for each frequency channel.
-                - `channels_tags`: List of tags for each frequency channel, used for loading beams, bandpasses or depth maps.
-                - 'bandwidths': List of relative bandwidths for each frequency channel (optional, used if bandpass_integrate is True).
-                            Used if path_bandpasses is not provided.
-                - `path_depth_maps`: Full path to depth maps (optional, used if generating noise).
-                            The code will look for files named "{path_depth_maps}_{channel_tag}.fits" for each frequency channel.   
-                - `path_hits_maps`: Full path to hits maps (optional, used if generating noise and 'path_depth_maps' is not provided).
-                            If it does not end with .fits, the code will look for files named 
-                            "{path_hits_maps}_{channel_tag}.fits" for each frequency channel.
-                - `path_bandpasses`: Path to bandpass files (optional, used if bandpass_integrate is True).
-                            The code will look for files named as "{path_bandpasses}_{channel_tag}.npy" for each channel tag.
-                            Each file should be a 2D array which has the first column a list of frequencies in GHz and the second column the corresponding bandpass response.
-                - `ell_knee`: Lists of knee frequencies for each channel for the noise power spectrum (optional).
-                            If it is a single list it will be applied to temperature only.
-                            If it is a list of two lists it will be applied to temperature (first list) and polarization (second list).
-                            If not provided, white noise is assumed.
-                - `alpha_knee`: List of spectral indices of the noise power spectrum for each channel (optional).
-                            If not provided, white noise is assumed.
-        foregrounds: Optional[SimpleNamespace]
-            Foreground components.
+            - 'verbose': Whether to print progress messages.
         nsim: Optional[Union[int, str]]
             Simulation number.
-        kwargs: dict, optional
-            Additional keyword arguments forwarded to alm computation.
 
     Returns
     -------
-        SimpleNamespace
-            Data container with cmb, noise, total and foregrounds.
+        np.ndarray
+            CMB maps or alms. Shape is (n_freq, 3, n_pix) for maps or (n_freq, 3, n_alm) for alms.
     """
-    if nsim is not None:
-        if not isinstance(nsim, (int, str)):
-            raise ValueError("nsim must be an integer or a string.")
-        if isinstance(nsim, int):
-            nsim = str(nsim).zfill(5)
-    
-    kwargs = _map2alm_kwargs(**kwargs)
-
-    if foregrounds is not None and not hasattr(foregrounds, 'total'):
-        raise ValueError('foregrounds must have the attribute total.')
-
-    data = SimpleNamespace()
 
     if config.generate_input_cmb:
         _log(f"Generating CMB simulation" + f" {nsim}" if nsim is not None else "", verbose=config.verbose)
-        data.cmb = _get_cmb_simulation(config, nsim=nsim)
+        return _get_cmb_simulation(config, nsim=nsim)
     elif config.cmb_path is not None:
         if config.verbose:
             path_str = f"{config.cmb_path}.npy" if nsim is None else f"{config.cmb_path}_{nsim}.npy"
             print(f"Loading CMB from {path_str}")
-        data.cmb = _load_inputs(config.cmb_path, nsim=nsim)
+        return _load_inputs(config.cmb_path, nsim=nsim)
+
+def _get_noise_(config: Configs, nsim: Optional[Union[int, str]] = None, **kwargs: Any) -> np.ndarray:
+    """
+    Load or generate noise maps based on configuration.
+
+    Parameters
+    ----------
+        config: Configs
+            Configuration parameters. It should have the following attributes:
+            - `generate_input_noise`: Whether to generate noise maps.
+            - `noise_path`: Path where saving or loading noise maps.
+            - `seed_noise`: Seed for noise generation (optional).
+            - 'verbose': Whether to print progress messages.
+        nsim: Optional[Union[int, str]]
+            Simulation number.
+        kwargs: dict, optional
+            Additional keyword arguments forwarded to alm computation.
+    
+    Returns
+    -------
+        np.ndarray
+            Noise maps or alms. Shape is (n_freq, 3, n_pix) for maps or (n_freq, 3, n_alm) for alms.
+    """
 
     if config.generate_input_noise:
         _log(f"Generating noise simulation" + f" {nsim}" if nsim is not None else "", verbose=config.verbose)
-        data.noise = _get_noise_simulation(config, nsim=nsim, **kwargs)
-    elif config.noise_path is not None:
-        if config.verbose:
-            path_str = f"{config.noise_path}.npy" if nsim is None else f"{config.noise_path}_{nsim}.npy"
-            print(f"Loading noise from {path_str}")
-        data.noise = _load_inputs(config.noise_path, nsim=nsim)
-
-    if config.generate_input_data:
-        _log(f"Generating coadded signal" + f" for simulation {nsim}" if nsim is not None else "", verbose=config.verbose)
-        if hasattr(data, 'cmb') and hasattr(data, 'noise') and foregrounds is not None:
-            data.total = data.noise + data.cmb + foregrounds.total
-            if config.save_inputs:
-                _save_inputs(config.data_path, data.total, nsim=nsim)
+        if not config.data_splits:
+            return _get_noise_simulation(config, nsim=nsim, **kwargs)
         else:
-            raise ValueError("To generate input data, provide foregrounds and CMB/noise paths or generate them.")
-    else:
-        data.total = _load_inputs(config.data_path, nsim=nsim)
-
-    if foregrounds is not None:
-        data.fgds = foregrounds.total
-
-    return data
+            noise_splits = _get_noise_simulation(config, nsim=nsim, **kwargs)
+            if config.only_splits:
+                return noise_splits[:,0], noise_splits[:,1]
+            else:
+                if config.save_inputs:
+                    _save_inputs(config.noise_path, 0.5 * np.sum(noise_splits, axis=1), nsim=nsim)
+                return 0.5 * np.sum(noise_splits, axis=1), noise_splits[:,0], noise_splits[:,1]
+    elif config.noise_path is not None:
+        if not config.data_splits:
+            if config.verbose:
+                path_str = f"{config.noise_path}.npy" if nsim is None else f"{config.noise_path}_{nsim}.npy"
+                print(f"Loading noise from {path_str}")
+            return _load_inputs(config.noise_path, nsim=nsim)
+        else:
+            if config.verbose:
+                path_str1 = f"{config.noise_path}_split1.npy" if nsim is None else f"{config.noise_path}_split1_{nsim}.npy"
+                path_str2 = f"{config.noise_path}_split2.npy" if nsim is None else f"{config.noise_path}_split2_{nsim}.npy"
+                print(f"Loading noise split 1 from {path_str1}")
+                print(f"Loading noise split 2 from {path_str2}")
+                if not config.only_splits:
+                    path_str = f"{config.noise_path}.npy" if nsim is None else f"{config.noise_path}_{nsim}.npy"
+                    if os.path.exists(path_str):
+                        print(f"Also loading coadded noise from {path_str}")
+                    else:
+                        print(f"Coadded noise file {path_str} not found. It will be computed as average of splits.")
+            noise_split1 = _load_inputs(config.noise_path + "_split1", nsim=nsim)
+            noise_split2 = _load_inputs(config.noise_path + "_split2", nsim=nsim)
+            if not config.only_splits:
+                coadded_path = config.noise_path + (f"_{nsim}" if nsim is not None else "") + ".npy"
+                if os.path.exists(coadded_path):
+                    noise = _load_inputs(config.noise_path, nsim=nsim)
+                    return noise, noise_split1, noise_split2
+                if config.save_inputs:
+                    _save_inputs(config.noise_path, 0.5 * (noise_split1 + noise_split2), nsim=nsim)
+                return 0.5 * (noise_split1 + noise_split2), noise_split1, noise_split2
+            return noise_split1, noise_split2
 
 def _save_inputs(filename: str, maps: np.ndarray, nsim: Union[str, None] = None) -> None:
     """Save simulation maps to disk, creating directories if needed.
@@ -380,13 +481,13 @@ def _get_noise_simulation(config: Configs, nsim: Optional[Union[int, str]] = Non
             - `instrument.frequency`: List of instrument frequencies.
             - `instrument.depth_I`: Depth for intensity maps.
             - `instrument.depth_P`: Depth for polarization maps.
-            - `instrument.path_depth_maps`: Path to depth maps (optional).
+            - `instrument.path_depth_maps`: Path to depth maps (optional). 
             - `instrument.path_hits_maps`: Path to hits maps (optional).
-            - `nside`: HEALPix resolution.
-            - `lmax`: Maximum multipole for the simulation.
+            - `nside_in`: Desired HEALPix resolution.
+            - `lmax_in`: Maximum multipole for the simulation.
             - `data_type`: Type of data to return, either "maps" or "alms".
             - `units`: Units for the noise maps (e.g., 'uK_CMB').
-            - `lmin`: Minimum multipole to keep in the simulation.
+            - `lmin_in`: Minimum multipole to keep in the simulation.
             - `seed_noise`: Seed for noise generation (optional).    
         nsim: int or str, optional
             Simulation index to save the maps and vary the random seed (optional). Default: None.
@@ -405,13 +506,18 @@ def _get_noise_simulation(config: Configs, nsim: Optional[Union[int, str]] = Non
         if isinstance(nsim, int):
             nsim = str(nsim).zfill(5)
 
+    # Precompute conversion factor from arcmin to radians
+    acm_to_rad = (np.pi / (180 * 60)) 
 
     # Setup seed for reproducibility
     if config.seed_noise is None:
         seed = None
     else:
         if nsim is not None:
-            seed = config.seed_noise + int(nsim) * 3 * len(config.instrument.frequency)
+            if config.data_splits:
+                seed = config.seed_noise + int(nsim) * 3 * len(config.instrument.frequency) * 2            
+            else:
+                seed = config.seed_noise + int(nsim) * 3 * len(config.instrument.frequency)
         else:
             seed = config.seed_noise    
 
@@ -420,10 +526,10 @@ def _get_noise_simulation(config: Configs, nsim: Optional[Union[int, str]] = Non
             raise ValueError('Provided instrumental setting must have either depth_I or depth_P attributes.')
         elif not hasattr(config.instrument, 'depth_I') and hasattr(config.instrument, 'depth_P'):
             config.instrument.depth_I = config.instrument.depth_P / np.sqrt(2)
-            print('Warning: No intensity map depth provided. Assuming it to be the polarization one divided by sqrt(2).')
+            _log('Warning: No intensity map depth provided. Assuming it to be the polarization one divided by sqrt(2).', verbose=config.verbose)
         elif not hasattr(config.instrument, 'depth_P') and hasattr(config.instrument, 'depth_I'):
             config.instrument.depth_P = config.instrument.depth_I * np.sqrt(2)
-            print('Warning: No polarization map depth provided. Assuming it to be the intensity one multiplied by sqrt(2).')
+            _log('Warning: No polarization map depth provided. Assuming it to be the intensity one multiplied by sqrt(2).', verbose=config.verbose)
         depth_i = config.instrument.depth_I
         depth_p = config.instrument.depth_P
 
@@ -431,12 +537,14 @@ def _get_noise_simulation(config: Configs, nsim: Optional[Union[int, str]] = Non
         if hasattr(config.instrument, 'path_hits_maps'):
             if config.instrument.path_hits_maps.endswith(".fits"):
                 hits_map = hp.read_map(config.instrument.path_hits_maps, field=0, dtype=np.float64)
-                if hp.get_nside(hits_map) != config.nside:
-                    hits_map = hp.ud_grade(hits_map, nside_out=config.nside, power=-2)
+                if hp.get_nside(hits_map) != config.nside_in:
+                    hits_map = hp.ud_grade(hits_map, nside_out=config.nside_in, power=-2)
                 hits_map /= np.amax(hits_map)
+                
     else:
-        depth_i = [1.] * len(config.instrument.frequency)
-        depth_p = [1.] * len(config.instrument.frequency)
+        omega_pix = (4 * np.pi) / hp.nside2npix(config.nside_in)
+        depth_i = [np.sqrt(omega_pix) / acm_to_rad] * len(config.instrument.frequency)
+        depth_p = [np.sqrt(omega_pix) / acm_to_rad] * len(config.instrument.frequency)
         
     # Convert depths to requested units with CMB equivalencies
     #depth_i *= u.arcmin * u.uK_CMB
@@ -445,17 +553,19 @@ def _get_noise_simulation(config: Configs, nsim: Optional[Union[int, str]] = Non
     #depth_p = depth_p.to(getattr(u, config.units) * u.arcmin, equivalencies=u.cmb_equivalencies(config.instrument.frequency * u.GHz))
     bandwidths = _get_bandwidths(config, np.arange(len(config.instrument.frequency)))
     A_cmb = _get_CMB_SED(config.instrument.frequency, units=config.units, bandwidths=bandwidths)
-    depth_i = depth_i * A_cmb
-    depth_p = depth_p * A_cmb
+    depth_i = depth_i / A_cmb
+    depth_p = depth_p / A_cmb
 
-    # Precompute conversion factor from arcmin to radians
-    acm_to_rad = (np.pi / (180 * 60)) 
+    if config.data_splits:
+        depth_i = depth_i * np.sqrt(2)
+        depth_p = depth_p * np.sqrt(2)
 
     # Get ell filter if needed
-    fell = _get_ell_filter(config.lmin, config.lmax) if config.lmin > 2 else None
+    fell = _get_ell_filter(config.lmin_in, config.lmax_in) if config.lmin_in > 0 else None
 
     noise = []
     for nf, _ in enumerate(config.instrument.frequency):
+
         # Load depth maps if path provided
         if hasattr(config.instrument, 'path_depth_maps'):
             depth_map_fn = config.instrument.path_depth_maps + f"_{config.instrument.channels_tags[nf]}.fits"
@@ -465,87 +575,183 @@ def _get_noise_simulation(config: Configs, nsim: Optional[Union[int, str]] = Non
                 print("Warning: Unable to read depth maps from the provided path for I and P, provided depth map is assumed to refer to polarization.")
                 depth_maps_in = hp.read_map(depth_map_fn, field=0, dtype=np.float64)
                 depth_maps_in = np.array([depth_maps_in / np.sqrt(2), depth_maps_in])
-            if hp.get_nside(depth_maps_in[0]) != config.nside:
+            if hp.get_nside(depth_maps_in[0]) != config.nside_in:
                 depth_maps = np.array(
-                    [np.sqrt(hp.ud_grade(dm**2, nside_out=config.nside, power=2)) for dm in depth_maps_in])
+                    [np.sqrt(hp.ud_grade(dm**2, nside_out=config.nside_in, power=2)) for dm in depth_maps_in])
             else:
                 depth_maps = np.copy(depth_maps_in)
             del depth_maps_in
+
         elif hasattr(config.instrument, 'path_hits_maps'):
             if not config.instrument.path_hits_maps.endswith(".fits"):
                 hits_file = config.instrument.path_hits_maps + f"_{config.instrument.channels_tags[nf]}.fits"
                 hits_map = hp.read_map(hits_file, field=0, dtype=np.float64)
-                if hp.get_nside(hits_map) != config.nside:
-                    hits_map = hp.ud_grade(hits_map, nside_out=config.nside, power=-2)
+                if hp.get_nside(hits_map) != config.nside_in:
+                    hits_map = hp.ud_grade(hits_map, nside_out=config.nside_in, power=-2)
                 hits_map /= np.amax(hits_map)
 
-        if seed is not None:
-            np.random.seed(seed + (nf * 3))
-        # Generate noise power spectra
-#        N_ell_T = (depth_i.value[nf] * acm_to_rad) ** 2 * np.ones(config.lmax + 1)
-#        N_ell_P = (depth_p.value[nf] * acm_to_rad) ** 2 * np.ones(config.lmax + 1)
-        N_ell_T = (depth_i[nf] * acm_to_rad) ** 2 * np.ones(config.lmax + 1)
-        N_ell_P = (depth_p[nf] * acm_to_rad) ** 2 * np.ones(config.lmax + 1)
-        N_ell = np.array([N_ell_T, N_ell_P, N_ell_P, 0.*N_ell_P])
-
-        # Add knee frequency noise if provided
-        if hasattr(config.instrument, 'ell_knee') and hasattr(config.instrument, 'alpha_knee'):
-            ell = np.arange(config.lmax + 1)
-            if isinstance(config.instrument.alpha_knee, list) and isinstance(config.instrument.ell_knee, list):
-                if np.array(config.instrument.alpha_knee).ndim == 2 and np.array(config.instrument.ell_knee).ndim == 2:
-                    if len(config.instrument.alpha_knee[0]) != len(config.instrument.ell_knee[0]) or len(config.instrument.alpha_knee[1]) != len(config.instrument.ell_knee[1]):
-                        raise ValueError('alpha_knee and ell_knee must have the same length.')
-                    if (len(config.instrument.ell_knee[0]) != len(config.instrument.frequency)) or (len(config.instrument.ell_knee[1]) != len(config.instrument.frequency)):
-                        raise ValueError('alpha_knee and ell_knee must have the same length as the number of frequencies.')
-                    N_ell[0] *= (1 + (ell / config.instrument.ell_knee[0][nf]) ** config.instrument.alpha_knee[0][nf])
-                    N_ell[1:] *= (1 + (ell / config.instrument.ell_knee[1][nf]) ** config.instrument.alpha_knee[1][nf])
-                elif np.array(config.instrument.alpha_knee).ndim == 1 and np.array(config.instrument.ell_knee).ndim == 1:
-                    if len(config.instrument.alpha_knee) != len(config.instrument.frequency) or len(config.instrument.ell_knee) != len(config.instrument.frequency):
-                        raise ValueError('alpha_knee and ell_knee must have the same length as the number of frequencies.')
-                    N_ell[0] *= (1 + (ell / config.instrument.ell_knee[nf]) ** config.instrument.alpha_knee[nf])
-                elif np.array(config.instrument.alpha_knee).ndim == 1 and np.array(config.instrument.ell_knee).ndim == 2:
-                    if len(config.instrument.alpha_knee) != len(config.instrument.frequency):
-                        raise ValueError('alpha_knee must have the same length as the number of frequencies.')
-                    if len(config.instrument.ell_knee[0]) != len(config.instrument.frequency) or len(config.instrument.ell_knee[1]) != len(config.instrument.frequency):
-                        raise ValueError('ell_knee lists must have the same length as the number of frequencies.')
-                    N_ell[0] *= (1 + (ell / config.instrument.ell_knee[0][nf]) ** config.instrument.alpha_knee[nf])
-                    N_ell[1:] *= (1 + (ell / config.instrument.ell_knee[1][nf]) ** config.instrument.alpha_knee[nf])
-            else:
-                raise ValueError('alpha_knee and ell_knee must be both lists or lists of 2 lists')
-
-        # Generate noise alm
-        alm_noise = hp.synalm(N_ell, lmax=config.lmax, new=True)
-
-        # Apply ell filter if applicable
-        if fell is not None:
-            for f in range(3):
-                alm_noise[f] = hp.almxfl(alm_noise[f], fell)
-
-        # Generate noise maps or alms depending on data_type
-        if config.data_type=="alms":
-            if hasattr(config.instrument, 'path_depth_maps'):
-                noise_map = hp.alm2map(alm_noise, config.nside, lmax=config.lmax, pol=True)  * np.array([depth_maps[0], depth_maps[1], depth_maps[1]])
-                noise.append(hp.map2alm(noise_map, lmax=config.lmax, pol=True, **kwargs))
-            elif hasattr(config.instrument, 'path_hits_maps'):
-                noise_map = hp.alm2map(alm_noise, config.nside, lmax=config.lmax, pol=True) / np.sqrt(hits_map)
-                noise_map[np.isinf(noise_map)] = 0.
-                noise.append(hp.map2alm(noise_map, lmax=config.lmax, pol=True, **kwargs))
-            else:
-                noise.append(alm_noise)
+        
+        if not config.data_splits:
+            noise.append(get_noise_frequency_channel(
+                config,
+                depth_i,
+                depth_p,
+                nf,
+                depth_maps=depth_maps if hasattr(config.instrument, 'path_depth_maps') else None,
+                hits_map=hits_map if hasattr(config.instrument, 'path_hits_maps') and not hasattr(config.instrument, 'path_depth_maps') else None,
+                seed=seed,
+                fell=fell,
+                **kwargs
+            ))
         else:
-            if hasattr(config.instrument, 'path_depth_maps'):
-                noise.append(hp.alm2map(alm_noise, config.nside, lmax=config.lmax, pol=True) * np.array([depth_maps[0], depth_maps[1], depth_maps[1]]))
-            elif hasattr(config.instrument, 'path_hits_maps'):
-                noise_map = hp.alm2map(alm_noise, config.nside, lmax=config.lmax, pol=True) / np.sqrt(hits_map)
-                noise_map[np.isinf(noise_map)] = 0.
-                noise.append(noise_map)
-            else:
-                noise.append(hp.alm2map(alm_noise, config.nside, lmax=config.lmax, pol=True))
+            noise_split1 = get_noise_frequency_channel(
+                config,
+                depth_i,
+                depth_p,
+                nf,
+                depth_maps=depth_maps if hasattr(config.instrument, 'path_depth_maps') else None,
+                hits_map=hits_map if hasattr(config.instrument, 'path_hits_maps') and not hasattr(config.instrument, 'path_depth_maps') else None,
+                seed=seed,
+                fell=fell,
+                split=1,
+                **kwargs
+            )
+            noise_split2 = get_noise_frequency_channel(
+                config,
+                depth_i,
+                depth_p,
+                nf,
+                depth_maps=depth_maps if hasattr(config.instrument, 'path_depth_maps') else None,
+                hits_map=hits_map if hasattr(config.instrument, 'path_hits_maps') and not hasattr(config.instrument, 'path_depth_maps') else None,
+                seed=seed,
+                fell=fell,
+                split=2,
+                **kwargs
+            )
+            noise.append([noise_split1, noise_split2])
 
     if config.save_inputs:
-        _save_inputs(config.noise_path, np.array(noise), nsim=nsim)
+        if not config.data_splits:
+            _save_inputs(config.noise_path, np.array(noise), nsim=nsim)
+        else:
+            _save_inputs(config.noise_path + "_split1", np.array(noise)[:,0], nsim=nsim)
+            _save_inputs(config.noise_path + "_split2", np.array(noise)[:,1], nsim=nsim)
 
     return np.array(noise)
+
+def get_noise_frequency_channel(config: Configs, depth_i: List[float], depth_p: List[float], nf: int, depth_maps: Optional[np.ndarray] = None, hits_map: Optional[np.ndarray] = None, seed: Optional[int] = None, fell: Optional[np.ndarray] = None, split: Optional[int] = None, **kwargs: Any) -> np.ndarray:
+    """
+    Generate noise simulation for a single frequency channel.
+
+    Parameters
+    ----------
+        config: Configs
+            Configuration parameters including instrument settings. It should have the following attributes:
+            - `instrument.frequency`: List of instrument frequencies.
+            - `instrument.path_depth_maps`: Path to depth maps (optional). 
+            - `instrument.path_hits_maps`: Path to hits maps (optional).
+            - `nside_in`: Desired HEALPix resolution.
+            - `lmax_in`: Maximum multipole for the simulation.
+            - `data_type`: Type of data to return, either "maps" or "alms".
+            - `units`: Units for the noise maps (e.g., 'uK_CMB').
+            - `lmin_in`: Minimum multipole to keep in the simulation.
+        depth_i: List[float]
+            Depth for intensity maps for each frequency channel.
+        depth_p: List[float]
+            Depth for polarization maps for each frequency channel.
+        nf: int
+            Index of the frequency channel to generate noise for.
+        depth_maps: Optional[np.ndarray]
+            Depth maps to use for noise generation (optional). Default is None.
+        hits_map: Optional[np.ndarray]
+            Hits map to use for noise generation (optional). Default is None.
+        seed: Optional[int]
+            Seed for noise generation (optional). Default is None.
+        fell: Optional[np.ndarray]
+            Ell filter to apply (optional). Default is None.
+        split: Optional[int]
+            Data split index for noise generation (optional). Default is None.
+        kwargs: dict, optional
+            Additional keyword arguments for `hp.map2alm`.
+
+    Returns
+    -------
+        np.ndarray
+            Noise maps or alms for the specified frequency channel. Shape is (3, n_pix) for maps or (3, n_alm) for alms.
+
+    """
+
+    if seed is not None:
+        if split is not None:
+            if split == 1:
+                np.random.seed(seed + (nf * 3))
+            elif split == 2:
+                np.random.seed(seed + (nf * 3) + (len(config.instrument.frequency) * 3))
+        else:
+            np.random.seed(seed + (nf * 3))
+    # Generate noise power spectra
+#        N_ell_T = (depth_i.value[nf] * acm_to_rad) ** 2 * np.ones(config.lmax + 1)
+#        N_ell_P = (depth_p.value[nf] * acm_to_rad) ** 2 * np.ones(config.lmax + 1)
+    acm_to_rad = (np.pi / (180 * 60)) 
+
+    N_ell_T = ((depth_i[nf] * acm_to_rad) ** 2) * np.ones(config.lmax_in + 1)
+    N_ell_P = ((depth_p[nf] * acm_to_rad) ** 2) * np.ones(config.lmax_in + 1)
+    N_ell = np.array([N_ell_T, N_ell_P, N_ell_P, 0.*N_ell_P])
+
+    # Add knee frequency noise if provided
+    if hasattr(config.instrument, 'ell_knee') and hasattr(config.instrument, 'alpha_knee'):
+        ell = np.arange(config.lmax_in + 1)
+        if isinstance(config.instrument.alpha_knee, list) and isinstance(config.instrument.ell_knee, list):
+            if np.array(config.instrument.alpha_knee).ndim == 2 and np.array(config.instrument.ell_knee).ndim == 2:
+                if len(config.instrument.alpha_knee[0]) != len(config.instrument.ell_knee[0]) or len(config.instrument.alpha_knee[1]) != len(config.instrument.ell_knee[1]):
+                    raise ValueError('alpha_knee and ell_knee must have the same length.')
+                if (len(config.instrument.ell_knee[0]) != len(config.instrument.frequency)) or (len(config.instrument.ell_knee[1]) != len(config.instrument.frequency)):
+                    raise ValueError('alpha_knee and ell_knee must have the same length as the number of frequencies.')
+                N_ell[0] *= (1 + (ell / config.instrument.ell_knee[0][nf]) ** config.instrument.alpha_knee[0][nf])
+                N_ell[1:] *= (1 + (ell / config.instrument.ell_knee[1][nf]) ** config.instrument.alpha_knee[1][nf])
+            elif np.array(config.instrument.alpha_knee).ndim == 1 and np.array(config.instrument.ell_knee).ndim == 1:
+                if len(config.instrument.alpha_knee) != len(config.instrument.frequency) or len(config.instrument.ell_knee) != len(config.instrument.frequency):
+                    raise ValueError('alpha_knee and ell_knee must have the same length as the number of frequencies.')
+                N_ell[0] *= (1 + (ell / config.instrument.ell_knee[nf]) ** config.instrument.alpha_knee[nf])
+            elif np.array(config.instrument.alpha_knee).ndim == 1 and np.array(config.instrument.ell_knee).ndim == 2:
+                if len(config.instrument.alpha_knee) != len(config.instrument.frequency):
+                    raise ValueError('alpha_knee must have the same length as the number of frequencies.')
+                if len(config.instrument.ell_knee[0]) != len(config.instrument.frequency) or len(config.instrument.ell_knee[1]) != len(config.instrument.frequency):
+                    raise ValueError('ell_knee lists must have the same length as the number of frequencies.')
+                N_ell[0] *= (1 + (ell / config.instrument.ell_knee[0][nf]) ** config.instrument.alpha_knee[nf])
+                N_ell[1:] *= (1 + (ell / config.instrument.ell_knee[1][nf]) ** config.instrument.alpha_knee[nf])
+        else:
+            raise ValueError('alpha_knee and ell_knee must be both lists or lists of 2 lists')
+
+    N_ell[:,0] = 0.
+    # Generate noise alm
+    alm_noise = hp.synalm(N_ell, lmax=config.lmax_in, new=True)
+
+    # Apply ell filter if applicable
+    if fell is not None:
+        for f in range(3):
+            alm_noise[f] = hp.almxfl(alm_noise[f], fell)
+
+    # Generate noise maps or alms depending on data_type
+    if config.data_type=="alms":
+        if depth_maps is not None:
+            noise_map = hp.alm2map(alm_noise, config.nside_in, lmax=config.lmax_in, pol=True)  * np.array([depth_maps[0], depth_maps[1], depth_maps[1]])
+            return hp.map2alm(noise_map, lmax=config.lmax_in, pol=True, **kwargs)
+        elif hits_map is not None:
+            noise_map = hp.alm2map(alm_noise, config.nside_in, lmax=config.lmax_in, pol=True) / np.sqrt(hits_map)
+            noise_map[np.isinf(noise_map)] = 0.
+            return hp.map2alm(noise_map, lmax=config.lmax_in, pol=True, **kwargs)
+        else:
+            return alm_noise
+    else:
+        if depth_maps is not None:
+            return hp.alm2map(alm_noise, config.nside_in, lmax=config.lmax_in, pol=True) * np.array([depth_maps[0], depth_maps[1], depth_maps[1]])
+        elif hits_map is not None:
+            noise_map = hp.alm2map(alm_noise, config.nside_in, lmax=config.lmax_in, pol=True) / np.sqrt(hits_map)
+            noise_map[np.isinf(noise_map)] = 0.
+            return noise_map
+        else:
+            return hp.alm2map(alm_noise, config.nside_in, lmax=config.lmax_in, pol=True)
 
 def _get_cmb_simulation(config: Configs, nsim: Optional[Union[int, str]] = None) -> np.ndarray:
     """
@@ -555,8 +761,9 @@ def _get_cmb_simulation(config: Configs, nsim: Optional[Union[int, str]] = None)
     ----------
         config: Configs
             Simulation and instrument configuration. It should have the following attributes:
-            - `lmax`: Maximum multipole for the simulation.
-            - `nside`: HEALPix resolution.
+            - `lmax_in`: Maximum multipole for the simulation.
+            - `lmin_in`: Minimum multipole to keep in the simulation.
+            - `nside_in`: Desired HEALPix resolution.
             - `data_type`: Type of data to return, either "maps" or "alms".
             - `cls_cmb_path`: Path to the CMB power spectrum FITS file.
             - `seed_cmb`: Seed for CMB generation (optional).
@@ -587,13 +794,13 @@ def _get_cmb_simulation(config: Configs, nsim: Optional[Union[int, str]] = None)
     cls_cmb = hp.read_cl(config.cls_cmb_path)
 
     # Initializing the seed if required
-    seed = None if not config.seed_cmb else (config.seed_cmb + int(nsim) if nsim is not None else config.seed_cmb)
+    seed = None if not config.seed_cmb else (config.seed_cmb + 3 * int(nsim) if nsim is not None else config.seed_cmb)
     
     # Generating a realization of CMB alms with the loaded Cls
-    alm_cmb = _get_cmb_alms_realization(cls_cmb, config.lmax, seed = seed, new = config.cls_cmb_new_ordered)
+    alm_cmb = _get_cmb_alms_realization(cls_cmb, config.lmax_in, seed = seed, new = config.cls_cmb_new_ordered)
     
     # Computing the high-pass filter if lmin > 2
-    fell = _get_ell_filter(config.lmin, config.lmax) if config.lmin > 2 else None
+    fell = _get_ell_filter(config.lmin_in, config.lmax_in) if config.lmin_in > 0 else None
 
     # Smoothing the CMB alms with the beams of each frequency channel
     cmb = []
@@ -606,7 +813,7 @@ def _get_cmb_simulation(config: Configs, nsim: Optional[Union[int, str]] = None)
             alm_cmb_i = _smooth_input_alms_(
                 alm_cmb,
                 fwhm=config.instrument.fwhm[idx],
-                nside_out=config.nside if config.pixel_window_in else None
+                nside_out=config.nside_in if config.pixel_window_in else None
             )
         else:
             beamfile = config.instrument.path_beams + f"_{config.instrument.channels_tags[idx]}.fits"
@@ -614,16 +821,16 @@ def _get_cmb_simulation(config: Configs, nsim: Optional[Union[int, str]] = None)
                 alm_cmb,
                 beam_path=beamfile,
                 symmetric_beam=(config.instrument.beams == "file_l"),
-                nside_out=config.nside if config.pixel_window_in else None
+                nside_out=config.nside_in if config.pixel_window_in else None
             )
 
         if fell is not None:
             for f in range(3):
                 alm_cmb_i[f] = hp.almxfl(alm_cmb_i[f], fell)
 
-        cmb.append(A_cmb[idx] * alm_cmb_i if config.data_type == "alms" else A_cmb[idx] * hp.alm2map(
-            alm_cmb_i, config.nside, lmax=config.lmax, pol=True
-        ))
+        cmb.append((alm_cmb_i / A_cmb[idx]) if config.data_type == "alms" else hp.alm2map(
+            alm_cmb_i, config.nside_in, lmax=config.lmax_in, pol=True
+        ) / A_cmb[idx])
     
     cmb = np.array(cmb)
 
@@ -663,7 +870,7 @@ def _get_cmb_alms_realization(
         np.random.seed(seed)
     return hp.synalm(cls_cmb, lmax=lmax, new=new)
 
-def _get_foregrounds(
+def _get_foregrounds_simulation(
     foreground_models: List[str],
     instrument: dict, 
     nside: int,
@@ -686,7 +893,7 @@ def _get_foregrounds(
         instrument: dict
             Instrument configuration object with frequency, beams, and optional bandpasses.
         nside: int
-            Output HEALPix resolution.
+            Desired HEALPix resolution. Used also to apply pixel window function (if requested)
         lmax: int
             Maximum multipole to compute alms.
         return_components: bool, optional
@@ -768,7 +975,7 @@ def _get_foreground_component(
         sky: pysm3.Sky
             PySM3 sky model for the foreground.
         nside_out: int
-            HEALPix resolution for the output.
+            HEALPix resolution for the output. Used also to apply pixel window function (if requested)
         lmax: int
             Maximum multipole to compute alms.
         pixel_window: bool, optional
@@ -792,7 +999,7 @@ def _get_foreground_component(
 
     fg_component = []
 
-    fell = _get_ell_filter(lmin, lmax) if lmin > 2 else None
+    fell = _get_ell_filter(lmin, lmax) if lmin > 0 else None
 
     rot = hp.Rotator(coord=f"G{coordinates}") if coordinates != "G" else None
     
@@ -847,6 +1054,148 @@ def _get_foreground_component(
         
     return np.array(fg_component)
 
+def get_nuisance_data(config: Configs, nuisance_comps, nuisance_path: str = None, nsim: Optional[Union[int, str]] = None) -> SimpleNamespace:
+    """
+    Get nuisance data for nuisance covariance estimation for a given simulation.
+
+    Parameters
+    ----------
+        config: Configs
+            Configuration parameters including instrument settings and paths.
+        nuisance_comps: List[str]
+            List of nuisance components to include.
+        nuisance_path: str, optional
+            Path to precomputed nuisance inputs. If None, inputs will be generated/saved.
+        nsim: int or str, optional
+            Simulation index to load/save the maps (optional). Default: None.
+        
+    Returns
+    -------
+        SimpleNamespace: 
+            Nuisance data containing CMB and noise simulations.
+
+    """
+
+    generate_input_foregrounds = config.generate_input_foregrounds
+    return_fgd_components = config.return_fgd_components
+    foreground_models = config.foreground_models
+    generate_input_cmb = config.generate_input_cmb
+    if generate_input_cmb:
+        seed_cmb = config.seed_cmb
+    generate_input_noise = config.generate_input_noise
+    if generate_input_noise:
+        seed_noise = config.seed_noise
+    generate_input_data = config.generate_input_data
+    cmb_path = config.cmb_path
+    noise_path = config.noise_path
+    fgds_path = config.cmb_path
+    data_path = config.noise_path
+    if "cmb" in nuisance_comps:
+        cmbname = f"cmb_{config.data_type}_ns{config.nside_in}_lmax{config.lmax_in}"
+    if "noise" in nuisance_comps:
+        noisename = f"noise_{config.data_type}_ns{config.nside_in}_lmax{config.lmax_in}"
+    if any(x not in ["cmb", "noise"] for x in nuisance_comps):
+        nuis_fgds = [x for x in nuisance_comps if x not in ["cmb", "noise"]]
+        fgdsname = f"foregrounds_{config.data_type}_ns{config.nside_in}_lmax{config.lmax_in}"
+    data_splits = config.data_splits
+    only_splits = config.only_splits 
+    
+    config.generate_input_foregrounds = False
+    config.return_fgd_components = True
+    config.foreground_models = None
+    config.generate_input_data = False
+    config.generate_input_cmb = False
+    config.generate_input_noise = False
+    config.data_path = None
+    config.fgds_path = None
+    config.cmb_path = None
+    config.noise_path = None
+    config.seed_cmb = None
+    config.seed_noise = None
+    config.data_splits = False
+    config.only_splits = False
+
+    if any(x not in ["cmb", "noise"] for x in nuisance_comps):
+        prefix_models = ["d", "s", "co", "a", "f", "tsz", "cib", "ksz", "rg"]
+        prefix_to_model = {}
+        for model in nuis_fgds:
+            prefix = get_prefix(model, prefix_models)
+            if prefix is None:
+                raise ValueError(f"Unknown prefix in model: {model}")
+            if prefix in prefix_to_model:
+                raise ValueError(f"Error: more models with prefix '{prefix}' in nuisance components.")
+            prefix_to_model[prefix] = model
+
+    if nuisance_path is not None:
+        if "cmb" in nuisance_comps:
+            config.cmb_path = os.path.join(nuisance_path, "cmb", cmbname)
+        if "noise" in nuisance_comps:
+            config.noise_path = os.path.join(nuisance_path, "noise", noisename)
+        if any(x not in ["cmb", "noise"] for x in nuisance_comps):
+            config.fgds_path = os.path.join(nuisance_path, "foregrounds", fgdsname)
+        nuisance_data = get_input_data(config, nsim=nsim)
+    else:
+        if "cmb" in nuisance_comps:
+            config.generate_input_cmb = True
+        if "noise" in nuisance_comps:
+            config.generate_input_noise = True
+
+        if not hasattr(config, "save_inputs"):
+            remove_inputs = True
+            config.save_inputs = False
+        else:
+            remove_inputs = False
+        if config.save_inputs:
+            if "cmb" in nuisance_comps:
+                config.cmb_path = os.path.join(os.getcwd(), "nuisance_inputs", config.experiment, "cmb", cmbname)
+            if "noise" in nuisance_comps:
+                config.noise_path = os.path.join(os.getcwd(), "nuisance_inputs", config.experiment, "noise", noisename)
+
+        if "cmb" in nuisance_comps or "noise" in nuisance_comps:
+            nuisance_data = get_input_data(config, nsim=nsim)
+        else:
+            nuisance_data = SimpleNamespace()
+
+        if any(x not in ["cmb", "noise"] for x in nuisance_comps):
+            config.generate_input_cmb = False
+            config.generate_input_noise = False
+            config.noise_path = None
+            config.cmb_path = None
+            config.fgds_path = os.path.join(os.getcwd(), "nuisance_inputs", config.experiment, "foregrounds", fgdsname)
+            for model in nuis_fgds:
+                config.foreground_models = [model]
+                config.generate_input_foregrounds = not os.path.exists(config.fgds_path + f"_{''.join(config.foreground_models)}.npy")
+                nuis_fgds_data = get_input_data(config)
+                setattr(nuisance_data, model, getattr(nuis_fgds_data, 'fgds'))
+            del nuis_fgds_data
+
+    if hasattr(nuisance_data, 'fgds'):
+        delattr(nuisance_data, 'fgds')
+    if hasattr(nuisance_data, 'total'):
+        delattr(nuisance_data, 'total')
+
+    config.generate_input_foregrounds = generate_input_foregrounds
+    config.return_fgd_components = return_fgd_components
+    config.foreground_models = foreground_models
+    config.generate_input_cmb = generate_input_cmb
+    if config.generate_input_cmb:
+        config.seed_cmb = seed_cmb
+    config.generate_input_noise = generate_input_noise
+    if config.generate_input_noise:
+        config.seed_noise = seed_noise
+    config.generate_input_data = generate_input_data
+    config.cmb_path = cmb_path
+    config.noise_path = noise_path
+    config.fgds_path = fgds_path
+    config.data_path = data_path
+    config.data_splits = data_splits
+    config.only_splits = only_splits
+
+    if nuisance_path is None and remove_inputs:
+        delattr(config, "save_inputs")
+        
+    return nuisance_data
+    
 def _smooth_input_alms_(
     alms: np.ndarray,
     fwhm: Optional[float] = None,

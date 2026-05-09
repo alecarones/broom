@@ -70,9 +70,9 @@ def _get_CMB_SED(frequencies: List[float], units: str = "uK_CMB",
         elif units == "Jy_sr":
             return u.uK_CMB.to((u.Jy / u.sr), equivalencies=u.cmb_equivalencies(frequencies * u.GHz))
 
-def _get_moments_SED(
+def _get_SEDs(
     frequencies: List[float],
-    moms_list: List[str],
+    comps_list: List[str],
     beta_d: float = 1.54,
     T_d: float = 20.0,
     beta_s: float = -3.0,
@@ -82,14 +82,14 @@ def _get_moments_SED(
     bandwidths: Optional[Union[List[str], List[float]]] = None
 ) -> np.ndarray:
     """
-    Function to compute the SED of the moments in different units.
+    Function to compute the SED of the components in different units.
 
     Parameters
     ----------
         frequencies : list
             Frequencies observed in GHz.
-        moms_list : list
-            List of moments to compute. It can include
+        comps_list : list
+            List of components to compute. It can include
             - '0d': zeroth moment of modified black body (thermal dust)
             - '0s': zeroth moment of power law (synchrotron)
             - '1bd': first derivative of modified black body wrt beta
@@ -100,14 +100,16 @@ def _get_moments_SED(
             - '2Td': second derivative of modified black body wrt temperature
             - '2bdTd': second derivative of modified black body wrt beta and temperature
             - '2Tdbd': second derivative of modified black body wrt temperature and beta
+            - 'cmb': CMB anisotropies
+            - 'tsz': thermal Sunyaev-Zel'dovich effect
         beta_d : float, optional
-            Spectral index of the modified black body (thermal dust). It refers to muK_RJ units SED.
+            Spectral index of the modified black body (thermal dust) in intensity units SED.
             Default is 1.54.
         T_d : float, optional
-            Temperature of the modified black body (thermal dust) in Kelvin. It refers to muK_RJ units SED. 
+            Temperature of the modified black body (thermal dust) in Kelvin. 
             Default is 20.
         beta_s : float, optional
-            Spectral index of the power law (synchrotron). It refers to muK_RJ units SED. 
+            Spectral index of the power law (synchrotron). It refers to brightness units SED.
             Default is -3.
         nu_ref_d : float, optional
             Reference frequency for the modified black body (thermal dust) in GHz. 
@@ -125,10 +127,10 @@ def _get_moments_SED(
     Returns
     -------
         np.ndarray
-            SED of the moments in the specified units. The shape is (len(moms_list), len(frequencies)).
+            SED of the components in the specified units. The shape is (len(comps_list), len(frequencies)).
     """
     
-    moments_funcs = {
+    comps_funcs = {
     '0d': _mbb_0,
     '0s': _pl_0,
     '1bd': _mbb_1b,
@@ -142,7 +144,7 @@ def _get_moments_SED(
     }
 
     all_seds = []
-    for mom in moms_list:
+    for comp in comps_list:
         sed = []
 
         for idx_freq, frequency in enumerate(frequencies):
@@ -159,16 +161,24 @@ def _get_moments_SED(
 
                 sed_band = np.zeros(1)
                 for i, (freq, _weight) in enumerate(zip(freqs_band, weights_rj)):
-                    if 'd' in mom:
-                        sed_ = moments_funcs[mom](freq, beta_d, T_d, nu_ref = nu_ref_d)
-                    elif 's' in mom:
-                        sed_ = moments_funcs[mom](freq, beta_s, nu_ref = nu_ref_s)
+                    if comp[-1] == 'd':
+                        sed_ = comps_funcs[comp](freq, beta_d, T_d, nu_ref = nu_ref_d)
+                    elif comp[-1] == 's':
+                        sed_ = comps_funcs[comp](freq, beta_s, nu_ref = nu_ref_s)
+                    elif comp == 'cmb':
+                        sed_ = _cmb_rj(freq)
+                    elif comp == 'tsz':
+                        sed_ = _tsz_rj(freq)
                     trapz_step_inplace(freqs_band, weights_rj, i, sed_, sed_band)          
             else:
-                if 'd' in mom:
-                    sed_band = moments_funcs[mom](frequency, beta_d, T_d, nu_ref = nu_ref_d)
-                elif 's' in mom:
-                    sed_band = moments_funcs[mom](frequency, beta_s, nu_ref = nu_ref_s)
+                if comp[-1] == 'd':
+                    sed_band = comps_funcs[comp](frequency, beta_d, T_d, nu_ref = nu_ref_d)
+                elif comp[-1] == 's':
+                    sed_band = comps_funcs[comp](frequency, beta_s, nu_ref = nu_ref_s)
+                elif comp == 'cmb':
+                    sed_band = _cmb_rj(frequency)
+                elif comp == 'tsz':
+                    sed_band = _tsz_rj(frequency)
                 freqs_band = frequency
                 weights = None
 
@@ -180,10 +190,30 @@ def _get_moments_SED(
             else:
                 sed.append((sed_band * bandpass_unit_conversion(freqs_band * u.GHz, weights, u.Jy / u.sr)).value[0])
 
-        all_seds.append(sed)
+        if comp[-1] == 'd':
+            rescaling = bandpass_unit_conversion(nu_ref_d * u.GHz, None, getattr(u, "uK_CMB")).value[0]
+        elif comp[-1] == 's':
+            rescaling = bandpass_unit_conversion(nu_ref_s * u.GHz, None, getattr(u, "uK_CMB")).value[0]
+        else:
+            rescaling = np.float64(1.)
+
+        all_seds.append(sed / rescaling)
+
+    all_seds = np.array(all_seds) 
+
+    if all_seds.ndim == 3:
+        all_seds = all_seds[:, :, 0]
     
-    return np.array(all_seds)
+    return all_seds
    
+def _cmb_rj(nu):
+    return float(u.uK_CMB.to(u.Unit("uK_RJ"), equivalencies=u.cmb_equivalencies(nu * u.GHz)))
+
+def _tsz_rj(nu):
+    nu = 1.e9 * nu  # Convert GHz to Hz
+    x = h * nu / (k * T_cmb)
+    cmb_2_rj = float(u.uK_CMB.to(u.Unit("uK_RJ"), equivalencies=u.cmb_equivalencies(nu * u.Hz)))
+    return ( (x * (np.exp(x) + 1) / (np.exp(x) - 1)) - 4) * cmb_2_rj
 
 def _mbb_0(nu, beta, T, nu_ref = 335.):
     """
@@ -398,65 +428,65 @@ def _standardize_cilc(compsep_run: dict, lmax: int) -> dict:
             Updated configuration dictionary with standardized parameters.
     """
     if compsep_run["domain"] == "needlet":
-        if compsep_run["method"] in ["cilc","cpilc"]:
+        if compsep_run["method"] in ["cilc","cpilc","cprilc"]:
             nls_number = _get_needlet_windows_(compsep_run["needlet_config"], lmax).shape[0]
-        elif compsep_run["method"] in ["c_ilc", "c_pilc"]:
+        elif compsep_run["method"] in ["c_ilc", "c_pilc", "c_prilc"]:
             nls_number = len(compsep_run["special_nls"])
         elif compsep_run["method"] in ["mc_cilc"]:
             nls_number = _get_needlet_windows_(compsep_run["needlet_config"], lmax).shape[0] - len(compsep_run["special_nls"])
 
-    if not "moments" in compsep_run["constraints"]:
-        raise ValueError("A list of moments must be provided in the constraints dictionary.")
+    if not "components" in compsep_run["constraints"]:
+        raise ValueError("A list of components must be provided in the constraints dictionary.")
     else:
-        if not isinstance(compsep_run["constraints"]["moments"], list):
-            raise ValueError("The moments must be provided as a list.")
+        if not isinstance(compsep_run["constraints"]["components"], list):
+            raise ValueError("The components must be provided as a list.")
 
-    dim_moms = len(compsep_run["constraints"]["moments"]) if isinstance(compsep_run["constraints"]["moments"][0], list) else 1
-    if dim_moms == 1 and isinstance(compsep_run["constraints"]["moments"][0], list):
-        compsep_run["constraints"]["moments"] = compsep_run["constraints"]["moments"][0]
+    dim_comps = len(compsep_run["constraints"]["components"]) if isinstance(compsep_run["constraints"]["components"][0], list) else 1
+    if dim_comps == 1 and isinstance(compsep_run["constraints"]["components"][0], list):
+        compsep_run["constraints"]["components"] = compsep_run["constraints"]["components"][0]
 
-    if (dim_moms > 1) and (compsep_run["domain"]=="pixel"):
-        raise ValueError("If the domain is pixel, moments must be a 1d list.")
+    if (dim_comps > 1) and (compsep_run["domain"]=="pixel"):
+        raise ValueError("If the domain is pixel, components must be a 1d list.")
 
     if "deprojection" in compsep_run["constraints"]:
         if not isinstance(compsep_run["constraints"]["deprojection"], (int, float, list)):
             raise ValueError("The deprojection parameter must be a scalar or a list.")
         if isinstance(compsep_run["constraints"]["deprojection"], list):
             dim_depro = len(compsep_run["constraints"]["deprojection"]) if isinstance(compsep_run["constraints"]["deprojection"][0], list) else 1
-            if dim_depro != dim_moms:
-                raise ValueError("The list of deprojection coefficients must have the same dimension as the moments list.")
+            if dim_depro != dim_comps:
+                raise ValueError("The list of deprojection coefficients must have the same dimension as the components list.")
 
             if dim_depro == 1 and isinstance(compsep_run["constraints"]["deprojection"][0], list):
                 compsep_run["constraints"]["deprojection"] = compsep_run["constraints"]["deprojection"][0]
             
             if dim_depro == 1:
-                if len(compsep_run["constraints"]["deprojection"]) != len(compsep_run["constraints"]["moments"]):
-                    raise ValueError("The list of deprojection coefficients must have the same dimension as the moments list.")
+                if len(compsep_run["constraints"]["deprojection"]) != len(compsep_run["constraints"]["components"]):
+                    raise ValueError("The list of deprojection coefficients must have the same dimension as the components list.")
             else:
                 for n in range(len(compsep_run["constraints"]["deprojection"])):
-                    if len(compsep_run["constraints"]["deprojection"][n]) != len(compsep_run["constraints"]["moments"][n]):
-                        raise ValueError("The list of deprojection coefficients must have the same dimension as the moments list.")
+                    if len(compsep_run["constraints"]["deprojection"][n]) != len(compsep_run["constraints"]["components"][n]):
+                        raise ValueError("The list of deprojection coefficients must have the same dimension as the components list.")
             
     if compsep_run["domain"] == "needlet":
-        if dim_moms > 1:
-            if dim_moms > nls_number:
-                compsep_run["constraints"]["moments"] = compsep_run["constraints"]["moments"][:nls_number]
-            elif dim_moms < nls_number:
-                while len(compsep_run["constraints"]["moments"]) < nls_number:
-                    (compsep_run["constraints"]["moments"]).append(compsep_run["constraints"]["moments"][-1])
+        if dim_comps > 1:
+            if dim_comps > nls_number:
+                compsep_run["constraints"]["components"] = compsep_run["constraints"]["components"][:nls_number]
+            elif dim_comps < nls_number:
+                while len(compsep_run["constraints"]["components"]) < nls_number:
+                    (compsep_run["constraints"]["components"]).append(compsep_run["constraints"]["components"][-1])
         else:
-            compsep_run["constraints"]["moments"] = [compsep_run["constraints"]["moments"] for _ in range(nls_number)]
+            compsep_run["constraints"]["components"] = [compsep_run["constraints"]["components"] for _ in range(nls_number)]
 
     if not "deprojection" in compsep_run["constraints"]:
         if compsep_run["domain"] == "pixel":
-            compsep_run["constraints"]["deprojection"] = [0. for _ in compsep_run["constraints"]["moments"]]
+            compsep_run["constraints"]["deprojection"] = [0. for _ in compsep_run["constraints"]["components"]]
         elif compsep_run["domain"] == "needlet":
-            compsep_run["constraints"]["deprojection"] = [[0. for _ in row] for row in compsep_run["constraints"]["moments"]]
+            compsep_run["constraints"]["deprojection"] = [[0. for _ in row] for row in compsep_run["constraints"]["components"]]
     elif isinstance(compsep_run["constraints"]["deprojection"], (int, float)):
         if compsep_run["domain"] == "pixel":
-            compsep_run["constraints"]["deprojection"] = [compsep_run["constraints"]["deprojection"] for _ in compsep_run["constraints"]["moments"]]
+            compsep_run["constraints"]["deprojection"] = [compsep_run["constraints"]["deprojection"] for _ in compsep_run["constraints"]["components"]]
         elif compsep_run["domain"] == "needlet":
-            compsep_run["constraints"]["deprojection"] = [[compsep_run["constraints"]["deprojection"] for _ in row] for row in compsep_run["constraints"]["moments"]]
+            compsep_run["constraints"]["deprojection"] = [[compsep_run["constraints"]["deprojection"] for _ in row] for row in compsep_run["constraints"]["components"]]
     elif isinstance(compsep_run["constraints"]["deprojection"], list):
         if compsep_run["domain"] == "needlet":
             if dim_depro > 1:

@@ -65,7 +65,7 @@ For partial-sky, ground-based experiment analysis, see:
 
 ## References
 
-Paper on **broom** package is in preparation.
+If you use **broom** package please cite [Carones et al., 2026](https://arxiv.org/abs/2604.14088)
 
 If you use the following methodologies please cite the corresponding papers:
 

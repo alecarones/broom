@@ -1,29 +1,32 @@
 import warnings
 from functools import partialmethod
 from typing import Optional, Tuple
+from pathlib import Path
+import glob
 
 import numpy as np
 import healpy as hp
 import os
 from types import SimpleNamespace
 import sys
-
+import random
 from .configurations import Configs
 from .routines import (merge_dicts, _map2alm_kwargs, _slice_data, _format_nsim, _log,   
             _EB_to_QU, _QU_to_EB, _B_to_QU, _E_to_QU)
+from .simulations import get_nuisance_data
 from .inputs import _alms_from_data
-from .gilcs import gilc, fgd_diagnostic
+from .gilcs import gilc, fgd_diagnostic, compute_and_update_nuisance_covariance
 from .ilcs import ilc
 from .pilcs import pilc
-from .gpilcs import gpilc, fgd_P_diagnostic
-from .templates import get_residuals_template
+from .gpilcs import gpilc, fgd_P_diagnostic, compute_and_update_nuisance_P_covariance
+from .combine import _combine_
 from .masking import get_masks_for_compsep
-from .saving import get_gnilc_maps
+from .saving import _save_compsep_products, get_gilc_maps, _save_residuals_template, _save_combination, _get_full_path_out
+from .seds import _standardize_cilc
 from .needlets import _get_needlet_windows_
 from typing import Dict, Any, Union
 
-
-def get_data_and_compsep(config: Configs, foregrounds, nsim=None):
+def get_data_and_compsep(config: Configs, foregrounds: SimpleNamespace = None, nsim: Optional[Union[int, str]] = None) -> Optional[SimpleNamespace]:
     """
     Get data and run component separation based on the provided configuration.
 
@@ -33,10 +36,11 @@ def get_data_and_compsep(config: Configs, foregrounds, nsim=None):
             Configuration object with settings for component separation and data handling.
             See 'component_separation' for details on required attributes.
         
-        foregrounds : SimpleNamespace
+        foregrounds : SimpleNamespace, optional
             Foreground data to be used in component separation. 
             It should have the 'total' attribute, a numpy array of shape (n_channels, 3, n_alms/n_pixs)
             where 3 correspond to (T, Q, U) if data_type is "maps" or (T, E, B) if data_type is "alms".
+            Default: None (it will be loaded or generated based on the configuration).
 
         nsim : Optional[int or str], optional
             Simulation number to be used for saving the outputs. If None, the outputs will be saved without label on simulation number.
@@ -53,8 +57,8 @@ def get_data_and_compsep(config: Configs, foregrounds, nsim=None):
             If the configuration is invalid or required fields are missing.
     """
 
-    from broom import _get_data_simulations_  # Importing here to avoid circular import issues
-    data = _get_data_simulations_(config, foregrounds, nsim=nsim)
+    from broom import get_input_data  # Importing here to avoid circular import issues
+    data = get_input_data(config, foregrounds=foregrounds, nsim=nsim)
 
     if config.return_compsep_products:
         outputs = SimpleNamespace()
@@ -85,7 +89,7 @@ def component_separation(config: Configs, data: SimpleNamespace, nsim: Optional[
             - mask_observations (str): Path to HEALPix mask fits file, if any. Default: None. 
                 It is used to exclude unobserved regions in the alm computation and component separation.
             - mask_covariance (str): Full path to mask used to weight adn/or exclude pixels in component separation. Default: None.
-            - leakage_correction (str): Whether to apply EB-leakage correction on input data if mask_type is "observed_patch". Default: None.
+            - leakage_correction (str): Whether to apply EB-leakage correction on input data if 'mask_observations' is provided. Default: None.
             - bring_to_common_resolution (bool): Whether to bring the data to a common angular resolution (correcting for input beams). If False, the data will be used as is. Default: True.
             - pixel_window_in (bool): Whether pixel window is included in the input data. Default: False.
             - pixel_window_out (bool): Whether to include pixel window in the output products. Default: False.
@@ -118,12 +122,20 @@ def component_separation(config: Configs, data: SimpleNamespace, nsim: Optional[
             
     kwargs = _map2alm_kwargs(**kwargs)
 
+    nside_in_in = config.nside_in
+    lmax_in = config.lmax
+
     # Validation of config parameters and data format
     config = _check_data_and_config(config, data)
     config = _check_fields(config, data)
 
+    if hasattr(data, "total"):
+        attr = "total"
+    elif hasattr(data, "total_split1") and hasattr(data, "total_split2"):
+        attr = "total_split1"
+
     # Slicing data if necessary
-    if (data.total.ndim > 2) and (config.field_out != config.field_in):
+    if (getattr(data, attr).ndim > 2) and (config.field_out != config.field_in):
         config.field_in_cs = _get_field_in_cs(config.field_in, config.field_out)
         data = _slice_data(data, config.field_in, config.field_in_cs)
     else:
@@ -140,6 +152,7 @@ def component_separation(config: Configs, data: SimpleNamespace, nsim: Optional[
             data_type=config.data_type, 
             bring_to_common_resolution=config.bring_to_common_resolution, 
             pixel_window_in=config.pixel_window_in, 
+            fwhm_in=config.fwhm_out,
             **kwargs)
 
     # Initializing mask
@@ -164,7 +177,7 @@ def component_separation(config: Configs, data: SimpleNamespace, nsim: Optional[
     preprocess_args["mask_in"] = np.copy(mask_obs) if mask_obs is not None else None
 
     # Computing alms from input data
-    input_alms = _alms_from_data(config, data, config.field_in_cs, **preprocess_args)
+    input_alms = _alms_from_data(config, data, config.field_in_cs, 'compsep', **preprocess_args)
 
     methods_map = {
     'ilc': ilc,
@@ -178,6 +191,10 @@ def component_separation(config: Configs, data: SimpleNamespace, nsim: Optional[
     'cpilc': pilc,
     'c_pilc': pilc,
     'gpilc': gpilc,
+    'prilc': pilc,
+    'cprilc': pilc,
+    'c_prilc': pilc,
+    'gprilc': gpilc,
     'fgd_diagnostic': fgd_diagnostic,
     'fgd_P_diagnostic': fgd_P_diagnostic
     }
@@ -190,6 +207,7 @@ def component_separation(config: Configs, data: SimpleNamespace, nsim: Optional[
         # Initialize attributes of `outputs` with empty lists
             for attr in vars(data):
                 setattr(outputs, attr, [])
+        setattr(outputs, 'settings', [])
         
     _log(f"Running component separation for simulation {nsim}." if nsim is not None else f"Running component separation.", verbose=config.verbose)
 
@@ -207,24 +225,35 @@ def component_separation(config: Configs, data: SimpleNamespace, nsim: Optional[
 
         _log(f"Running {compsep_run['method']} in {compsep_run['domain']} domain for simulation {nsim}." if nsim is not None else f"Running {compsep_run['method']} in {compsep_run['domain']} domain.", verbose=config.verbose)
         
-        if config.return_compsep_products:
-            prod = methods_map[compsep_run["method"]](config, input_alms, compsep_run, **kwargs)
-            if compsep_run["method"] in ["fgd_diagnostic", "fgd_P_diagnostic"]:
-                if hasattr(outputs, 'm'):
-                    getattr(outputs, 'm').append(getattr(prod, 'm'))
-                else:
-                    setattr(outputs, 'm', [])
-                    getattr(outputs, 'm').append(getattr(prod, 'm'))
-            else:
-                for attr in vars(prod).keys():
-                    getattr(outputs, attr).append(getattr(prod, attr))
-        else:
-            methods_map[compsep_run["method"]](config, input_alms, compsep_run, **kwargs)
+        if config.return_compsep_products or config.save_compsep_products:
+            prod, compsep_run = methods_map[compsep_run["method"]](config, input_alms, compsep_run, **kwargs)
 
+            if config.save_compsep_products:
+                _save_compsep_products(config, prod, compsep_run, nsim=compsep_run["nsim"])
+
+            if config.return_compsep_products:
+                if compsep_run["method"] in ["fgd_diagnostic", "fgd_P_diagnostic"]:
+                    if hasattr(outputs, 'm'):
+                        getattr(outputs, 'm').append(getattr(prod, 'm'))
+                    else:
+                        setattr(outputs, 'm', [])
+                        getattr(outputs, 'm').append(getattr(prod, 'm'))
+                else:
+                    for attr in vars(prod).keys():
+                        getattr(outputs, attr).append(getattr(prod, attr))
+        
         compsep_run.pop("mask", None)
         del compsep_run["nsim"]
+
+        if config.return_compsep_products:
+            getattr(outputs, 'settings').append(compsep_run)
+            
     
     del mask_obs, mask_cov
+
+    config.nside_in = nside_in_in
+    config.lmax = lmax_in
+    delattr(config, "field_in_cs")
 
     if config.return_compsep_products:
 #        for attr in vars(outputs).keys():
@@ -233,7 +262,162 @@ def component_separation(config: Configs, data: SimpleNamespace, nsim: Optional[
     
     return None
 
-def estimate_residuals(config: Configs, nsim: Optional[Union[int, str]] = None, **kwargs) -> Optional[SimpleNamespace]:  
+def get_nuisance_covariance(config, nuisance_path: str = None, **kwargs):
+    """
+    Compute nuisance covariance matrix estimated from simulations.
+
+    Parameters
+    ----------
+        config : Configs
+            Configuration object with settings for nuisance covariance computation. It should include:
+            - nsim_start (int): Starting simulation number.
+            - nsims (int): Number of simulations to be used for covariance estimation.
+            - data_type (str): Type of data, either "maps" or "alms".
+            - nside_in (int): HEALPix resolution of the input data.
+            - lmax_in (int): Maximum multipole of the input data.
+            - fwhm_out (float): Full width at half maximum of the output maps in arcminutes.
+            - nside (int): HEALPix resolution of the output covariance.
+            - lmax (int): Maximum multipole of the output covariance.
+            - nuisance_covariance (list): List of dictionaries with settings for each nuisance covariance case to be computed. It should contain:
+                - type (str): Method for covariance computation, either "scalar" or "P_scalar".
+                - nuisance (str or list): Nuisance components to be included in the covariance estimation, e.g. "noise", "cmb", "fgd". If not provided, it will include noise and CMB by default.
+                - Other method-specific parameters.
+
+        nuisance_path : str, optional
+            Full path to a directory containing the nuisance data. 
+            If None, the nuisance simulations will be simulated based on the configuration.
+            Default: None.
+
+        kwargs : dict
+            Additional keywords for map to alm conversion.
+
+    Returns
+    -------
+        None
+            The nuisance covariance matrices are computed and saved based on the configuration.
+    """
+
+    if nuisance_path is not None:
+        if not isinstance(nuisance_path, str):
+            raise ValueError("Invalid nuisance_path. It must be a string full path to a directory containing the nuisance data.")
+        print(f"Note that the nuisance simulations will be loaded from: {nuisance_path} assuming to be either TQU maps or TEB alms depending on config.data_type.")
+
+    kwargs = _map2alm_kwargs(**kwargs)
+
+    for nsim in range(config.nsim_start, config.nsim_start + config.nsims):
+        nuisance_covariance_serial(config, nsim, nuisance_path = nuisance_path, **kwargs)
+
+def nuisance_covariance_serial(config: Configs, nsim: Optional[Union[int, str]], nuisance_path: str = None, **kwargs) -> SimpleNamespace:
+    """
+    Compute nuisance covariance matrix for a single simulation and update estimation saved in disk.
+
+    Parameters
+    ----------
+        config : Configs
+            Configuration object with settings for nuisance covariance computation. See 'get_nuisance_covariance' for details.
+        nsim : int | str
+            Simulation number or identifier.
+        nuisance_path : str, optional
+            Full path to a directory containing the nuisance data. 
+            If None, the nuisance simulations will be simulated based on the configuration.
+            Default: None.
+        kwargs : dict
+            Additional keywords for map to alm conversion.
+    Returns
+    -------
+        None
+            The nuisance covariance matrix for the specified simulation is computed and used to update the estimation saved in disk.
+
+    """
+    if nuisance_path is not None:
+        if not isinstance(nuisance_path, str):
+            raise ValueError("Invalid nuisance_path. It must be a string full path to a directory containing the nuisance data.")
+
+    nsim = _format_nsim(nsim)
+
+    if nuisance_path is not None:
+        field_in_in = config.field_in
+        config.field_in = "TQU" if config.data_type == "maps" else "TEB"
+
+    nside_in_in = config.nside_in
+
+    nuisance_comps = []
+    for nuis_case in config.nuisance_covariance:
+        if "nuisance" not in nuis_case:
+            nuis_case["nuisance"] = ["noise", "cmb"]
+        if isinstance(nuis_case["nuisance"], str):
+            if nuis_case["nuisance"] not in nuisance_comps:
+                nuisance_comps.append(nuis_case["nuisance"])
+        else:
+            for comp in nuis_case["nuisance"]:
+                if comp not in nuisance_comps:
+                    nuisance_comps.append(comp)
+
+    if len(nuisance_comps) > 0:
+        nuisance_data = get_nuisance_data(config, nuisance_comps, nsim=nsim, nuisance_path=nuisance_path)
+    else:
+        raise ValueError("At least one nuisance component must be specified in the configuration for nuisance covariance estimation.")
+
+    config = _check_data_and_config(config, nuisance_data, compsep_check=False)
+    config = _check_fields(config, nuisance_data)
+
+    attr = random.choice(list(vars(nuisance_data).keys()))
+
+    if (getattr(nuisance_data, attr).ndim > 2) and (config.field_out != config.field_in):
+        config.field_in_cs = _get_field_in_cs(config.field_in, config.field_out)
+        nuisance_data = _slice_data(nuisance_data, config.field_in, config.field_in_cs)
+    else:
+        config.field_in_cs = config.field_in
+
+    preprocess_args = dict(
+            data_type=config.data_type, 
+            bring_to_common_resolution=config.bring_to_common_resolution, 
+            pixel_window_in=config.pixel_window_in, 
+            fwhm_in=config.fwhm_out,
+            **kwargs)
+
+    mask_obs, mask_cov = get_masks_for_compsep(config.mask_observations, config.mask_covariance, config.nside_in)
+    preprocess_args["mask_in"] = np.copy(mask_obs) if mask_obs is not None else None
+
+    if config.leakage_correction is not None:
+        if "recycling" in config.leakage_correction:
+            attrs = vars(nuisance_data)
+            nuisance_data.total = sum(value for _, value in attrs.items())
+
+    # Computing alms from input data
+    nuisance_alms = _alms_from_data(config, nuisance_data, config.field_in_cs, 'compsep', **preprocess_args)
+
+    _, mask_cov = get_masks_for_compsep(mask_obs, mask_cov, config.nside)
+
+    for nuis_case in config.nuisance_covariance:
+        nuis_case = _standardize_nuiscov_config(nuis_case)
+
+        for idx, comp in enumerate(nuis_case["nuisance"]):
+            if idx == 0:
+                nuis_alms = np.copy(getattr(nuisance_alms, comp))
+            else:
+                nuis_alms += getattr(nuisance_alms, comp)
+
+        nuis_case["nsim"] = nsim
+        if mask_cov is not None:
+            nuis_case["mask"] = mask_cov
+        
+        if nuis_case["type"] == "scalar":
+            compute_and_update_nuisance_covariance(config, nuis_alms, nuis_case, nsim=nsim, **kwargs)
+        else:
+            compute_and_update_nuisance_P_covariance(config, nuis_alms, nuis_case, nsim=nsim, **kwargs)
+
+        nuis_case.pop("mask", None)
+        del nuis_case["nsim"]
+
+    delattr(config, "field_in_cs")
+
+    config.nside_in = nside_in_in
+
+    return None
+
+
+def estimate_residuals(config: Configs, nsim: Optional[Union[int, str]] = None, gilc_outputs: SimpleNamespace = None, **kwargs) -> Optional[SimpleNamespace]:  
     """
     Estimate residual foregrounds from component-separated maps.
 
@@ -248,8 +432,9 @@ def estimate_residuals(config: Configs, nsim: Optional[Union[int, str]] = None, 
             - compsep_residuals (list): List of dictionaries with settings for each component separation method to estimate residuals. It should contain:
                 - compsep_path (str): Path to the directory containing the 'weights' folder of corresponding component separation method.
                                     Weights will be loaded from "working_directory/{compsep_path}/weights. 
-                - gnilc_path (str): Path to the directory containing the 'gnilc' maps to be used as multifrequency foreground tracers.
-                                    Tracers will be loaded from "working_directory/{gnilc_path}/output_total".
+                - gilc_path (str): Path to the directory containing the GILC maps to be used as multifrequency foreground tracers.
+                                    Tracers will be loaded from "working_directory/{gilc_path}/output_total".
+                - gilc_components (list): List of strings indicating the GILC output components to be propagated through the component separation weights.
                 - field_in (str): Fields of the data to be loaded. Optional, default is `config.field_out`.
             - lmax (int): Maximum multipole for output products.
             - nside (int): HEALPix resolution associated to GNILC tracers and component separation weights.
@@ -258,17 +443,18 @@ def estimate_residuals(config: Configs, nsim: Optional[Union[int, str]] = None, 
             - return_compsep_products (bool): Whether to return the residuals estimate. Default: False.
             - save_compsep_products (bool): Whether to save the residuals estimate. Default: True.
             - verbose (bool): Whether to print information about the residuals estimate. Default: False.
-
         nsim : int | str | None
             Simulation number or identifier.
-
+        gilc_outputs : SimpleNamespace, optional
+            If provided, it should contain the GILC outputs to be used as foreground tracers in the residual estimation. 
+            If None, the GILC outputs will be loaded from disk based on the paths specified in `compsep_residuals`.
+            Default: None.
         **kwargs
             Additional keyword arguments for internal helper functions.
 
     Returns
     -------
-        SimpleNamespace or None
-            Residual products if `config.return_compsep_products` is True, otherwise None.
+        SimpleNamespace Residual products if `config.return_compsep_products` is True, otherwise None.
     """
 
     # Initializing nsim
@@ -293,69 +479,361 @@ def estimate_residuals(config: Configs, nsim: Optional[Union[int, str]] = None, 
     _log(f"Running foregrounds residuals estimation for simulation {nsim}." if nsim is not None else f"Running component separation.", verbose=config.verbose)
 
     outputs = SimpleNamespace() if config.return_compsep_products else None
+    if config.return_compsep_products:
+        setattr(outputs, 'settings', [])
 
     # Setting field_out if not provided
     if not config.field_out:
         config.field_out = config.field_in
 
-#    config.nside_in = config.nside
+    nside_in_in = config.nside_in
+    leak_corr_in = config.leakage_correction
 
-    mask_obs, mask_cov = get_masks_for_compsep(config.mask_observations, config.mask_covariance, config.nside)
+    load_gilc_outputs = gilc_outputs is None
+
+    if not load_gilc_outputs:
+        outputs_configs = getattr(gilc_outputs, "settings")
+        if not any(outputs_configs[i]["method"] in ["gilc", "gpilc", "gprilc"] for i in range(len(outputs_configs))):
+            raise ValueError("Provided GILC outputs do not contain any of the methods that can be used as foreground tracers for residual estimation (gilc, gpilc, gprilc). Please provide GILC outputs containing at least one of these methods or set 'gilc_outputs' to None to load them from disk based on the paths specified in 'compsep_residuals'.")
+        idx_gilc = []
+        idx_gilc_biased = []
+        n_f_diag = 0
+        for i in range(len(outputs_configs)):
+            if outputs_configs[i]["method"] in ["fgd_diagnostic", "fgd_P_diagnostic"]:
+                n_f_diag += 1
+            elif outputs_configs[i]["method"] in ["gilc", "gpilc", "gprilc"]:
+                idx_gilc.append(i-n_f_diag)
+                idx_gilc_biased.append(i)
+                if outputs_configs[i]["channels_out"] != [k for k in range(len(config.instrument.frequency))]:
+                    raise ValueError(f"Component separation method {outputs_configs[i]['method']} requires the output channels to be the same as the number of frequencies in the instrument. Found {config.compsep[i]['channels_out']} and {len(config.instrument.frequency)} respectively.")
+        n_runs = len(idx_gilc)
+        if (n_runs > 1) and (len(config.compsep_residuals) > 1):
+            if n_runs != len(config.compsep_residuals):
+                raise ValueError(f"Number of runs in outputs ({n_runs}) and number of component separation methods in config ({len(config.compsep_residuals)}) must match, if they are both greater than 1.")
+        idx_cs = 0
+    
+    # Starting loop for estimation of foreground residuals for the requested cases
+    if load_gilc_outputs or (n_runs == 1) or (len(config.compsep_residuals) > 1):
+        for compsep_run in config.compsep_residuals:
+            delete_field_in = "field_in" not in compsep_run
+
+            compsep_run = _standardize_residuals_config(compsep_run, config, nsim = nsim, load_outputs = load_gilc_outputs)
+            
+            config.nside_in = compsep_run["nside"]
+            config.leakage_correction = compsep_run.get("leakage_correction", leak_corr_in)
+
+            if "leakage_correction" in compsep_run:
+                if "recycling" in compsep_run["leakage_correction"] and ("output_total" not in compsep_run["gilc_components"] or ("output_total_split1" not in compsep_run["gilc_components"] and "output_total_split2" not in compsep_run["gilc_components"])):
+                    raise ValueError("For recycling leakage correction, 'output_total' or both 'output_total_split1' and 'output_total_split2' must be included in 'gilc_components'.")
+
+            mask_obs, _ = get_masks_for_compsep(config.mask_observations, config.mask_covariance, config.nside_in)
+            _, mask_cov = get_masks_for_compsep(mask_obs, config.mask_covariance, config.nside)
+
+            if load_gilc_outputs:
+                data = get_gilc_maps(config, compsep_run, nsim=nsim)
+            else:
+                compsep_run["gilc_path"] = str(Path(_get_full_path_out(config, outputs_configs[idx_gilc_biased[idx_cs]])).relative_to(config.path_outputs))
+
+                data = SimpleNamespace()
+                if "gilc_components" not in compsep_run:
+                    compsep_run["gilc_components"] = []
+                    for component in vars(gilc_outputs).keys():
+                        if component not in ["m", "settings"]:
+                            if "total" in component:
+                                compsep_run["gilc_components"].append("output_" + component)
+                            else:
+                                compsep_run["gilc_components"].append(component + "_residuals")
+                            setattr(data, component, getattr(gilc_outputs, component)[idx_gilc[idx_cs]])
+                else:
+                    for component in compsep_run["gilc_components"]:
+                        if "total" in component:
+                            setattr(data, component.split("output_")[1], getattr(gilc_outputs, component.split("output_")[1])[idx_gilc[idx_cs]])
+                        else:
+                            setattr(data, component.split("_residuals")[0], getattr(gilc_outputs, component.split("_residuals")[0])[idx_gilc[idx_cs]])
+                if n_runs > 1:
+                    idx_cs += 1
+
+
+            attr = random.choice(list(vars(data).keys()))
+            
+            if (getattr(data, attr).ndim > 2) and (config.field_out != compsep_run["field_in"]):
+                compsep_run["field_in_cs"] = _get_field_in_cs(compsep_run["field_in"], config.field_out)
+                data = _slice_data(data, compsep_run["field_in"], compsep_run["field_in_cs"])
+            else:
+                compsep_run["field_in_cs"] = compsep_run["field_in"]
+
+            if config.return_compsep_products:
+                for attr in vars(data):
+                    if not hasattr(outputs, attr):
+                        setattr(outputs, attr, [])
+            
+            preprocess_args = dict(data_type="maps",
+                bring_to_common_resolution=False,
+                pixel_window_in=compsep_run["pixel_window_out"],
+                fwhm_in=compsep_run["fwhm_out"],
+                **kwargs
+            )
+
+    #        if mask is not None:
+    #            if (config.mask_type == "observed_patch"):
+    #                 preprocess_args["mask_in"] = _preprocess_mask(mask, config.nside_in)
+            if mask_obs is not None:
+                preprocess_args["mask_in"] = mask_obs
+
+            input_alms = _alms_from_data(config, data, compsep_run["field_in_cs"], 'weights', **preprocess_args)
+            
+    #        if mask is not None:
+    #            compsep_run["mask"] = _preprocess_mask(mask, config.nside)
+            if mask_cov is not None:
+                compsep_run["mask"] = mask_cov
+
+            if config.return_compsep_products or config.save_compsep_products:
+                prod, compsep_run = _combine_(config, input_alms, compsep_run, **kwargs)
+                
+                if config.save_compsep_products:
+                    _save_residuals_template(config, prod, compsep_run, nsim=nsim)
+
+                if config.return_compsep_products:
+                    for attr in vars(prod).keys():
+                        getattr(outputs, attr).append(getattr(prod, attr))
+
+            compsep_run.pop("mask", None)
+            if config.return_compsep_products:
+                getattr(outputs, 'settings').append(compsep_run)
+
+            if delete_field_in:
+                del compsep_run["field_in"]
+    else:
+        mask_obs, _ = get_masks_for_compsep(config.mask_observations, config.mask_covariance, config.nside_in)
+        _, mask_cov = get_masks_for_compsep(mask_obs, config.mask_covariance, config.nside)
+
+        for _ in range(n_runs):
+            compsep_run = _standardize_residuals_config(config.compsep_residuals[0], config, nsim = nsim, load_outputs = load_gilc_outputs)
+            
+            config.nside_in = compsep_run["nside"]
+            config.leakage_correction = compsep_run.get("leakage_correction", leak_corr_in)
+
+            if "leakage_correction" in compsep_run:
+                if "recycling" in compsep_run["leakage_correction"] and ("output_total" not in compsep_run["gilc_components"] or ("output_total_split1" not in compsep_run["gilc_components"] and "output_total_split2" not in compsep_run["gilc_components"])):
+                    raise ValueError("For recycling leakage correction, 'output_total' or both 'output_total_split1' and 'output_total_split2' must be included in 'gilc_components'.")
+
+            compsep_run["gilc_path"] = str(Path(_get_full_path_out(config, outputs_configs[idx_gilc_biased[idx_cs]])).relative_to(config.path_outputs))
+
+            data = SimpleNamespace()
+            if "gilc_components" not in compsep_run:
+                compsep_run["gilc_components"] = []
+                for component in vars(gilc_outputs).keys():
+                    if component not in ["m", "settings"]:
+                        if "total" in component:
+                            compsep_run["gilc_components"].append("output_" + component)
+                        else:
+                            compsep_run["gilc_components"].append(component + "_residuals")
+                        setattr(data, component, getattr(gilc_outputs, component)[idx_gilc[idx_cs]])
+            else:
+                for component in compsep_run["gilc_components"]:
+                    if "total" in component:
+                        setattr(data, component.split("output_")[1], getattr(gilc_outputs, component.split("output_")[1])[idx_gilc[idx_cs]])
+                    else:
+                        setattr(data, component.split("_residuals")[0], getattr(gilc_outputs, component.split("_residuals")[0])[idx_gilc[idx_cs]])
+            if n_runs > 1:
+                idx_cs += 1
+
+            attr = random.choice(list(vars(data).keys()))
+            
+            if (getattr(data, attr).ndim > 2) and (config.field_out != compsep_run["field_in"]):
+                compsep_run["field_in_cs"] = _get_field_in_cs(compsep_run["field_in"], config.field_out)
+                data = _slice_data(data, compsep_run["field_in"], compsep_run["field_in_cs"])
+            else:
+                compsep_run["field_in_cs"] = compsep_run["field_in"]
+
+            if config.return_compsep_products:
+                for attr in vars(data):
+                    if not hasattr(outputs, attr):
+                        setattr(outputs, attr, [])
+            
+            preprocess_args = dict(data_type="maps",
+                bring_to_common_resolution=False,
+                pixel_window_in=compsep_run["pixel_window_out"],
+                fwhm_in=compsep_run["fwhm_out"],
+                **kwargs
+            )
+
+    #        if mask is not None:
+    #            if (config.mask_type == "observed_patch"):
+    #                 preprocess_args["mask_in"] = _preprocess_mask(mask, config.nside_in)
+            if mask_obs is not None:
+                preprocess_args["mask_in"] = mask_obs
+
+            input_alms = _alms_from_data(config, data, compsep_run["field_in_cs"], 'weights', **preprocess_args)
+            
+    #        if mask is not None:
+    #            compsep_run["mask"] = _preprocess_mask(mask, config.nside)
+            if mask_cov is not None:
+                compsep_run["mask"] = mask_cov
+
+            if config.return_compsep_products or config.save_compsep_products:
+                prod, compsep_run = _combine_(config, input_alms, compsep_run, **kwargs)
+                
+                if config.save_compsep_products:
+                    _save_residuals_template(config, prod, compsep_run, nsim=nsim)
+
+                if config.return_compsep_products:
+                    for attr in vars(prod).keys():
+                        getattr(outputs, attr).append(getattr(prod, attr))
+
+            compsep_run.pop("mask", None)
+            if config.return_compsep_products:
+                getattr(outputs, 'settings').append(compsep_run)
+
+    del mask_obs, mask_cov
+    config.nside_in = nside_in_in
+    config.leakage_correction = leak_corr_in
+
+    if config.return_compsep_products:
+        #for attr in vars(outputs).keys():
+        #    setattr(outputs, attr, np.array(getattr(outputs, attr)))
+        return outputs
+    return None
+
+def combine_with_weights(config: Configs, data: SimpleNamespace, nsim: Optional[Union[int, str]] = None, **kwargs) -> Optional[SimpleNamespace]:  # shape (N_sims, lmax - 1)
+    r"""
+    Propagate input data through component separation weights.
+
+    Parameters
+    ----------
+        config : Configs
+            Configuration object containing the settings for component separation.
+            In particular, it should include the following attributes:
+            - data_type (str): Type of data, either "maps" or "alms".
+            - field_in (str): Field associated to the provided data, e.g. TQU, QU; TEB; EB.
+            - field_out (str): Fields of the desired outputs from component separation. Default: `field_in`.
+            - lmax (int): Maximum multipole considered in the component separation and for output products.
+            - nside (int): HEALPix resolution associated to component separation weights and output products.
+            - fwhm_out (float): Full width at half maximum at which component separation weights and output products are defined, in arcminutes.
+            - compsep (Dict[str, Any]): List of dictionaries containing the configuration for each component separation method to be run.
+            - mask_observations (str): Path to HEALPix mask fits file, if any. Default: None. 
+                It is used to exclude unobserved regions in the alm computation.
+            - mask_covariance (str): Full path to mask used to weight and/or exclude pixels in component separation. Default: None.
+            - leakage_correction (str): Whether to apply EB-leakage correction on input data if 'mask_observations' is provided. Default: None.
+            - bring_to_common_resolution (bool): Whether to bring the data to a common angular resolution (correcting for input beams). If False, the data will be used as is. Default: True.
+            - pixel_window_in (bool): Whether pixel window is included in the input data. Default: False.
+            - pixel_window_out (bool): Whether to include pixel window in the output products. Default: False.
+            - save_compsep_products (bool): Whether to save the combined outputs. Default: True.
+            - return_compsep_products (bool): Whether to return the combined outputs. Default: False.
+            - verbose (bool): Whether to print information about the component separation process. Default: False.
+            - compsep_propagate (list): List of dictionaries with settings for each component separation combination to be performed. It should contain:
+                - compsep_path (str): Path to the directory containing the 'weights' folder of corresponding component separation method.
+                                    Weights will be loaded from "working_directory/{compsep_path}/weights. 
+                    
+        data : SimpleNamespace
+            Data object containing the input data to be propagated through the component separation weights.
+
+        nsim : Optional[int or str], optional
+            Simulation number to be used for saving the outputs. If None, the outputs will be saved without label on simulation number.
+            Default: None.
+
+    Returns
+    -------
+        SimpleNamespace or None
+            If `config.return_compsep_products` is True, returns outputs. Otherwise returns None.
+    """
+
+    # Initializing nsim
+    nsim = _format_nsim(nsim)
+    if nsim is None:
+        _log(f"Simulation number not provided. If 'save_compsep_products' is set to True, the outputs will be saved without label on simulation number.", verbose=config.verbose)
+            
+    kwargs = _map2alm_kwargs(**kwargs)
+
+    nside_in_in = config.nside_in
+
+    outputs = SimpleNamespace() if config.return_compsep_products else None
+    if config.return_compsep_products:
+        setattr(outputs, 'settings', [])
+
+    # Validation of config parameters and data format
+    config = _check_data_and_config(config, data, compsep_check=False)
+    config = _check_fields(config, data)
+
+    attr_rand = random.choice(list(vars(data).keys()))
+
+    if (getattr(data, attr_rand).ndim > 2) and (config.field_out != config.field_in):
+        config.field_in_cs = _get_field_in_cs(config.field_in, config.field_out)
+        data = _slice_data(data, config.field_in, config.field_in_cs)
+    else:
+        config.field_in_cs = config.field_in
+
+    preprocess_args = dict(
+            data_type=config.data_type, 
+            bring_to_common_resolution=config.bring_to_common_resolution, 
+            pixel_window_in=config.pixel_window_in, 
+            fwhm_in=config.fwhm_out,
+            **kwargs)
+
+    mask_obs, mask_cov = get_masks_for_compsep(config.mask_observations, config.mask_covariance, config.nside_in)
+    preprocess_args["mask_in"] = np.copy(mask_obs) if mask_obs is not None else None
+
+    if config.leakage_correction is not None:
+        if "recycling" in config.leakage_correction and (not hasattr(data, "total") and (not hasattr(data, "total_split1") or not hasattr(data, "total_split2"))):
+            raise ValueError("For recycling leakage correction, 'data' must have either 'total' or both 'total_split1' and 'total_split2' attributes.")
+
+    # Computing alms from input data
+    input_alms = _alms_from_data(config, data, config.field_in_cs, 'compsep', **preprocess_args)
+
+    mask_obs, mask_cov = get_masks_for_compsep(mask_obs, mask_cov, config.nside)
 
     # Starting loop for estimation of foreground residuals for the requested cases
-    for compsep_run in config.compsep_residuals:
-        delete_field_in = "field_in" not in compsep_run
-        compsep_run.setdefault("field_in", config.field_out)
-        compsep_run["nsim"] = nsim
-        compsep_run.setdefault("adapt_nside", False)
+    for compsep_run in config.compsep_propagate:
+        compsep_run["field_in_cs"] = config.field_in_cs
+        if "compsep_path" not in compsep_run:
+            raise ValueError("For propagation through weights, 'compsep_path' must be provided in 'compsep_propagate' configuration.")
 
-        data = get_gnilc_maps(config, compsep_run["gnilc_path"], field_in=compsep_run["field_in"], nsim=nsim)
-        
-        if (data.total.ndim > 2) and (config.field_out != compsep_run["field_in"]):
-            compsep_run["field_in_cs"] = _get_field_in_cs(compsep_run["field_in"], config.field_out)
-            data = _slice_data(data, compsep_run["field_in"], compsep_run["field_in_cs"])
+        if "ilc_" not in compsep_run["compsep_path"]:
+            raise ValueError("Chosen component separation method for propagation through weights is not ILC-based. Only ILC-based methods are supported for propagation through weights.")
+
+        if "gilc_" in compsep_run["compsep_path"] or "gpilc_" in compsep_run["compsep_path"] or "gprilc_" in compsep_run["compsep_path"]:
+            compsep_run["method"] = "gilc"
+            compsep_run.setdefault("channels_out", list(range(getattr(input_alms, list(vars(input_alms).keys())[0]).shape[0])))
         else:
-            compsep_run["field_in_cs"] = compsep_run["field_in"]
+            compsep_run["method"] = "ilc"
+
+        domain = compsep_run["compsep_path"].split('ilc_')[1].split('_bias')[0]
+        compsep_run.setdefault("adapt_nside", True) if domain == "needlet" else compsep_run.setdefault("adapt_nside", False)
+
+        if "nsim_weights" not in compsep_run:
+            compsep_run["nsim_weights"] = nsim
+        else:
+            compsep_run["nsim_weights"] = _format_nsim(compsep_run["nsim_weights"])
 
         if config.return_compsep_products:
             for attr in vars(data):
                 if not hasattr(outputs, attr):
                     setattr(outputs, attr, [])
-
-        preprocess_args = dict(data_type="maps",
-            bring_to_common_resolution=False,
-            pixel_window_in=config.pixel_window_out,
-            **kwargs
-        )
-
-#        if mask is not None:
-#            if (config.mask_type == "observed_patch"):
-#                 preprocess_args["mask_in"] = _preprocess_mask(mask, config.nside_in)
-        if mask_obs is not None:
-            preprocess_args["mask_in"] = mask_obs
-
-        input_alms = _alms_from_data(config, data, compsep_run["field_in_cs"], **preprocess_args)
         
-#        if mask is not None:
-#            compsep_run["mask"] = _preprocess_mask(mask, config.nside)
         if mask_cov is not None:
             compsep_run["mask"] = mask_cov
 
-        if config.return_compsep_products:
-            prod = get_residuals_template(config, input_alms, compsep_run, **kwargs)
-            for attr in vars(prod).keys():
-                getattr(outputs, attr).append(getattr(prod, attr))
-        else:
-            get_residuals_template(config, input_alms, compsep_run, **kwargs)
+        if config.return_compsep_products or config.save_compsep_products:
+            prod, compsep_run = _combine_(config, input_alms, compsep_run, **kwargs)
+            
+            if config.save_compsep_products:
+                _save_combination(config, prod, compsep_run, nsim=nsim)
+
+            if config.return_compsep_products:
+                for attr in vars(prod).keys():
+                    getattr(outputs, attr).append(getattr(prod, attr))
 
         compsep_run.pop("mask", None)
-        del compsep_run["nsim"]
-        if delete_field_in:
-            del compsep_run["field_in"]
+        if config.return_compsep_products:
+            getattr(outputs, 'settings').append(compsep_run)
+
+    del mask_obs, mask_cov
+    config.nside_in = nside_in_in
+    delattr(config, "field_in_cs")
 
     if config.return_compsep_products:
-        for attr in vars(outputs).keys():
-            setattr(outputs, attr, np.array(getattr(outputs, attr)))
+#        for attr in vars(outputs).keys():
+#            setattr(outputs, attr, np.array(getattr(outputs, attr)))
         return outputs
     return None
 
@@ -380,6 +858,15 @@ def _standardize_compsep_config(compsep_run: Dict[str, Any], lmax: int, save_pro
             Updated and validated component separation configuration dictionary.
     """
 
+    if "method" not in compsep_run:
+        raise ValueError("method must be provided in the compsep_run dictionary.")
+
+    if "domain" not in compsep_run:
+        raise ValueError("domain must be provided in the compsep_run dictionary. Accepted values are 'pixel' or 'needlet'.")
+
+    if compsep_run["domain"] not in ["pixel", "needlet"]:
+        raise ValueError("Invalid value for domain. It must be either 'pixel' or 'needlet'.")
+    
     if compsep_run["domain"] == "pixel":
         compsep_run["b_squared"] = False 
         compsep_run["adapt_nside"] = False 
@@ -416,42 +903,189 @@ def _standardize_compsep_config(compsep_run: Dict[str, Any], lmax: int, save_pro
         if compsep_run["method"] != "mcilc":
             compsep_run.setdefault("reduce_ilc_bias", False)
         
-    if compsep_run["method"] in ["c_ilc","c_pilc","mc_ilc","mc_cilc"]:
+    if compsep_run["method"] in ["c_ilc","c_pilc","c_prilc","mc_ilc","mc_cilc"]:
         if compsep_run["domain"] != "needlet":
-            raise ValueError("The methods 'c_ilc', 'c_pilc', 'mc_ilc' and 'mc_cilc' can only be used in the needlet domain.")
+            raise ValueError("The methods 'c_ilc', 'c_pilc', 'c_prilc', 'mc_ilc' and 'mc_cilc' can only be used in the needlet domain.")
         if "special_nls" not in compsep_run:
-            raise ValueError("special_nls must be provided for methods 'c_ilc', 'c_pilc', 'mc_ilc' and 'mc_cilc'.")      
+            raise ValueError("special_nls must be provided for methods 'c_ilc', 'c_pilc', 'c_prilc', 'mc_ilc' and 'mc_cilc'.")      
         if not isinstance(compsep_run["special_nls"], list):
             raise ValueError("special_nls must be a list of integers.")
         
-    if compsep_run["method"] in ["cilc", "c_ilc", "mc_cilc", "cpilc", "c_pilc"]:
+    if compsep_run["method"] in ["cilc", "c_ilc", "mc_cilc", "cpilc", "c_pilc", "cprilc", "c_prilc"]:
         if "constraints" not in compsep_run:
-            raise ValueError("A dictionary of constraints must be provided in the compsep_run dictionary for methods 'cilc', 'c_ilc', 'cpilc', 'c_pilc', 'mc_cilc'.")
+            raise ValueError("A dictionary of constraints must be provided in the compsep_run dictionary for methods 'cilc', 'c_ilc', 'cpilc', 'c_pilc', 'cprilc', 'c_prilc', 'mc_cilc'.")
         compsep_run['constraints'] = merge_dicts(compsep_run['constraints'])
     
     if compsep_run["method"] in ["mcilc", "mc_ilc", "mc_cilc"]:
-        compsep_run.setdefault("mc_type", "cea_real")
-        if compsep_run["mc_type"] not in ["cea_ideal","cea_real","rp_ideal","rp_real"]:
-            raise ValueError("Invalid value for mc_type. It must be 'cea_ideal', 'cea_real', 'rp_ideal' or 'rp_real'.")
+        if "path_patches" not in compsep_run:
+            compsep_run.setdefault("mc_type", "cea_real")
+            if compsep_run["mc_type"] not in ["cea_ideal","cea_real","rp_ideal","rp_real"]:
+                raise ValueError("Invalid value for mc_type. It must be 'cea_ideal', 'cea_real', 'rp_ideal' or 'rp_real'.")
 
-        if "real" in compsep_run["mc_type"]:
-            if "path_tracers" not in compsep_run or not isinstance(compsep_run["path_tracers"], str):
-                raise ValueError("Path to tracers ('path_tracers') must be provided and a string for methods 'mcilc' and 'mc_ilc'.")
-            compsep_run["path_tracers"] = compsep_run["path_tracers"] if compsep_run["path_tracers"].endswith('/') else compsep_run["path_tracers"] + '/'
+            if "real" in compsep_run["mc_type"]:
+                if "path_tracers" not in compsep_run or not isinstance(compsep_run["path_tracers"], str):
+                    raise ValueError("Path to tracers ('path_tracers') must be provided for methods 'mcilc', 'mc_ilc' and 'mc_cilc' when using as 'mc_type' 'cea_real' or 'rp_real'.")
+                compsep_run["path_tracers"] = compsep_run["path_tracers"] if compsep_run["path_tracers"].endswith('/') else compsep_run["path_tracers"] + '/'
 
-        if "channels_tracers" not in compsep_run:
-            raise ValueError("channels_tracers must be provided for methods 'mcilc' and 'mc_ilc'. It must be a list of two integers corresponding to the indices of the channels you want to use for the tracer.")
-        if (not isinstance(compsep_run["channels_tracers"], list)) or (len(compsep_run["channels_tracers"]) != 2):
-            raise ValueError("channels_tracers must be a list of two integers corresponding to the indices of the channels you want to use for the tracer.")
+            if "channels_tracers" not in compsep_run:
+                raise ValueError("channels_tracers must be provided for methods 'mcilc' and 'mc_ilc'. It must be a list of two integers corresponding to the indices of the channels you want to use for the tracer.")
+            if (not isinstance(compsep_run["channels_tracers"], list)) or (len(compsep_run["channels_tracers"]) != 2):
+                raise ValueError("channels_tracers must be a list of two integers corresponding to the indices of the channels you want to use for the tracer.")
 
+            compsep_run.setdefault("n_patches", 50)
+            compsep_run.setdefault("save_patches", False)
+        else:
+            if not isinstance(compsep_run["path_patches"], str):
+                raise ValueError("path_patches must be a string corresponding to the path where the patches for the MC estimation are saved.")
+                            
         compsep_run.setdefault("reduce_mcilc_bias", True)
-        compsep_run.setdefault("n_patches", 50)
-        compsep_run.setdefault("save_patches", False)
                                     
     compsep_run.setdefault("save_weights", save_products)
+
+    if compsep_run["method"] in ["pilc", "cpilc", "c_pilc", "gpilc", "prilc", "cprilc", "c_prilc", "gprilc", "fgd_P_diagnostic"] and compsep_run["domain"] == "needlet":
+        compsep_run["b_squared"] = True
+        compsep_run["minimize_variance"] = False
+    else:
+        compsep_run.setdefault("minimize_variance", False)       
+
+    if compsep_run["method"] not in ["fgd_diagnostic", "fgd_P_diagnostic", "gilc", "gpilc", "gprilc"]:
+        compsep_run.setdefault("component_out", "cmb")
+    else:
+        compsep_run["component_out"] = None
+        
+    if compsep_run["method"] in ["mcilc", "mc_ilc", "mc_cilc"]:
+        if compsep_run["component_out"] != "cmb":
+            raise ValueError("For methods 'mcilc', 'mc_ilc' and 'mc_cilc', component_out must be 'cmb'.")
+    elif compsep_run["method"] not in ["fgd_diagnostic", "fgd_P_diagnostic", "gilc", "gpilc", "gprilc"]:
+        if compsep_run["component_out"] not in ["cmb", "tsz", '0d', '1bd', '1Td', '2bd', '2Td', '2bdTd', '2Tdbd', '0s', '1bs', '2bs']:
+            raise ValueError("Invalid value for component_out. It must be either 'cmb', 'tsz', '0d', '1bd', '1Td', '2bd', '2Td', '2bdTd', '2Tdbd', '0s', '1bs' or '2bs'.")
+        if compsep_run["component_out"] in ['0d', '1bd', '1Td', '2bd', '2Td', '2bdTd', '2Tdbd']:
+            compsep_run.setdefault("beta_d_out", 1.54)
+            compsep_run.setdefault("T_d_out", 20.0)
+            compsep_run.setdefault("nu_ref_d_out", 353.0)
+        elif compsep_run["component_out"] in ['0s', '1bs', '2bs']:
+            compsep_run.setdefault("beta_s_out", -3.0)
+            compsep_run.setdefault("nu_ref_s_out", 30.0)
         
     return compsep_run
     
+def _standardize_nuiscov_config(nuis_case: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Standardize and validate the nuisance covariance configuration dictionary.
+
+    Parameters
+    ----------
+        nuis_case : dict
+            Dictionary with method settings for nuisance covariance estimation.
+
+    Returns
+    -------
+        dict
+            Updated and validated nuisance covariance configuration dictionary.
+    """
+
+    if "type" not in nuis_case:
+        raise ValueError("For nuisance covariance estimation, 'cov_type' must be provided in each 'nuisance_covariance' configuration.")
+    
+    if nuis_case["type"] not in ["scalar", "P_scalar", "Pr_scalar"]:
+        raise ValueError("Invalid value for type in nuisance covariance estimation. It must be either 'scalar', 'P_scalar' or 'Pr_scalar'.")
+
+    if "domain" not in nuis_case:
+        raise ValueError("For nuisance covariance estimation, 'domain' must be provided in each 'nuisance_covariance' configuration.")
+    
+    if nuis_case["domain"] not in ["pixel", "needlet"]:
+        raise ValueError("Invalid value for domain in nuisance covariance estimation. It must be either 'pixel' or 'needlet'.")
+
+    if nuis_case["domain"] == "needlet":
+        if "needlet_config" not in nuis_case:
+            raise ValueError("For nuisance covariance estimation in needlet domain, 'needlet_config' must be provided in 'nuisance_covariance' configuration.")
+        nuis_case['needlet_config'] = merge_dicts(nuis_case['needlet_config'])
+        nuis_case.setdefault("adapt_nside", True)
+        nuis_case.setdefault("save_needlets", True)
+        nuis_case.setdefault("b_squared", False)
+    if nuis_case["domain"] == "pixel":
+        nuis_case["b_squared"] = False 
+        nuis_case["adapt_nside"] = False 
+
+    nuis_case.setdefault("nuisance", ["noise", "cmb"])
+    nuis_case.setdefault("ilc_bias", 0.)
+    nuis_case.setdefault("reduce_ilc_bias", False)
+
+    if nuis_case["type"] != "scalar":
+        nuis_case["b_squared"] = True
+        nuis_case["minimize_variance"] = False
+    else:
+        nuis_case.setdefault("minimize_variance", False)
+        
+    return nuis_case
+
+
+def _standardize_residuals_config(compsep_run: Dict[str, Any], config: Configs, nsim: Optional[Union[int, str]] = None, load_outputs: bool = True) -> Dict[str, Any]:
+    """
+    Standardize and validate the residuals estimation configuration dictionary.
+
+    Parameters
+    ----------
+        compsep_run : dict
+            Dictionary with method settings for residuals estimation.
+
+        config : Configs
+            Configuration object containing global settings.
+
+        nsim : int | str | None
+            Simulation number or identifier.
+
+        load_outputs : bool
+            Whether the GILC outputs to be used as foreground tracers in the residual estimation are provided as an argument to the function or need to be loaded from disk based on the paths specified in `compsep_residuals`.
+
+    Returns
+    -------
+        dict
+            Updated and validated residuals estimation configuration dictionary.
+    """
+
+    if load_outputs:
+        compsep_run.setdefault("field_in", config.field_out)
+        compsep_run.setdefault("gilc_components", ["output_total", "noise_residuals"])
+        compsep_run.setdefault("nside", config.nside)
+        compsep_run.setdefault("fwhm_out", config.fwhm_out)
+        compsep_run.setdefault("lmax", config.lmax)
+        compsep_run.setdefault("pixel_window_out", config.pixel_window_out)
+        if "gilc_path" not in compsep_run:
+            raise ValueError("For residuals estimation, 'gilc_path' must be provided in 'compsep_residuals' configuration.")
+        if "gilc_" not in compsep_run["gilc_path"] and "gpilc_" not in compsep_run["gilc_path"] and "gprilc_" not in compsep_run["gilc_path"]:
+            raise ValueError("Chosen foreground tracers for residuals estimation are not GILC-based. Only GILC-based foreground tracers are supported for residuals estimation.")
+
+    else:
+        compsep_run["field_in"] = config.field_out
+        compsep_run["nside"] = config.nside
+        compsep_run["fwhm_out"] = config.fwhm_out
+        compsep_run["lmax"] = config.lmax
+        compsep_run["pixel_window_out"] = config.pixel_window_out
+
+    if "compsep_path" not in compsep_run:
+        raise ValueError("For residuals estimation, 'compsep_path' must be provided in 'compsep_residuals' configuration.")
+
+    if "ilc_" not in compsep_run["compsep_path"]:
+        raise ValueError("Chosen component separation method for residuals estimation is not ILC-based. Only ILC-based methods are supported for residuals estimation.")
+    if "gilc_" in compsep_run["compsep_path"] or "gpilc_" in compsep_run["compsep_path"] or "gprilc_" in compsep_run["compsep_path"]:
+        raise ValueError("Chosen component separation method for residuals estimation is GILC-based. Residuals estimation from GILC-based methods is not supported.")
+    compsep_run["method"] = "ilc"
+
+    domain = compsep_run["compsep_path"].split('ilc_')[1].split('_bias')[0]
+    compsep_run.setdefault("adapt_nside", True) if domain == "needlet" else compsep_run.setdefault("adapt_nside", False)
+
+    if "nsim_weights" not in compsep_run:
+        compsep_run["nsim_weights"] = nsim
+    else:
+        compsep_run["nsim_weights"] = _format_nsim(compsep_run["nsim_weights"])
+
+    if compsep_run["lmax"] < config.lmax:
+        _log(f"Warning: lmax for residuals estimation ({compsep_run['lmax']}) is lower than config.lmax ({config.lmax}).", verbose=config.verbose)
+    if config.lmax > (3 * compsep_run["nside"] - 1):
+        raise ValueError(f"lmax ({config.lmax}) cannot be higher than 3*nside-1 ({3 * compsep_run['nside'] - 1}) with nside being the resolution of input GNILC maps.")
+    
+    return compsep_run
 
 def _check_fields(config: Configs, data: SimpleNamespace) -> Configs:
     """
@@ -486,7 +1120,9 @@ def _check_fields(config: Configs, data: SimpleNamespace) -> Configs:
     if config.field_in not in valid_fields.get(config.data_type, []):
         raise ValueError(f"Invalid field_in for {config.data_type}. It must be one of {valid_fields[config.data_type]}.")
 
-    if data.total.ndim == 2:
+    attr = "total" if hasattr(data, "total") else list(vars(data).keys())[0]
+
+    if getattr(data, attr).ndim == 2:
         if config.field_in not in ["T", "E", "B"]:
             raise ValueError("Invalid value for field_in. It must be 'T', 'E', or 'B'.")
         if not config.field_out:
@@ -498,11 +1134,11 @@ def _check_fields(config: Configs, data: SimpleNamespace) -> Configs:
                 raise ValueError(f"Invalid value for field_out given the provided field_in. It must be 'QU', '{config.field_in}' or 'QU_{config.field_in}'.")
             if config.field_out == "QU":
                 config.field_out = "QU_" + config.field_in
-    elif data.total.ndim==3:
-        if data.total.shape[1]==2:
+    elif getattr(data, attr).ndim==3:
+        if getattr(data, attr).shape[1]==2:
             if config.field_in not in ["QU", "EB"]:
                 raise ValueError("field_in must be 'QU' or 'EB' for 2-field data.")
-        elif data.total.shape[1]==3:
+        elif getattr(data, attr).shape[1]==3:
             if config.field_in not in ["TQU", "TEB"]:
                 raise ValueError("field_in must be 'TQU' or 'TEB' for 3-field data.")
 
@@ -511,8 +1147,8 @@ def _check_fields(config: Configs, data: SimpleNamespace) -> Configs:
                 2: ["QU", "EB", "E", "B", "QU_E", "QU_B"],
                 3: ["T", "E", "B", "EB", "QU", "QU_E", "QU_B", "TQU", "TEB"]
             }
-            if config.field_out not in valid_outs.get(data.total.shape[1], []):
-                raise ValueError(f"Invalid field_out. Must be one of {valid_outs.get(data.total.shape[1])}.")
+            if config.field_out not in valid_outs.get(getattr(data, attr).shape[1], []):
+                raise ValueError(f"Invalid field_out. Must be one of {valid_outs.get(getattr(data, attr).shape[1])}.")
         else:
             config.field_out = config.field_in
 
@@ -560,7 +1196,7 @@ def _get_field_in_cs(field_in: str, field_out: str) -> str:
     elif field_in == "QU":
         return field_in
 
-def _check_data_and_config(config: Configs, data: SimpleNamespace) -> Configs:
+def _check_data_and_config(config: Configs, data: SimpleNamespace, compsep_check: bool = True) -> Configs:
     """
     Validate input data and update config with resolution info.
 
@@ -570,6 +1206,8 @@ def _check_data_and_config(config: Configs, data: SimpleNamespace) -> Configs:
             The configuration object.
         data : Namespace
             The input data.
+        compsep_check : bool, optional
+            Whether the check is for component separation (True) or combination with compsep weights (False). Default: True.
 
     Returns
     -------
@@ -585,40 +1223,53 @@ def _check_data_and_config(config: Configs, data: SimpleNamespace) -> Configs:
     if config.data_type not in ["maps", "alms"]:
         raise ValueError("data_type must be 'maps' or 'alms'.")
 
-    if not hasattr(data, "total"):
-        raise ValueError("data must have a 'total' attribute.")
+    if compsep_check:
+        if not hasattr(data, "total") and not (hasattr(data, "total_split1") and hasattr(data, "total_split2")):
+            raise ValueError("data must have a 'total' attribute or both 'total_split1' and 'total_split2' attributes for component separation.")
 
-    allowed_attributes = ["total", "noise", "cmb", "nuisance", "fgds", "dust", "synch", "ame", "co", "freefree", "cib", "tsz", "ksz", "radio_galaxies"]
-    if not all(attr in allowed_attributes for attr in vars(data).keys()):
-        raise ValueError(f"The provided data have invalid attributes. Allowed attributes are: {allowed_attributes}.")
+#        allowed_attributes = ["total", "noise", "cmb", "nuisance", "fgds", "dust", "synch", "ame", "co", "freefree", "cib", "tsz", "ksz", "radio_galaxies"]
+#        if not all(attr in allowed_attributes for attr in vars(data).keys()):
+#            raise ValueError(f"The provided data have invalid attributes. Allowed attributes are: {allowed_attributes}.")
 
     if len(vars(data)) > 1:
         attr_shape = next(iter(vars(data).values())).shape 
         if not all(attr.shape == attr_shape for attr in vars(data).values()):
             raise ValueError("All data components must have the same shape.")    
 
+    if compsep_check:
+        if hasattr(data, "total"):
+            attr = "total"
+        elif hasattr(data, "total_split1") and hasattr(data, "total_split2"):
+            attr = "total_split1"
+    else:
+        attr = random.choice(list(vars(data).keys()))
+
     if config.data_type == "maps":
         try:
-            nside_in = hp.npix2nside(data.total.shape[-1])
+            nside_in = hp.npix2nside(getattr(data, attr).shape[-1])
         except:
             raise ValueError("Invalid number of pixels in data.")
         if config.lmax >= 3*nside_in:
             raise ValueError("lmax is too high for the provided nside. It must be smaller than 3*nside.")
+        #if not hasattr(config, "nside_in"):
         config.nside_in = nside_in
     elif config.data_type == "alms":
         try:
-            lmax_in =  hp.Alm.getlmax(data.total.shape[-1])
+            lmax_in =  hp.Alm.getlmax(getattr(data, attr).shape[-1])
         except:
             raise ValueError("Invalid number of alms in data.")
         if config.lmax > lmax_in:
             print("Required lmax is larger than that of provided alms. lmax updated to the maximum multipole of the provided alms.")
-            config.lmax = lmax_in
-        config.lmax_in = lmax_in
+            if compsep_check:
+                config.lmax = lmax_in
 
-    if data.total.ndim == 3:
-        if data.total.shape[1] > 3:
+    if config.lmax > (3 * config.nside - 1):
+        raise ValueError("lmax is too high for the provided nside. It must be smaller than 3*nside-1.")
+
+    if getattr(data, attr).ndim == 3:
+        if getattr(data, attr).shape[1] > 3:
             raise ValueError("The provided data have wrong number of fields. It must be 1, 2 or 3.")
-    if data.total.ndim > 3:
+    if getattr(data, attr).ndim > 3:
         raise ValueError("The provided data have wrong number of dimensions. It must be 2 or 3.")
     return config
 
@@ -646,27 +1297,70 @@ def _load_outputs(path: str, components:list, field_out: str,
 
     Returns
     -------
-        np.ndarray
+        list of np.ndarray
             Loaded HEALPix map(s) for the specified components.
         
     """
 
     loaded_outputs = []
 
+    if nsim is not None:
+        nsim = _format_nsim(nsim)
+
     if isinstance(components, str):
         components = [components]
     if not isinstance(components, list):
-        raise ValueError("components must be a string or a list of strings.")
+        raise ValueError("components must be a string or a string or a list of strings.")
+
+    if "gilc_" in path or "gpilc_" in path or "gprilc_" in path:
+        if (not all(comp.split('_')[-1] in ["residuals", "total"] for comp in components)) and (not all(comp.split('_')[-1] not in ["residuals", "total"] for comp in components)):
+            raise ValueError("When loading outputs from GILC-based component separation runs, the components either all refer to any frequency channel (e.g ['output_total_40.0GHz','noise_residuals_100.0GHz']) or all must be general(e.g ['output_total','noise_residuals']). In the latter case results for all frequency channels will be loaded and returned. Mixed cases are not allowed.")
 
     for component in components:
-        component_name = component.split('/')[0] if '/' in component else component
-        filename = os.path.join(
-            path,
-            f"{component}/{field_out}_{component_name}_{fwhm_out}acm_ns{nside}_lmax{lmax}"
-        )
-        loaded_outputs.append(_load_outputs_(filename, field_out, nsim=nsim))
+        if "gilc_" in path or "gpilc_" in path or "gprilc_" in path:
+            if component.split('_')[-1] in ["residuals", "total"]:
+                pattern = os.path.join(path,f"{component}")
+                if nsim is not None:
+                    pattern = os.path.join(pattern, nsim)
+                pattern = os.path.join(pattern, f"{field_out}_{component}_*_{fwhm_out}acm_ns{nside}_lmax{lmax}")
+                if nsim is not None:
+                    pattern += f"_{nsim}.fits"
+                else:
+                    pattern += ".fits"
+                filenames = glob.glob(pattern)
+                if not filenames:
+                    raise FileNotFoundError(f"No files found for pattern: {pattern}")
+                else:
+                    if nsim is not None:
+                        loaded_outputs.append([_load_outputs_(filename.split(f"_{nsim}.fits")[0], field_out, nsim=nsim) for filename in filenames])
+                    else:
+                        loaded_outputs.append([_load_outputs_(filename.split(".fits")[0], field_out) for filename in filenames])
+            else:
+                component_name = "_".join(component.split('_')[:-1])
+                filename = os.path.join(path,f"{component_name}")
+                if nsim is not None:
+                    filename = os.path.join(filename, nsim)
+                filename = os.path.join(filename, f"{field_out}_{component}_{fwhm_out}acm_ns{nside}_lmax{lmax}")
+                loaded_outputs.append(_load_outputs_(filename, field_out, nsim=nsim))
+        elif "diagnostic" in path:
+            if "_nl" in component:
+                component_name = component.split('_nl')[0]
+            else:
+                component_name = component
+            filename = os.path.join(path, f"{component_name}")
+            if nsim is not None:
+                filename = os.path.join(filename, nsim)
+            filename = os.path.join(filename, f"{field_out}_{component}_{fwhm_out}acm_ns{nside}_lmax{lmax}")
+            loaded_outputs.append(_load_outputs_(filename, field_out, nsim=nsim))
+        else:
+            component_name = component.split('/')[0] if '/' in component else component
+            filename = os.path.join(
+                path,
+                f"{component}/{field_out}_{component_name}_{fwhm_out}acm_ns{nside}_lmax{lmax}"
+            )
+            loaded_outputs.append(_load_outputs_(filename, field_out, nsim=nsim))
 
-    return np.array(loaded_outputs)
+    return loaded_outputs
 
 
 def _load_outputs_(filename: str, fields: str, nsim: Optional[str] = None) -> np.ndarray:
@@ -697,6 +1391,8 @@ def _load_outputs_(filename: str, fields: str, nsim: Optional[str] = None) -> np
 
     if nsim is not None:
         filename += f"_{nsim}.fits"
+    else:
+        filename += ".fits"
         
     if fields in ["TEB", "TQU"]:
         return hp.read_map(filename, field=[0,1,2])
@@ -706,7 +1402,6 @@ def _load_outputs_(filename: str, fields: str, nsim: Optional[str] = None) -> np
         return hp.read_map(filename, field=[0])
     else:
         raise ValueError("Invalid value for fields. It must be 'T', 'E', 'B', 'EB', 'QU', 'TQU', 'TEB', 'QU_E', or 'QU_B'.")
-
 
 def _combine_products(config: Configs, nsim=None):
     """
@@ -759,85 +1454,156 @@ def _combine_products(config: Configs, nsim=None):
         if config.return_compsep_products:
             outputs_recomb = SimpleNamespace()
 
+        if not (all("gilc_" in path or "gpilc_" in path or "gprilc_" in path for path in combine_run["paths_fields_in"]) or all("gilc_" not in path and "gpilc_" not in path and "gprilc_" not in path for path in combine_run["paths_fields_in"])):
+            raise ValueError("When combining outputs from GILC-based component separation runs, the paths in 'paths_fields_in' either all refer to GILC-based runs or all not. Mixed cases are not allowed.")
+
+        if all("gilc_" in path or "gpilc_" in path or "gprilc_" in path for path in combine_run["paths_fields_in"]):
+            from_gilc = True
+        else:
+            from_gilc = False
+
         for component in combine_run["components"]:
             if config.save_compsep_products:
-                os.makedirs(os.path.join(config.path_outputs, combine_run["path_out"], component), exist_ok=True)
+                if not from_gilc:
+                    os.makedirs(os.path.join(config.path_outputs, combine_run["path_out"], component), exist_ok=True)
+                else:
+                    if component.split('_')[-1] in ["residuals", "total"]:
+                        os.makedirs(os.path.join(config.path_outputs, combine_run["path_out"], component, f"{nsim}" if nsim is not None else ""), exist_ok=True)
+                    else:
+                        os.makedirs(os.path.join(config.path_outputs, combine_run["path_out"], "_".join(component.split('_')[:-1]), f"{nsim}" if nsim is not None else ""), exist_ok=True)
         
-            outputs = None
-            component_name = component.split('/')[0] if '/' in component else component
-
-            for field_in, path in zip(combine_run["fields_in"], combine_run["paths_fields_in"]):
-                path_in = os.path.join(config.path_outputs, path)
-                filename = os.path.join(path_in, f"{component}/{field_in}_{component_name}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}")
-                if outputs is None:
-                    outputs = _load_outputs_(filename, field_in, nsim=nsim)
-                    if outputs.ndim == 1:
-                        outputs = outputs[np.newaxis, :]
+            if not from_gilc or (component.split('_')[-1] not in ["residuals", "total"]):
+                if not from_gilc:
+                    component_name = component.split('/')[0] if '/' in component else component  
                 else:
-                    outputs_ = _load_outputs_(filename,field_in,nsim=nsim)
-                    if outputs_.ndim == 1:
-                        outputs_ = outputs_[np.newaxis, :]
-                    outputs = np.concatenate([outputs,outputs_], axis=0)
-                    del outputs_
+                    component_name = "_".join(component.split('_')[:-1])
 
-            if outputs.ndim == 2 and outputs.shape[0] == 1:
-                outputs = outputs[0]
+                outputs = _combine_products_(config, component, combine_run, nsim, mask_cov=mask_cov, from_gilc=from_gilc)
 
-            if combine_run["fields_out"] != "".join(combine_run["fields_in"]):
-                if combine_run["fields_in"] in [["T", "E", "B"], ["T", "EB"]]:
-                    if combine_run["fields_out"] == "TQU":
-                        outputs = _EB_to_QU(outputs, config.lmax)
+                if config.save_compsep_products:
+                    if not from_gilc:
+                        filename_out = os.path.join(config.path_outputs, combine_run["path_out"], f"{component}/{combine_run['fields_out']}_{component_name}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}")
                     else:
-                        raise ValueError(f"'field_out' can be {''.join(combine_run['fields_in'])} or TQU for provided 'field_in'")
-                elif combine_run["fields_in"] in [["T", "E"], ["T", "B"]]:
-                    if combine_run["fields_out"][:3] == "TQU":
-                        if combine_run["fields_out"] == "TQU":
-                            combine_run["fields_out"] = f"TQU_{combine_run['fields_in'][-1]}"
-                        if "E" in combine_run["fields_in"]:
-                            outputs = np.concatenate([(outputs[0])[np.newaxis, :], _E_to_QU(outputs[1], config.lmax)], axis=0)
-                        elif "B" in combine_run["fields_in"]:
-                            outputs = np.concatenate([(outputs[0])[np.newaxis, :], _B_to_QU(outputs[1], config.lmax)], axis=0)
+                        filename_out = os.path.join(config.path_outputs, combine_run["path_out"], f"{component_name}", f"{nsim}" if nsim is not None else "", f"{combine_run['fields_out']}_{component}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}")
+
+                    if nsim is not None:
+                        filename_out += f"_{nsim}"
+                    filename_out += f".fits"
+                    hp.write_map(filename_out, outputs, overwrite=True, dtype=outputs.dtype)
+
+                if config.return_compsep_products:
+                    if not from_gilc:
+                        setattr(outputs_recomb, component_name, np.array(outputs))
                     else:
-                        raise ValueError(f"'field_out' can be {''.join(combine_run['fields_in'])}, TQU or TQU_{combine_run['fields_in'][-1]} for provided 'field_in'")
-                elif combine_run["fields_in"] in [["E", "B"], ["E"], ["B"]]:
-                    if combine_run["fields_out"][:2] != "QU":
-                        raise ValueError(f"Invalid 'fields_out' for provided 'field_in'")                        
-                    if outputs.ndim == 2:
-                        combine_run["fields_out"] = "QU"
-                        outputs = _EB_to_QU(outputs, config.lmax)
-                    elif outputs.ndim==1:
-                        combine_run["fields_out"] = f"QU_{combine_run['fields_in'][0]}"
-                        if combine_run['fields_in'][0] == "E":
-                            outputs = _E_to_QU(outputs, config.lmax)
-                        elif combine_run['fields_in'][0] == "B":
-                            outputs = _B_to_QU(outputs, config.lmax)
-                elif combine_run["fields_in"] in [["T", "QU"], ["QU"]]:
-                    if (combine_run["fields_in"]==["T", "QU"] and combine_run["fields_out"]=="TEB") or (combine_run["fields_in"]==["QU"] and combine_run["fields_out"]=="EB"):
-                        outputs = _QU_to_EB(outputs, config.lmax)
-                    else:
-                        raise ValueError(f"Wrong 'field_out' for provided 'field_in'")
-                else:
-                    raise ValueError(f"Invalid 'field_in' or 'field_out'")
-            
-            if mask_cov is not None:
-                if outputs.ndim == 1:
-                    outputs[mask_cov == 0.] = 0.
-                elif outputs.ndim == 2:
-                    outputs[:, mask_cov == 0.] = 0.
-                
-            if config.save_compsep_products:
-                filename_out = os.path.join(config.path_outputs, combine_run["path_out"], f"{component}/{combine_run['fields_out']}_{component_name}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}")
+                        setattr(outputs_recomb, component.replace(".", "p"), np.array(outputs))
+            else:
+                pattern = os.path.join(config.path_outputs, combine_run["paths_fields_in"][0], f"{component}", f"{nsim}" if nsim is not None else "", f"{combine_run['fields_in'][0]}_{component}_*_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}")
                 if nsim is not None:
-                    filename_out += f"_{nsim}"
-                filename_out += f".fits"
-                hp.write_map(filename_out, outputs, overwrite=True)
+                    pattern += f"_{nsim}.fits"
+                else:
+                    pattern += ".fits"
+                filenames = glob.glob(pattern)
 
-            if config.return_compsep_products:
-                setattr(outputs_recomb, component_name, np.array(outputs))
+                for filename in filenames:
+                    channel_tag = (filename.split(f"{combine_run['fields_in'][0]}_{component}_")[-1]).split(f"_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}")[0]
+                    for field_in, path in zip(combine_run["fields_in"], combine_run["paths_fields_in"]):
+                        filename_check = os.path.join(config.path_outputs, path, f"{component}", f"{nsim}" if nsim is not None else "", f"{field_in}_{component}_{channel_tag}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}")
+                        filename_check += f"_{nsim}.fits" if nsim is not None else ".fits"
+                        if not os.path.exists(filename_check):
+                            filenames = np.delete(filenames, np.where(np.array(filenames) == filename)[0][0])
+
+                for filename in filenames:
+                    component_ = (filename.split(f"{combine_run['fields_in'][0]}_")[-1]).split(f"_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}")[0]
+                    
+                    outputs = _combine_products_(config, component_, combine_run, nsim, mask_cov=mask_cov, from_gilc=from_gilc)
+
+                    if config.save_compsep_products:
+                        filename_out = os.path.join(config.path_outputs, combine_run["path_out"], f"{component}", f"{nsim}" if nsim is not None else "", f"{combine_run['fields_out']}_{component_}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}")
+                        if nsim is not None:
+                            filename_out += f"_{nsim}"
+                        filename_out += f".fits"
+                        hp.write_map(filename_out, outputs, overwrite=True, dtype=outputs.dtype)
+
+                    if config.return_compsep_products:
+                        setattr(outputs_recomb, component_.replace(".", "p"), np.array(outputs))
 
     if config.return_compsep_products:
         return outputs_recomb
 
+
+def _combine_products_(config: Configs, component, combine_run, nsim, mask_cov = None, from_gilc = False):
+
+    outputs = None
+
+    if not from_gilc:
+        component_name = component.split('/')[0] if '/' in component else component     
+    else:
+        component_name = "_".join(component.split('_')[:-1])           
+
+    for field_in, path in zip(combine_run["fields_in"], combine_run["paths_fields_in"]):
+        path_in = os.path.join(config.path_outputs, path)
+        if not from_gilc:
+            filename = os.path.join(path_in, f"{component}/{field_in}_{component_name}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}")
+        else:
+            filename = os.path.join(path_in, f"{component_name}", f"{nsim}" if nsim is not None else "", f"{field_in}_{component}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}")
+
+        if outputs is None:
+            outputs = _load_outputs_(filename, field_in, nsim=nsim)
+            if outputs.ndim == 1:
+                outputs = outputs[np.newaxis, :]
+        else:
+            outputs_ = _load_outputs_(filename,field_in,nsim=nsim)
+            if outputs_.ndim == 1:
+                outputs_ = outputs_[np.newaxis, :]
+            outputs = np.concatenate([outputs,outputs_], axis=0)
+            del outputs_
+
+    if outputs.ndim == 2 and outputs.shape[0] == 1:
+        outputs = outputs[0]
+
+    if combine_run["fields_out"] != "".join(combine_run["fields_in"]):
+        if combine_run["fields_in"] in [["T", "E", "B"], ["T", "EB"]]:
+            if combine_run["fields_out"] == "TQU":
+                outputs = _EB_to_QU(outputs, config.lmax)
+            else:
+                raise ValueError(f"'field_out' can be {''.join(combine_run['fields_in'])} or TQU for provided 'field_in'")
+        elif combine_run["fields_in"] in [["T", "E"], ["T", "B"]]:
+            if combine_run["fields_out"][:3] == "TQU":
+                if combine_run["fields_out"] == "TQU":
+                    combine_run["fields_out"] = f"TQU_{combine_run['fields_in'][-1]}"
+                if "E" in combine_run["fields_in"]:
+                    outputs = np.concatenate([(outputs[0])[np.newaxis, :], _E_to_QU(outputs[1], config.lmax)], axis=0)
+                elif "B" in combine_run["fields_in"]:
+                    outputs = np.concatenate([(outputs[0])[np.newaxis, :], _B_to_QU(outputs[1], config.lmax)], axis=0)
+            else:
+                raise ValueError(f"'field_out' can be {''.join(combine_run['fields_in'])}, TQU or TQU_{combine_run['fields_in'][-1]} for provided 'field_in'")
+        elif combine_run["fields_in"] in [["E", "B"], ["E"], ["B"]]:
+            if combine_run["fields_out"][:2] != "QU":
+                raise ValueError(f"Invalid 'fields_out' for provided 'field_in'")                        
+            if outputs.ndim == 2:
+                combine_run["fields_out"] = "QU"
+                outputs = _EB_to_QU(outputs, config.lmax)
+            elif outputs.ndim==1:
+                combine_run["fields_out"] = f"QU_{combine_run['fields_in'][0]}"
+                if combine_run['fields_in'][0] == "E":
+                    outputs = _E_to_QU(outputs, config.lmax)
+                elif combine_run['fields_in'][0] == "B":
+                    outputs = _B_to_QU(outputs, config.lmax)
+        elif combine_run["fields_in"] in [["T", "QU"], ["QU"]]:
+            if (combine_run["fields_in"]==["T", "QU"] and combine_run["fields_out"]=="TEB") or (combine_run["fields_in"]==["QU"] and combine_run["fields_out"]=="EB"):
+                outputs = _QU_to_EB(outputs, config.lmax)
+            else:
+                raise ValueError(f"Wrong 'field_out' for provided 'field_in'")
+        else:
+            raise ValueError(f"Invalid 'field_in' or 'field_out'")
+    
+    if mask_cov is not None:
+        if outputs.ndim == 1:
+            outputs[mask_cov == 0.] = 0.
+        elif outputs.ndim == 2:
+            outputs[:, mask_cov == 0.] = 0.
+    
+    return outputs
 
 __all__ = [
     name
