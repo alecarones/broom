@@ -20,7 +20,7 @@ from .ilcs import ilc
 from .pilcs import pilc
 from .gpilcs import gpilc, fgd_P_diagnostic, compute_and_update_nuisance_P_covariance
 from .combine import _combine_
-from .masking import get_masks_for_compsep
+from .masking import _combine_channel_masks, get_masks_for_compsep
 from .saving import _save_compsep_products, get_gilc_maps, _save_residuals_template, _save_combination, _get_full_path_out
 from .seds import _standardize_cilc
 from .needlets import _get_needlet_windows_
@@ -221,7 +221,8 @@ def component_separation(config: Configs, data: SimpleNamespace, nsim: Optional[
 #        if mask is not None:
 #            compsep_run["mask"] = _preprocess_mask(mask, config.nside)
         if mask_cov is not None:
-            compsep_run["mask"] = mask_cov
+            compsep_run["mask_covariance"] = mask_cov
+            compsep_run["mask"] = _combine_channel_masks(mask_cov)
 
         _log(f"Running {compsep_run['method']} in {compsep_run['domain']} domain for simulation {nsim}." if nsim is not None else f"Running {compsep_run['method']} in {compsep_run['domain']} domain.", verbose=config.verbose)
         
@@ -243,6 +244,7 @@ def component_separation(config: Configs, data: SimpleNamespace, nsim: Optional[
                         getattr(outputs, attr).append(getattr(prod, attr))
         
         compsep_run.pop("mask", None)
+        compsep_run.pop("mask_covariance", None)
         del compsep_run["nsim"]
 
         if config.return_compsep_products:
@@ -400,7 +402,8 @@ def nuisance_covariance_serial(config: Configs, nsim: Optional[Union[int, str]],
 
         nuis_case["nsim"] = nsim
         if mask_cov is not None:
-            nuis_case["mask"] = mask_cov
+            nuis_case["mask_covariance"] = mask_cov
+            nuis_case["mask"] = _combine_channel_masks(mask_cov)
         
         if nuis_case["type"] == "scalar":
             compute_and_update_nuisance_covariance(config, nuis_alms, nuis_case, nsim=nsim, **kwargs)
@@ -408,6 +411,7 @@ def nuisance_covariance_serial(config: Configs, nsim: Optional[Union[int, str]],
             compute_and_update_nuisance_P_covariance(config, nuis_alms, nuis_case, nsim=nsim, **kwargs)
 
         nuis_case.pop("mask", None)
+        nuis_case.pop("mask_covariance", None)
         del nuis_case["nsim"]
 
     delattr(config, "field_in_cs")
@@ -585,7 +589,8 @@ def estimate_residuals(config: Configs, nsim: Optional[Union[int, str]] = None, 
     #        if mask is not None:
     #            compsep_run["mask"] = _preprocess_mask(mask, config.nside)
             if mask_cov is not None:
-                compsep_run["mask"] = mask_cov
+                compsep_run["mask_covariance"] = mask_cov
+                compsep_run["mask"] = _combine_channel_masks(mask_cov)
 
             if config.return_compsep_products or config.save_compsep_products:
                 prod, compsep_run = _combine_(config, input_alms, compsep_run, **kwargs)
@@ -598,6 +603,7 @@ def estimate_residuals(config: Configs, nsim: Optional[Union[int, str]] = None, 
                         getattr(outputs, attr).append(getattr(prod, attr))
 
             compsep_run.pop("mask", None)
+            compsep_run.pop("mask_covariance", None)
             if config.return_compsep_products:
                 getattr(outputs, 'settings').append(compsep_run)
 
@@ -669,7 +675,8 @@ def estimate_residuals(config: Configs, nsim: Optional[Union[int, str]] = None, 
     #        if mask is not None:
     #            compsep_run["mask"] = _preprocess_mask(mask, config.nside)
             if mask_cov is not None:
-                compsep_run["mask"] = mask_cov
+                compsep_run["mask_covariance"] = mask_cov
+                compsep_run["mask"] = _combine_channel_masks(mask_cov)
 
             if config.return_compsep_products or config.save_compsep_products:
                 prod, compsep_run = _combine_(config, input_alms, compsep_run, **kwargs)
@@ -682,6 +689,7 @@ def estimate_residuals(config: Configs, nsim: Optional[Union[int, str]] = None, 
                         getattr(outputs, attr).append(getattr(prod, attr))
 
             compsep_run.pop("mask", None)
+            compsep_run.pop("mask_covariance", None)
             if config.return_compsep_products:
                 getattr(outputs, 'settings').append(compsep_run)
 
@@ -811,7 +819,8 @@ def combine_with_weights(config: Configs, data: SimpleNamespace, nsim: Optional[
                     setattr(outputs, attr, [])
         
         if mask_cov is not None:
-            compsep_run["mask"] = mask_cov
+            compsep_run["mask_covariance"] = mask_cov
+            compsep_run["mask"] = _combine_channel_masks(mask_cov)
 
         if config.return_compsep_products or config.save_compsep_products:
             prod, compsep_run = _combine_(config, input_alms, compsep_run, **kwargs)
@@ -824,6 +833,7 @@ def combine_with_weights(config: Configs, data: SimpleNamespace, nsim: Optional[
                     getattr(outputs, attr).append(getattr(prod, attr))
 
         compsep_run.pop("mask", None)
+        compsep_run.pop("mask_covariance", None)
         if config.return_compsep_products:
             getattr(outputs, 'settings').append(compsep_run)
 
@@ -1437,6 +1447,7 @@ def _combine_products(config: Configs, nsim=None):
     nsim = _format_nsim(nsim)
 
     mask_obs, mask_cov = get_masks_for_compsep(config.mask_observations, config.mask_covariance, config.nside)
+    mask_cov_out = _combine_channel_masks(mask_cov)
     
     for combine_run in config.combine_outputs:
         if ("fields_in" not in combine_run) or ("paths_fields_in" not in combine_run) or ("path_out" not in combine_run):
@@ -1478,7 +1489,7 @@ def _combine_products(config: Configs, nsim=None):
                 else:
                     component_name = "_".join(component.split('_')[:-1])
 
-                outputs = _combine_products_(config, component, combine_run, nsim, mask_cov=mask_cov, from_gilc=from_gilc)
+                outputs = _combine_products_(config, component, combine_run, nsim, mask_cov=mask_cov_out, from_gilc=from_gilc)
 
                 if config.save_compsep_products:
                     if not from_gilc:
@@ -1515,7 +1526,7 @@ def _combine_products(config: Configs, nsim=None):
                 for filename in filenames:
                     component_ = (filename.split(f"{combine_run['fields_in'][0]}_")[-1]).split(f"_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}")[0]
                     
-                    outputs = _combine_products_(config, component_, combine_run, nsim, mask_cov=mask_cov, from_gilc=from_gilc)
+                    outputs = _combine_products_(config, component_, combine_run, nsim, mask_cov=mask_cov_out, from_gilc=from_gilc)
 
                     if config.save_compsep_products:
                         filename_out = os.path.join(config.path_outputs, combine_run["path_out"], f"{component}", f"{nsim}" if nsim is not None else "", f"{combine_run['fields_out']}_{component_}_{config.fwhm_out}acm_ns{config.nside}_lmax{config.lmax}")

@@ -79,6 +79,17 @@ def get_params(config_path: Optional[str] = None) -> "Configs":
         config_path = os.path.abspath(parsed_args.config_path)
     return Configs(config_path=config_path)
 
+
+def _mask_covariance_label(mask_covariance: Any) -> str:
+    """Return a compact label for paths derived from mask_covariance."""
+    if isinstance(mask_covariance, str):
+        return os.path.basename(mask_covariance).split('.fits')[0]
+    if isinstance(mask_covariance, (list, tuple)):
+        return "per_channel_mask_covariance"
+    if isinstance(mask_covariance, np.ndarray):
+        return "per_channel_mask_covariance" if mask_covariance.ndim == 2 else "mask_covariance"
+    return "mask_covariance"
+
 @dataclass
 class InstrumentConfig:
     #frequency: list = field(default_factory=list)
@@ -284,7 +295,7 @@ class Configs:
             if self.mask_covariance is None:
                 parts = [os.getcwd(), "outputs", self.experiment]
             else:
-                parts = [os.getcwd(), "outputs", self.experiment + f"_{os.path.basename(self.mask_covariance).split('.fits')[0]}"]
+                parts = [os.getcwd(), "outputs", self.experiment + f"_{_mask_covariance_label(self.mask_covariance)}"]
             if self.foreground_models is not None:
                 parts.append(''.join(self.foreground_models))
             self.path_outputs = os.path.join(*parts)
@@ -372,6 +383,12 @@ class Configs:
             if self.generate_input_foregrounds and self.bandpass_integrate:
                     if not hasattr(self.instrument, 'bandwidth') and not hasattr(self.instrument, 'path_bandpasses'):
                         raise ValueError(f"If bandpass_integrate is True, 'bandwidth' or 'path_bandpasses' must be provided in the experiment yaml file.")
+            if hasattr(self.instrument, "frequency"):
+                n_channels = len(self.instrument.frequency)
+                if isinstance(self.mask_covariance, (list, tuple)) and len(self.mask_covariance) != n_channels:
+                    raise ValueError("'mask_covariance' must contain one mask per frequency channel when provided as a list.")
+                if isinstance(self.mask_covariance, np.ndarray) and self.mask_covariance.ndim == 2 and self.mask_covariance.shape[0] != n_channels:
+                    raise ValueError("'mask_covariance' must have shape (n_channels, n_pixels) when provided as a 2D array.")
             self.bring_to_common_resolution = self.config.get("bring_to_common_resolution", True)        
             
     def _validate_paths(self):
@@ -430,4 +447,4 @@ __all__ = [
     name
     for name, obj in globals().items()
     if callable(obj) and getattr(obj, "__module__", None) == __name__
-] 
+]

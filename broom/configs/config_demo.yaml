@@ -232,6 +232,7 @@ pixel_window_out: False
 mask_observations: null #"data/norm_nHits_SA_35FOV_ns512.fits"
 
 # Full path to HEALPix .fits file for a mask to be used in component separation.
+# It can also be a list of paths/arrays, one per frequency channel.
 # Pixels with zero values are not considered in component separation and will be masked in the outputs.
 # A non-binary mask can be used to weigh differently pixels in covariance computation.
 # Pixels which are 0 in mask_observations will be set to 0 in mask_covariance.
@@ -750,4 +751,3 @@ compute_spectra:
     nmt_purify_B: True
     # If True and 'spectra_comp' is 'namaster', it will perform purification for E-mode power spectra computation.
     nmt_purify_E: False
-

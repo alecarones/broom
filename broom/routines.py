@@ -342,13 +342,15 @@ def _get_local_cov(
     #nside_cov = int(np.min([hp.npix2nside(n_pixels), nside_cov, 128]))
     nside_cov = int(np.min([hp.npix2nside(n_pixels), 128]))
 
+    mask_channels = _as_channel_mask(mask, n_channels, n_pixels)
+
     cov = np.zeros((n_channels, n_channels, 12 * nside_cov ** 2))
 
     for i in range(n_channels):
         for k in range(i,n_channels):
-            map1 = input_maps[i] * mask if mask is not None else input_maps[i]
+            map1 = input_maps[i] * mask_channels[i] if mask_channels is not None else input_maps[i]
             map2 = (input_maps_2[k] if input_maps_2 is not None else input_maps[k])
-            map2 = map2 * mask if mask is not None else map2
+            map2 = map2 * mask_channels[k] if mask_channels is not None else map2
 
             cov[i,k] = _get_local_cov_(
                 map1, map2, fwhm_stat, nside_cov, reduce_bias=reduce_bias, variance=variance
@@ -361,6 +363,80 @@ def _get_local_cov(
         for k in range(i):
             cov[i,k]=cov[k,i]
             
+    return cov
+
+
+def _as_channel_mask(mask: Optional[np.ndarray], n_channels: int, n_pixels: int) -> Optional[np.ndarray]:
+    """
+    Return masks with shape (n_channels, n_pixels).
+
+    A 1D mask is broadcast to all channels; a 2D mask is interpreted as a
+    per-channel stack.
+    """
+    if mask is None:
+        return None
+
+    mask = np.asarray(mask)
+    if mask.ndim == 1:
+        if mask.shape[0] != n_pixels:
+            raise ValueError("Mask size does not match the input maps.")
+        return np.repeat(mask[np.newaxis, :], n_channels, axis=0)
+
+    if mask.ndim == 2:
+        if mask.shape != (n_channels, n_pixels):
+            raise ValueError("Per-channel mask must have shape (n_channels, n_pixels).")
+        return mask
+
+    raise ValueError("Mask must be either a 1D HEALPix mask or a 2D per-channel mask stack.")
+
+
+def _get_global_cov(
+    input_maps: np.ndarray,
+    mask: Optional[np.ndarray] = None,
+    input_maps_2: Optional[np.ndarray] = None,
+    variance: bool = False
+) -> np.ndarray:
+    """
+    Compute a global covariance, supporting either one shared mask or one mask
+    per frequency channel.
+    """
+    if mask is None:
+        if input_maps_2 is not None:
+            if variance:
+                return np.cov(input_maps, input_maps_2)[:input_maps.shape[0], input_maps.shape[0]:]
+            return np.einsum('ik,jk->ij', input_maps, input_maps_2) / input_maps.shape[1]
+        if variance:
+            return np.cov(input_maps)
+        return np.einsum('ik,jk->ij', input_maps, input_maps) / input_maps.shape[1]
+
+    mask = np.asarray(mask)
+    if mask.ndim == 1:
+        valid = mask > 0.
+        if not np.any(valid):
+            raise ValueError("The provided mask masks out all the pixels used for covariance computation.")
+        if input_maps_2 is not None:
+            if variance:
+                return np.cov((input_maps * mask)[:, valid], (input_maps_2 * mask)[:, valid])[:input_maps.shape[0], input_maps.shape[0]:]
+            return np.einsum('ik,jk->ij', (input_maps * mask)[:, valid], (input_maps_2 * mask)[:, valid]) / np.sum(valid)
+        if variance:
+            return np.cov((input_maps * mask)[:, valid])
+        return np.einsum('ik,jk->ij', (input_maps * mask)[:, valid], (input_maps * mask)[:, valid]) / np.sum(valid)
+
+    mask_channels = _as_channel_mask(mask, input_maps.shape[0], input_maps.shape[1])
+    cov = np.zeros((input_maps.shape[0], input_maps.shape[0]))
+
+    for i in range(input_maps.shape[0]):
+        for j in range(input_maps.shape[0]):
+            valid = (mask_channels[i] > 0.) & (mask_channels[j] > 0.)
+            if not np.any(valid):
+                raise ValueError(f"Channels {i} and {j} have no common unmasked pixels for covariance computation.")
+            map_i = input_maps[i] * mask_channels[i]
+            map_j = (input_maps_2[j] if input_maps_2 is not None else input_maps[j]) * mask_channels[j]
+            if variance:
+                cov[i, j] = np.cov(map_i[valid], map_j[valid])[0, 1]
+            else:
+                cov[i, j] = np.einsum('k,k->', map_i[valid], map_j[valid]) / np.sum(valid)
+
     return cov
 
 def _get_local_cov_old(
@@ -1003,4 +1079,3 @@ __all__ = [
     for name, obj in globals().items()
     if callable(obj) and getattr(obj, "__module__", None) == __name__
 ]
-

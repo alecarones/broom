@@ -1,12 +1,13 @@
 import numpy as np
 import healpy as hp
 from .configurations import Configs
-from .routines import _get_local_cov, _EB_to_QU, _E_to_QU, _B_to_QU, obj_to_array, array_to_obj, _get_bandwidths
+from .routines import _get_global_cov, _get_local_cov, _EB_to_QU, _E_to_QU, _B_to_QU, obj_to_array, array_to_obj, _get_bandwidths
 from .saving import _save_compsep_products, _get_full_path_out, save_ilc_weights, _get_full_path_nuiscov, load_nuiscov
 from .needlets import _get_nside_lmax_from_b_ell, _get_needlet_windows_, _needlet_filtering, _get_good_channels_nl
 from .ilcs import get_inv_cov
 from .leakage import purify_master, purify_recycling
 from .seds import _get_CMB_SED, _get_SEDs, _standardize_cilc
+from .masking import _get_covariance_mask
 from types import SimpleNamespace
 import os
 import re
@@ -400,6 +401,7 @@ def _pilc_maps(
     """
 
     good_channels = _get_good_channels_nl(config, b_ell)
+    compsep_run["good_channels"] = good_channels
     freqs = np.array(config.instrument.frequency)[good_channels]
 
     bandwidths = _get_bandwidths(config, good_channels)
@@ -472,6 +474,7 @@ def _pilc_maps(
         
     compsep_run.pop("A", None)
     compsep_run.pop("e", None)
+    compsep_run.pop("good_channels", None)
 
     if compsep_run["ilc_bias"] == 0.:
         if w_pilc.ndim==1:
@@ -686,6 +689,15 @@ def get_pilc_weights(
         
     return w_ilc
 
+def _get_pilc_covariance_mask(compsep_run: Dict, input_maps: np.ndarray) -> Optional[np.ndarray]:
+    channels = compsep_run.get("good_channels", None)
+    return _get_covariance_mask(
+        compsep_run,
+        channels=channels,
+        nside=hp.npix2nside(input_maps.shape[-1])
+    )
+
+
 def get_pilc_cov(
     input_maps: np.ndarray,
     lmax: int,
@@ -717,45 +729,26 @@ def get_pilc_cov(
         cov: np.ndarray
             Full 2x2 polarization covariance matrix of shape (2*n_channels, 2*n_channels, [n_pixels]).
     """
-    
+    mask = _get_pilc_covariance_mask(compsep_run, input_maps)
+
     if compsep_run["ilc_bias"] == 0.:
-        if "mask" in compsep_run:
-            mask = compsep_run["mask"] > 0.
-#            cov_qq_uu = np.mean(np.einsum('ik,jk->ijk', input_maps[:, 0, mask], input_maps[:, 0, mask]), axis=-1) + \
-#                        np.mean(np.einsum('ik,jk->ijk', input_maps[:, 1, mask], input_maps[:, 1, mask]), axis=-1)
-#            cov_qu_uq = np.mean(np.einsum('ik,jk->ijk', input_maps[:, 0, mask], input_maps[:, 1, mask]), axis=-1) - \
-#                        np.mean(np.einsum('ik,jk->ijk', input_maps[:, 1, mask], input_maps[:, 0, mask]), axis=-1)
-            if input_maps_2 is not None:
-                cov_qq_uu = (np.einsum('ik,jk->ij', input_maps[:, 0, mask], input_maps_2[:, 0, mask]) + \
-                            np.einsum('ik,jk->ij', input_maps[:, 1, mask], input_maps_2[:, 1, mask])) / np.sum(mask)
-                cov_qu_uq = 0.5 * (np.einsum('ik,jk->ij', input_maps[:, 0, mask], input_maps_2[:, 1, mask]) - \
-                            np.einsum('ik,jk->ij', input_maps[:, 1, mask], input_maps_2[:, 0, mask])) / np.sum(mask)
-                cov_qu_uq += 0.5 * (np.einsum('ik,jk->ij', input_maps_2[:, 0, mask], input_maps[:, 1, mask]) - \
-                            np.einsum('ik,jk->ij', input_maps_2[:, 1, mask], input_maps[:, 0, mask])) / np.sum(mask)
-            else:
-                cov_qq_uu = (np.einsum('ik,jk->ij', input_maps[:, 0, mask], input_maps[:, 0, mask]) + \
-                            np.einsum('ik,jk->ij', input_maps[:, 1, mask], input_maps[:, 1, mask])) / np.sum(mask)
-                cov_qu_uq = (np.einsum('ik,jk->ij', input_maps[:, 0, mask], input_maps[:, 1, mask]) - \
-                            np.einsum('ik,jk->ij', input_maps[:, 1, mask], input_maps[:, 0, mask])) / np.sum(mask)
+        if input_maps_2 is not None:
+            cov_qq_uu = _get_global_cov(input_maps[:, 0], mask=mask, input_maps_2=input_maps_2[:, 0]) + \
+                        _get_global_cov(input_maps[:, 1], mask=mask, input_maps_2=input_maps_2[:, 1])
+            cov_qu_uq = 0.5 * (
+                _get_global_cov(input_maps[:, 0], mask=mask, input_maps_2=input_maps_2[:, 1]) -
+                _get_global_cov(input_maps[:, 1], mask=mask, input_maps_2=input_maps_2[:, 0])
+            )
+            cov_qu_uq += 0.5 * (
+                _get_global_cov(input_maps_2[:, 0], mask=mask, input_maps_2=input_maps[:, 1]) -
+                _get_global_cov(input_maps_2[:, 1], mask=mask, input_maps_2=input_maps[:, 0])
+            )
         else:
-#            cov_qq_uu = np.mean(np.einsum('ik,jk->ijk', input_maps[:, 0], input_maps[:, 0]), axis=-1) + \
-#                        np.mean(np.einsum('ik,jk->ijk', input_maps[:, 1], input_maps[:, 1]), axis=-1)
-#            cov_qu_uq = np.mean(np.einsum('ik,jk->ijk', input_maps[:, 0], input_maps[:, 1]), axis=-1) - \
-#                        np.mean(np.einsum('ik,jk->ijk', input_maps[:, 1], input_maps[:, 0]), axis=-1)
-            if input_maps_2 is not None:
-                cov_qq_uu = (np.einsum('ik,jk->ij', input_maps[:, 0], input_maps_2[:, 0]) + \
-                            np.einsum('ik,jk->ij', input_maps[:, 1], input_maps_2[:, 1])) / input_maps.shape[-1]
-                cov_qu_uq = 0.5 * (np.einsum('ik,jk->ij', input_maps[:, 0], input_maps_2[:, 1]) - \
-                            np.einsum('ik,jk->ij', input_maps[:, 1], input_maps_2[:, 0])) / input_maps.shape[-1]
-                cov_qu_uq += 0.5 * (np.einsum('ik,jk->ij', input_maps_2[:, 0], input_maps[:, 1]) - \
-                            np.einsum('ik,jk->ij', input_maps_2[:, 1], input_maps[:, 0])) / input_maps.shape[-1]
-            else:
-                cov_qq_uu = (np.einsum('ik,jk->ij', input_maps[:, 0], input_maps[:, 0]) + \
-                            np.einsum('ik,jk->ij', input_maps[:, 1], input_maps[:, 1])) / input_maps.shape[-1]
-                cov_qu_uq = (np.einsum('ik,jk->ij', input_maps[:, 0], input_maps[:, 1]) - \
-                            np.einsum('ik,jk->ij', input_maps[:, 1], input_maps[:, 0])) / input_maps.shape[-1]
+            cov_qq_uu = _get_global_cov(input_maps[:, 0], mask=mask) + \
+                        _get_global_cov(input_maps[:, 1], mask=mask)
+            cov_qu_uq = _get_global_cov(input_maps[:, 0], mask=mask, input_maps_2=input_maps[:, 1]) - \
+                        _get_global_cov(input_maps[:, 1], mask=mask, input_maps_2=input_maps[:, 0])
     else:
-        mask = compsep_run.get("mask")
         reduce_bias = compsep_run["reduce_ilc_bias"]
 
         if input_maps_2 is not None:
@@ -828,29 +821,17 @@ def get_prilc_cov(
         cov: np.ndarray
             Covariance matrix of shape (n_channels, n_channels, [n_pixels]).
     """
+    mask = _get_pilc_covariance_mask(compsep_run, input_maps)
+
     if compsep_run["ilc_bias"] == 0.:
-        if "mask" in compsep_run:
-            mask = compsep_run["mask"] > 0.0
-#            cov = np.mean(np.einsum('ik,jk->ijk', input_maps[:, 0, mask], input_maps[:, 0, mask]), axis=-1) + \
-#                  np.mean(np.einsum('ik,jk->ijk', input_maps[:, 1, mask], input_maps[:, 1, mask]), axis=-1)
-            if input_maps_2 is not None:
-                cov = (np.einsum('ik,jk->ij', input_maps[:, 0, mask], input_maps_2[:, 0, mask]) + \
-                  np.einsum('ik,jk->ij', input_maps[:, 1, mask], input_maps_2[:, 1, mask])) / np.sum(mask)
-            else:
-                cov = (np.einsum('ik,jk->ij', input_maps[:, 0, mask], input_maps[:, 0, mask]) + \
-                    np.einsum('ik,jk->ij', input_maps[:, 1, mask], input_maps[:, 1, mask])) / np.sum(mask)
+        if input_maps_2 is not None:
+            cov = _get_global_cov(input_maps[:, 0], mask=mask, input_maps_2=input_maps_2[:, 0]) + \
+                  _get_global_cov(input_maps[:, 1], mask=mask, input_maps_2=input_maps_2[:, 1])
         else:
-#            cov = np.mean(np.einsum('ik,jk->ijk', input_maps[:, 0], input_maps[:, 0]), axis=-1) + \
-#                  np.mean(np.einsum('ik,jk->ijk', input_maps[:, 1], input_maps[:, 1]), axis=-1)
-            if input_maps_2 is not None:
-                cov = (np.einsum('ik,jk->ij', input_maps[:, 0], input_maps_2[:, 0]) + \
-                  np.einsum('ik,jk->ij', input_maps[:, 1], input_maps_2[:, 1])) / input_maps.shape[-1]
-            else:
-                cov = (np.einsum('ik,jk->ij', input_maps[:, 0], input_maps[:, 0]) + \
-                    np.einsum('ik,jk->ij', input_maps[:, 1], input_maps[:, 1])) / input_maps.shape[-1]
+            cov = _get_global_cov(input_maps[:, 0], mask=mask) + \
+                  _get_global_cov(input_maps[:, 1], mask=mask)
 
     else:
-        mask = compsep_run.get("mask")
         reduce_bias = compsep_run["reduce_ilc_bias"]
         if input_maps_2 is not None:
             cov = _get_local_cov(input_maps[:, 0], lmax, compsep_run["ilc_bias"], fwhm_out, b_ell = b_ell, mask=mask, reduce_bias=reduce_bias, input_maps_2=input_maps_2[:, 0]) + \
@@ -879,5 +860,3 @@ __all__ = [
     if callable(obj) and getattr(obj, "__module__", None) == __name__
 ]
                     
-
-
