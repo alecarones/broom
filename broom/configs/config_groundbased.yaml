@@ -58,7 +58,7 @@ bring_to_common_resolution: True
 pixel_window_out: True
 
 mask_observations: "utils/norm_nHits_SA_35FOV_ns512.fits"
-mask_covariance: "utils/norm_nHits_SA_35FOV_ns512.fits" # "mask_for_compsep" # 
+mask_covariance: "utils/norm_nHits_SA_35FOV_ns512.fits" # Can also be a list with one hits map per frequency channel.
 leakage_correction: null # "B_purify", "B_recycling" (no iterations), "B_recycling_iterations3" (3 iterations)
 save_compsep_products: True
 
@@ -137,4 +137,3 @@ compute_spectra:
     fsky: 0.5
     nmt_purify_B: True
     nmt_purify_E: False
-

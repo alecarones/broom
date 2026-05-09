@@ -5,7 +5,7 @@ from .configurations import Configs
 from .routines import _EB_to_QU, _E_to_QU, _B_to_QU, obj_to_array, array_to_obj, _log, _get_bandwidths, get_fields_from_alms
 from .saving import _save_compsep_products, _get_full_path_out, save_ilc_weights, _get_full_path_nuiscov, update_and_save_nuiscov_serial, load_nuiscov
 from .needlets import _get_nside_lmax_from_b_ell, _get_needlet_windows_, _needlet_filtering, _get_good_channels_nl
-from .masking import _downgrade_mask
+from .masking import _combine_channel_masks, _get_covariance_mask
 from .ilcs import get_ilc_cov
 from .seds import _get_CMB_SED
 import scipy
@@ -593,6 +593,7 @@ def _gilc_pixel(config: Configs, input_alms: np.ndarray, compsep_run: Dict[str, 
     input_maps = np.zeros((compsep_run["good_channels"].shape[0], 12 * config.nside**2, input_alms.shape[-1]))
     for n, channel in enumerate(compsep_run["good_channels"]):
         input_maps[n] = np.array([hp.alm2map(np.ascontiguousarray(input_alms[channel, :, c]), config.nside, lmax=config.lmax, pol=False) for c in range(input_alms.shape[-1])]).T
+    mask_cov = _get_covariance_mask(compsep_run, channels=compsep_run["good_channels"], nside=config.nside)
 
     output_maps = _gilc_maps(
         config,
@@ -602,7 +603,7 @@ def _gilc_pixel(config: Configs, input_alms: np.ndarray, compsep_run: Dict[str, 
         depro_cmb=compsep_run["depro_cmb"],
         m_bias=compsep_run["m_bias"],
         noise_debias=compsep_run["cov_noise_debias"],
-        mask=compsep_run.get("mask", None)
+        mask=mask_cov
     )
     
     del compsep_run['good_channels']
@@ -639,12 +640,13 @@ def _nuiscov_pixel(config: Configs, nuis_alms: np.ndarray, compsep_run: Dict[str
     input_maps = np.zeros((compsep_run["good_channels"].shape[0], 12 * config.nside**2))
     for n, channel in enumerate(compsep_run["good_channels"]):
         input_maps[n] = hp.alm2map(np.ascontiguousarray(nuis_alms[channel, :]), config.nside, lmax=config.lmax, pol=False)
+    mask_cov = _get_covariance_mask(compsep_run, channels=compsep_run["good_channels"], nside=config.nside)
 
     _nuiscov(
         config,
         input_maps,
         compsep_run,
-        np.ones(config.lmax + 1), mask=compsep_run.get("mask", None)
+        np.ones(config.lmax + 1), mask=mask_cov
     )
     
     del compsep_run['good_channels']
@@ -676,8 +678,9 @@ def _fgd_diagnostic_pixel(config: Configs, input_alms: np.ndarray, compsep_run: 
     input_maps = np.zeros((compsep_run["good_channels"].shape[0], 12 * config.nside**2, input_alms.shape[-1]))
     for n, channel in enumerate(compsep_run["good_channels"]):
         input_maps[n] = np.array([hp.alm2map(np.ascontiguousarray(input_alms[channel, :, c]), config.nside, lmax=config.lmax, pol=False) for c in range(input_alms.shape[-1])]).T
+    mask_cov = _get_covariance_mask(compsep_run, channels=compsep_run["good_channels"], nside=config.nside)
 
-    output_maps = _get_diagnostic_maps(config, input_maps, compsep_run, np.ones(config.lmax+1), noise_debias=compsep_run["cov_noise_debias"], mask=compsep_run.get("mask", None))
+    output_maps = _get_diagnostic_maps(config, input_maps, compsep_run, np.ones(config.lmax+1), noise_debias=compsep_run["cov_noise_debias"], mask=mask_cov)
 
     del compsep_run['good_channels']
 
@@ -850,15 +853,8 @@ def _gilc_needlet_j(config: Configs, input_alms: np.ndarray, compsep_run: dict,
     else:
         nside_, lmax_ = config.nside, config.lmax
 
-    if "mask" in compsep_run:
-        if nside_ < config.nside:
-            mask = _downgrade_mask(compsep_run["mask"], nside_, threshold=0.)
-        else:
-            mask = compsep_run["mask"]
-    else:
-        mask = None
-        
     compsep_run["good_channels"] = _get_good_channels_nl(config, b_ell)
+    mask = _get_covariance_mask(compsep_run, channels=compsep_run["good_channels"], nside=nside_)
 
     input_maps_nl = np.zeros((compsep_run["good_channels"].shape[0], 12 * nside_**2, input_alms.shape[-1]))
     for n, channel in enumerate(compsep_run["good_channels"]):
@@ -924,15 +920,8 @@ def _nuiscov_needlet_j(config: Configs, nuis_alms: np.ndarray, compsep_run: dict
     else:
         nside_, lmax_ = config.nside, config.lmax   
 
-    if "mask" in compsep_run:
-        if nside_ < config.nside:
-            mask = _downgrade_mask(compsep_run["mask"], nside_, threshold=0.)
-        else:
-            mask = compsep_run["mask"]
-    else:
-        mask = None
-
     compsep_run["good_channels"] = _get_good_channels_nl(config, b_ell)
+    mask = _get_covariance_mask(compsep_run, channels=compsep_run["good_channels"], nside=nside_)
 
     input_maps_nl = np.zeros((compsep_run["good_channels"].shape[0], 12 * nside_**2))
     for n, channel in enumerate(compsep_run["good_channels"]):
@@ -982,15 +971,8 @@ def _fgd_diagnostic_needlet_j(config: Configs, input_alms: np.ndarray,
     else:
         nside_, lmax_ = config.nside, config.lmax   
 
-    if "mask" in compsep_run:
-        if nside_ < config.nside:
-            mask = _downgrade_mask(compsep_run["mask"], nside_, threshold=0.)
-        else:
-            mask = compsep_run["mask"]
-    else:
-        mask = None
-        
     compsep_run["good_channels"] = _get_good_channels_nl(config, b_ell)
+    mask = _get_covariance_mask(compsep_run, channels=compsep_run["good_channels"], nside=nside_)
 #    compsep_run["good_channels"] = np.arange(input_alms.shape[0])
 
     input_maps_nl = np.zeros((compsep_run["good_channels"].shape[0], 12 * nside_**2, input_alms.shape[-1]))
@@ -1211,6 +1193,7 @@ def _get_diagnostic_maps(
 
     """
 
+    mask_out = _combine_channel_masks(mask)
     cov = (get_ilc_cov(input_maps[...,0], config.lmax, compsep_run, config.fwhm_out, b_ell, mask=mask)).T
     if compsep_run["ilc_bias"] != 0. and mask is not None:
         mask_cov = (cov[:,0,0] != 0.).astype(float)
@@ -1253,7 +1236,7 @@ def _get_diagnostic_maps(
 #        if "mask" in compsep_run:
 #            m[compsep_run["mask"] == 0.] = 0.
         if mask is not None:
-            m[mask == 0.] = 0.
+            m[mask_out == 0.] = 0.
         return m
     else:
 #        if "mask" in compsep_run:
@@ -1263,13 +1246,13 @@ def _get_diagnostic_maps(
         if mask is not None:
             if mask_cov is None:
                 m_full = hp.upgrade(m, nside_out=npix2nside(input_maps.shape[-2]))
-                m_full[mask == 0.] = 0.
+                m_full[mask_out == 0.] = 0.
             else:
                 m_ = np.zeros(mask_cov.shape[0])
                 m_[mask_cov != 0.] = m
                 del m
                 m_full = hp.ud_grade(m_, nside_out=npix2nside(input_maps.shape[-2]))
-                m_full[mask == 0.] = 0.
+                m_full[mask_out == 0.] = 0.
             return m_full
         else:
             return m
@@ -1467,7 +1450,3 @@ __all__ = [
     for name, obj in globals().items()
     if callable(obj) and getattr(obj, "__module__", None) == __name__
 ]
-                    
-
-   
-    

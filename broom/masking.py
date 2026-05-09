@@ -14,7 +14,7 @@ REMOTE = 'https://irsa.ipac.caltech.edu/data/Planck/release_2/'
 import os.path as op
 from astropy.utils.data import download_file
 import astropy
-from typing import Any, Dict, Optional, Union, Tuple
+from typing import Any, Dict, Optional, Sequence, Union, Tuple
 
 
 def _preprocess_mask(mask: np.ndarray, nside_out: int, threshold: float = 0.5) -> np.ndarray:
@@ -41,6 +41,8 @@ def _preprocess_mask(mask: np.ndarray, nside_out: int, threshold: float = 0.5) -
             If the input is not a valid HEALPix mask.
     """
     if isinstance(mask, np.ndarray):
+        if mask.ndim == 2:
+            return np.array([_preprocess_mask(mask_, nside_out, threshold=threshold) for mask_ in mask])
         try:
             nside_mask = hp.get_nside(mask)
 #            if not is_binary_mask(mask):
@@ -56,6 +58,86 @@ def _preprocess_mask(mask: np.ndarray, nside_out: int, threshold: float = 0.5) -
         return mask
     else:
         raise ValueError("Invalid mask. It must be a numpy array.")
+
+
+def _is_mask_sequence(mask: Any) -> bool:
+    return isinstance(mask, Sequence) and not isinstance(mask, (str, bytes, np.ndarray))
+
+
+def _normalize_mask(mask: np.ndarray) -> np.ndarray:
+    """Normalize one mask or a stack of per-channel masks to a maximum of one."""
+    if mask.ndim == 1:
+        max_mask = np.max(mask)
+        if max_mask == 0:
+            raise ValueError("Mask has only zero values.")
+        return mask / max_mask
+
+    max_mask = np.max(mask, axis=1, keepdims=True)
+    if np.any(max_mask == 0):
+        raise ValueError("At least one channel mask has only zero values.")
+    return mask / max_mask
+
+
+def _load_mask(mask: Union[str, np.ndarray], nside: int) -> np.ndarray:
+    if isinstance(mask, str):
+        mask = hp.read_map(mask, field=0)
+    elif not isinstance(mask, np.ndarray):
+        raise ValueError("Mask entries must be HEALPix mask fits paths or numpy arrays.")
+
+    return _preprocess_mask(np.asarray(mask), nside)
+
+
+def _load_mask_stack(mask: Union[str, np.ndarray, Sequence[Union[str, np.ndarray]]], nside: int) -> np.ndarray:
+    if _is_mask_sequence(mask):
+        if len(mask) == 0:
+            raise ValueError("mask_covariance cannot be an empty list.")
+        return np.array([_load_mask(mask_, nside) for mask_ in mask])
+
+    return _load_mask(mask, nside)
+
+
+def _combine_channel_masks(mask: Optional[np.ndarray]) -> Optional[np.ndarray]:
+    """
+    Return a 1D mask suitable for output masking from either a 1D mask or a
+    stack of per-channel masks.
+    """
+    if mask is None:
+        return None
+
+    if mask.ndim == 1:
+        return mask
+    if mask.ndim == 2:
+        return np.max(mask, axis=0)
+    raise ValueError("Mask must be either one HEALPix mask or a stack of per-channel HEALPix masks.")
+
+
+def _select_channel_masks(mask: Optional[np.ndarray], channels: Optional[np.ndarray] = None) -> Optional[np.ndarray]:
+    """
+    Select masks matching the frequency channels used at a given scale.
+    One-dimensional masks are returned unchanged.
+    """
+    if mask is None or mask.ndim == 1 or channels is None:
+        return mask
+    return mask[np.asarray(channels)]
+
+
+def _get_covariance_mask(
+    compsep_run: Dict[str, Any],
+    channels: Optional[np.ndarray] = None,
+    nside: Optional[int] = None
+) -> Optional[np.ndarray]:
+    """
+    Retrieve the covariance mask for a component-separation run.
+
+    If a per-channel mask stack is available under ``mask_covariance``, it is
+    optionally sliced to the active frequency channels. The legacy ``mask`` key
+    remains the fallback and is used for output masking.
+    """
+    mask = compsep_run.get("mask_covariance", compsep_run.get("mask", None))
+    mask = _select_channel_masks(mask, channels=channels)
+    if mask is not None and nside is not None:
+        mask = _preprocess_mask(mask, nside, threshold=0.)
+    return mask
 
 def _upgrade_mask(mask: np.ndarray, nside_out: int) -> np.ndarray:
     """
@@ -174,6 +256,7 @@ def _get_mask(config: Configs, compute_cls: Dict[str, Any], nsim: Optional[str] 
 
     if config.mask_observations is not None or config.mask_covariance is not None:
         _, mask_compsep = get_masks_for_compsep(config.mask_observations, config.mask_covariance, config.nside)
+        mask_compsep = _combine_channel_masks(mask_compsep)
     else:
         mask_compsep = np.ones(npix)
 
@@ -519,7 +602,7 @@ def get_planck_mask(apo: int = 5, nside: int = 2048, field: int = 3, info: bool 
         return output[field]
 
 def get_masks_for_compsep(mask_obs: Union[str, np.ndarray, None]
-    , mask_cov: Union[str, np.ndarray, None]
+    , mask_cov: Union[str, np.ndarray, Sequence[Union[str, np.ndarray]], None]
     , nside: int) -> Tuple[Union[np.ndarray, None], Union[np.ndarray, None]]:
     """
     Get observation and covariance masks for component separation.
@@ -528,39 +611,39 @@ def get_masks_for_compsep(mask_obs: Union[str, np.ndarray, None]
     ----------
         mask_obs: Union[str, np.ndarray, None]
             Path to the observation mask fits file or a numpy array. If None, no observation mask is applied.
-        mask_cov: Union[str, np.ndarray, None]
-            Path to the covariance mask fits file or a numpy array. If None, the observation mask is used as the covariance mask.
+        mask_cov: Union[str, np.ndarray, Sequence[Union[str, np.ndarray]], None]
+            Path to the covariance mask fits file, a numpy array, or a sequence with one mask per frequency channel.
+            If None, the observation mask is used as the covariance mask.
         nside: int
             HEALPix resolution for the masks in output.
     
     Returns
     -------
         Tuple[Union[np.ndarray, None], Union[np.ndarray, None]]:
-            Tuple containing the observation mask and covariance mask as numpy arrays. If no mask is provided, returns None.
+            Tuple containing the observation mask and covariance mask as numpy arrays. A per-channel covariance mask is returned
+            with shape (n_channels, n_pixels). If no mask is provided, returns None.
     """
 
     if mask_obs is not None:
         if not isinstance(mask_obs, (str, np.ndarray)):
             raise ValueError("mask_observations must be a string full path to a HEALPix mask fits file or a numpy array.")
 
-        if isinstance(mask_obs, str):
-            mask_obs = hp.read_map(mask_obs, field=0)
-        mask_obs = _preprocess_mask(mask_obs, nside)
-        mask_obs /= np.max(mask_obs)  # Normalizing mask to have values between 0 and 1
+        mask_obs = _normalize_mask(_load_mask(mask_obs, nside))
     else:
         mask_obs = None
         
     if mask_cov is not None:
-        if not isinstance(mask_cov, (str, np.ndarray)):
-            raise ValueError("mask_covariance must be a string full path to a HEALPix mask fits file or a numpy array.")
+        if not isinstance(mask_cov, (str, np.ndarray)) and not _is_mask_sequence(mask_cov):
+            raise ValueError("mask_covariance must be a string full path to a HEALPix mask fits file, a numpy array, or a list of masks with one entry per frequency channel.")
 
-        if isinstance(mask_cov, str):
-            mask_cov = hp.read_map(mask_cov, field=0)
-        mask_cov = _preprocess_mask(mask_cov, nside)
-        mask_cov /= np.max(mask_cov)  # Normalizing mask to have values between 0 and 1
+        mask_cov = _normalize_mask(_load_mask_stack(mask_cov, nside))
         if mask_obs is not None:
-            mask_cov[mask_obs == 0.] = 0.  # Ensuring that the covariance mask is zero where the observation mask is zero
-            mask_obs[mask_cov == 0.] = 0.  # Ensuring that the observation mask is zero where the covariance mask is zero
+            if mask_cov.ndim == 1:
+                mask_cov[mask_obs == 0.] = 0.  # Ensuring that the covariance mask is zero where the observation mask is zero
+                mask_obs[mask_cov == 0.] = 0.  # Ensuring that the observation mask is zero where the covariance mask is zero
+            else:
+                mask_cov[:, mask_obs == 0.] = 0.
+                mask_obs[_combine_channel_masks(mask_cov) == 0.] = 0.
     else:
         mask_cov = mask_obs
 

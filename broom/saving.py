@@ -4,7 +4,7 @@ import numpy as np
 import healpy as hp
 from typing import Any, Optional, Union, Dict, List
 from .routines import _log, _format_nsim
-from .configurations import Configs
+from .configurations import Configs, _mask_covariance_label
 from types import SimpleNamespace
 import fnmatch
 import sys
@@ -1023,7 +1023,7 @@ def get_path_spectra(config: Configs, compute_cls: Dict[str, Any]) -> str:
     if config.mask_observations is not None and config.mask_covariance is None:
         mask_name = "obspatch"
     if config.mask_covariance is not None:
-        mask_name = f"{os.path.basename(config.mask_covariance).split('.fits')[0]}"
+        mask_name = _mask_covariance_label(config.mask_covariance)
     
     if compute_cls["mask_type"] is not None:
         if any(fnmatch.fnmatch(compute_cls["mask_type"], pattern) for pattern in mask_patterns):
@@ -1091,4 +1091,3 @@ __all__ = [
     if callable(obj) and getattr(obj, "__module__", None) == __name__
 ]
                     
-

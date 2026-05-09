@@ -1,14 +1,14 @@
 import numpy as np
 import healpy as hp
 from .configurations import Configs
-from .routines import _get_local_cov, _EB_to_QU, _E_to_QU, _B_to_QU,\
+from .routines import _get_global_cov, _get_local_cov, _EB_to_QU, _E_to_QU, _B_to_QU,\
                       obj_to_array, array_to_obj, _get_bandwidths, get_fields_from_alms
 from .saving import _get_full_path_out, save_patches, save_ilc_weights, _get_full_path_nuiscov, load_nuiscov
 from .needlets import  _get_nside_lmax_from_b_ell, _get_needlet_windows_, _needlet_filtering, _get_good_channels_nl 
 from .seds import _get_CMB_SED, _get_SEDs, _standardize_cilc
 from .clusters import _adapt_tracers_path, _cea_partition, _rp_partition, \
                       get_scalar_tracer, get_scalar_tracer_nl, initialize_scalar_tracers
-from .masking import _downgrade_mask
+from .masking import _combine_channel_masks, _get_covariance_mask
 from types import SimpleNamespace
 import os
 from typing import Any, Optional, Union, Dict, List, Tuple
@@ -378,16 +378,9 @@ def _ilc_needlet_j(
     else:
         nside_, lmax_ = config.nside, config.lmax
 
-    if "mask" in compsep_run:
-        if nside_ < config.nside:
-            mask = _downgrade_mask(compsep_run["mask"], nside_, threshold=0.)
-        else:
-            mask = compsep_run["mask"]
-    else:
-        mask = None
-    
     # Get frequency channels to be adopted in component separation at this scale
     good_channels_nl = _get_good_channels_nl(config, b_ell)
+    mask = _get_covariance_mask(compsep_run, channels=good_channels_nl, nside=nside_)
 
     input_maps_nl = np.zeros((good_channels_nl.shape[0], 12 * nside_**2, input_alms.shape[-1]))
     for n, channel in enumerate(good_channels_nl):
@@ -451,15 +444,16 @@ def _ilc_pixel(config: Configs, input_alms: np.ndarray, compsep_run: Dict, **kwa
                        lmax=config.lmax, pol=False) for c in range(n_comps)
         ]).T
 
+    mask_cov = _get_covariance_mask(compsep_run, channels=good_channels, nside=config.nside)
 
     if compsep_run["method"]=="mcilc":
         if "path_patches" not in compsep_run:
             tracer = get_scalar_tracer(compsep_run["tracers"])
         else:
             tracer = None
-        output_maps = _mcilc_maps(config, input_maps, tracer, compsep_run, np.ones(config.lmax+1), mask_mcilc=compsep_run.get("mask", None)) 
+        output_maps = _mcilc_maps(config, input_maps, tracer, compsep_run, np.ones(config.lmax+1), mask_mcilc=mask_cov)
     else:
-        output_maps = _ilc_maps(config, input_maps, compsep_run, np.ones(config.lmax+1), mask=compsep_run.get("mask", None))
+        output_maps = _ilc_maps(config, input_maps, compsep_run, np.ones(config.lmax+1), mask=mask_cov)
     
     if config.pixel_window_out:
         for c in range(output_maps.shape[1]):
@@ -685,8 +679,9 @@ def _mcilc_cea_(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
     """
     if mask_mcilc is None:
         mask_mcilc = np.ones(input_maps.shape[-2])
+    mask_patch = _combine_channel_masks(mask_mcilc)
 
-    patches = _cea_partition(tracer, compsep_run["n_patches"], mask=mask_mcilc)
+    patches = _cea_partition(tracer, compsep_run["n_patches"], mask=mask_patch)
     if compsep_run["save_patches"] and (compsep_run['nsim'] is None or int(compsep_run['nsim']) == config.nsim_start):
         #if 'path_out' not in compsep_run:
         compsep_run["path_out"] = _get_full_path_out(config, compsep_run)
@@ -750,6 +745,7 @@ def _mcilc_rp_(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
     output_maps = np.zeros((input_maps.shape[1], input_maps.shape[-1]))
     if mask_mcilc is None:
         mask_mcilc = np.ones(input_maps.shape[-2])
+    mask_patch = _combine_channel_masks(mask_mcilc)
 
     do_save_patches = compsep_run["save_patches"] and (compsep_run['nsim'] is None or int(compsep_run['nsim']) == config.nsim_start)
 
@@ -757,7 +753,7 @@ def _mcilc_rp_(config: Configs, input_maps: np.ndarray, tracer: np.ndarray,
         patches_set = []
 
     for it in range(iterations):  
-        patches = _rp_partition(tracer, compsep_run["n_patches"], mask=mask_mcilc)
+        patches = _rp_partition(tracer, compsep_run["n_patches"], mask=mask_patch)
         if do_save_patches:
             patches_set.append(patches)
 
@@ -996,6 +992,7 @@ def get_mcilc_weights(
     """
     if mask_mcilc is None:
         mask_mcilc = np.ones(inputs.shape[1])
+    mask_valid = _combine_channel_masks(mask_mcilc) > 0.
 
     cov = get_mcilc_cov(inputs, patches, mask_mcilc, reduce_bias=compsep_run["reduce_mcilc_bias"], inputs_2=inputs_2, variance=compsep_run["minimize_variance"])
 
@@ -1010,7 +1007,7 @@ def get_mcilc_weights(
         inv_ACA = np.linalg.inv(
             np.einsum("zi,ilk->zlk", compsep_run["A"], np.einsum("ijk,lj->ilk", inv_cov, compsep_run["A"])).T
         ).T
-        w_mcilc[:, mask_mcilc > 0.0] = np.einsum(
+        w_mcilc[:, mask_valid] = np.einsum(
             "l,ljk->jk", compsep_run["e"],
             np.einsum("lzk,zjk->ljk", inv_ACA, np.einsum("zi,ijk->zjk", compsep_run["A"], inv_cov))
         )
@@ -1019,12 +1016,12 @@ def get_mcilc_weights(
         AT_invC = np.einsum('j,ijk->ik', A_cmb, inv_cov) # np.sum(inv_cov,axis=1)
         AT_invC_A = np.einsum('j,ijk, i->k', A_cmb, inv_cov, A_cmb) #np.sum(inv_cov,axis=(0,1))
         for i in range(inputs.shape[0]):
-            w_mcilc[i, mask_mcilc > 0.] = AT_invC[i]/AT_invC_A
+            w_mcilc[i, mask_valid] = AT_invC[i]/AT_invC_A
         del AT_invC, AT_invC_A
     
     del inv_cov
 
-    w_mcilc[:, mask_mcilc == 0.] = np.repeat(np.mean(w_mcilc[:, mask_mcilc != 0.], axis=-1, keepdims=True), np.sum(mask_mcilc == 0.), axis=-1)
+    w_mcilc[:, ~mask_valid] = np.repeat(np.mean(w_mcilc[:, mask_valid], axis=-1, keepdims=True), np.sum(~mask_valid), axis=-1)
     return w_mcilc
 
 
@@ -1063,30 +1060,12 @@ def get_ilc_cov(
             Covariance matrix, either global (2D) or pixel-dependent (3D).
     """
     if compsep_run["ilc_bias"] == 0.:    
-        if mask is not None:
-#            cov=np.mean(np.einsum('ik,jk->ijk', (input_maps * mask)[:, mask > 0.], (input_maps * mask)[:, mask > 0.]),axis=-1)
-            if input_maps_2 is not None:
-                if compsep_run["minimize_variance"]:
-                    cov = np.cov((input_maps * mask)[:, mask > 0.], (input_maps_2 * mask)[:, mask > 0.])[:input_maps.shape[0],input_maps.shape[0]:]
-                else:
-                    cov = np.einsum('ik,jk->ij', (input_maps * mask)[:, mask > 0.], (input_maps_2 * mask)[:, mask > 0.])/np.sum(mask > 0.) #input_maps.shape[1] 
-            else:
-                if compsep_run["minimize_variance"]:
-                    cov = np.cov((input_maps * mask)[:, mask > 0.])
-                else:
-                    cov = np.einsum('ik,jk->ij', (input_maps * mask)[:, mask > 0.], (input_maps * mask)[:, mask > 0.])/np.sum(mask > 0.) # input_maps.shape[1]
-        else:
-#            cov=np.mean(np.einsum('ik,jk->ijk', input_maps, input_maps),axis=-1)
-            if input_maps_2 is not None:
-                if compsep_run["minimize_variance"]:
-                    cov = np.cov(input_maps, input_maps_2)[:input_maps.shape[0],input_maps.shape[0]:]
-                else:
-                    cov=np.einsum('ik,jk->ij', input_maps, input_maps_2)/input_maps.shape[1]
-            else:
-                if compsep_run["minimize_variance"]:
-                    cov = np.cov(input_maps)
-                else:
-                    cov=np.einsum('ik,jk->ij', input_maps, input_maps)/input_maps.shape[1]
+        cov = _get_global_cov(
+            input_maps,
+            mask=mask,
+            input_maps_2=input_maps_2,
+            variance=compsep_run["minimize_variance"]
+        )
     else:
         if input_maps_2 is not None:
             cov = _get_local_cov(
@@ -1136,10 +1115,14 @@ def get_mcilc_cov(
             Covariance matrix per pixel, shape (n_channels, n_channels, n_valid_pixels).
     """
     cov=np.zeros((inputs.shape[0], inputs.shape[0], inputs.shape[-1]))
+    mask_channels = np.asarray(mask_mcilc)
+    mask_common = _combine_channel_masks(mask_channels)
+    if mask_channels.ndim == 1:
+        mask_channels = np.repeat(mask_channels[np.newaxis, :], inputs.shape[0], axis=0)
     
     if reduce_bias:
-        neigh = hp.get_all_neighbours(hp.npix2nside(inputs.shape[1]), np.argwhere(mask_mcilc > 0.)[:, 0])
-        for pix_ in np.argwhere(mask_mcilc > 0.)[:, 0]:
+        neigh = hp.get_all_neighbours(hp.npix2nside(inputs.shape[1]), np.argwhere(mask_common > 0.)[:, 0])
+        for pix_ in np.argwhere(mask_common > 0.)[:, 0]:
             donut = np.ones(inputs.shape[1])
             donut[pix_] = 0.   
             if mcilc_rings > 0:
@@ -1151,36 +1134,18 @@ def get_mcilc_cov(
                     neigh_=neigh[:,neigh_].flatten()
                     donut[neigh_]=0.
                     count=count+1
-            patch_mask = (patches==patches[pix_]) & (donut>0.) & (mask_mcilc>0.)
-            if inputs_2 is not None:
-                if variance:
-                    cov[...,pix_] = np.cov((inputs * mask_mcilc)[:,patch_mask], (inputs_2 * mask_mcilc)[:,patch_mask])[:inputs.shape[0],inputs.shape[0]:]
-                else:
-                    cov[...,pix_] = np.einsum('ik,jk->ij', (inputs * mask_mcilc)[:,patch_mask], (inputs_2 * mask_mcilc)[:,patch_mask])/np.sum(patch_mask)
-            else:
-                if variance:
-                    cov[...,pix_] = np.cov((inputs * mask_mcilc)[:,patch_mask]) #rowvar=True
-                else:
-                    cov[...,pix_] = np.einsum('ik,jk->ij', (inputs * mask_mcilc)[:,patch_mask], (inputs * mask_mcilc)[:,patch_mask])/np.sum(patch_mask)
+            patch_mask = (patches==patches[pix_]) & (donut>0.) & (mask_common>0.)
+            cov[..., pix_] = _get_global_cov(inputs, mask=mask_channels * patch_mask, input_maps_2=inputs_2, variance=variance)
 
     else:
         for patch in np.unique(patches):
-            patch_mask = (patches == patch) & (mask_mcilc > 0.)
+            patch_mask = (patches == patch) & (mask_common > 0.)
 #            patch_cov = np.mean(np.einsum('ik,jk->ijk', (inputs * mask_mcilc)[:,patch_mask], (inputs * mask_mcilc)[:,patch_mask]),axis=2)
-            if inputs_2 is not None:
-                if variance:
-                    patch_cov = np.cov((inputs * mask_mcilc)[:,patch_mask], (inputs_2 * mask_mcilc)[:,patch_mask])[:inputs.shape[0],inputs.shape[0]:]
-                else:
-                    patch_cov = np.einsum('ik,jk->ij', (inputs * mask_mcilc)[:,patch_mask], (inputs_2 * mask_mcilc)[:,patch_mask])/np.sum(patch_mask)
-            else:
-                if variance:
-                    patch_cov = np.cov((inputs * mask_mcilc)[:,patch_mask])
-                else:
-                    patch_cov = np.einsum('ik,jk->ij', (inputs * mask_mcilc)[:,patch_mask], (inputs * mask_mcilc)[:,patch_mask])/np.sum(patch_mask)
+            patch_cov = _get_global_cov(inputs, mask=mask_channels * patch_mask, input_maps_2=inputs_2, variance=variance)
             #cov[...,(patches==patch)] = np.repeat(patch_cov[:, :, np.newaxis], np.sum(patches==patch), axis=2)
             cov[...,patch_mask] = np.repeat(patch_cov[:, :, np.newaxis], np.sum(patch_mask), axis=2)
 
-    return cov[...,mask_mcilc > 0.]
+    return cov[...,mask_common > 0.]
 
 def get_inv_cov(cov: np.ndarray) -> np.ndarray:
     """
@@ -1209,4 +1174,3 @@ __all__ = [
     if callable(obj) and getattr(obj, "__module__", None) == __name__
 ]
                     
-
